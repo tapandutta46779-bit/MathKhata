@@ -1,0 +1,134 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MathfieldElement } from 'mathlive';
+import type { MathObject, Page } from '../domain/model';
+import {
+  appendCalculatedResult,
+  quickCalculate,
+} from '../assistant/quickCalculate';
+import {
+  canOfferLocalSolve,
+  solveLocally,
+  type LocalSolveResult,
+} from '../assistant/localMathSolver';
+import { useNotebookStore } from '../store/notebookStore';
+
+interface CalculationRailProps {
+  page: Page;
+}
+
+function ReadOnlyMath({ latex, label }: { latex: string; label: string }) {
+  return (
+    <math-field
+      class="assistant-math"
+      read-only="true"
+      aria-label={label}
+      ref={(element) => {
+        if (element && (element as MathfieldElement).value !== latex) {
+          (element as MathfieldElement).value = latex;
+        }
+      }}
+    />
+  );
+}
+
+export function CalculationRail({ page }: CalculationRailProps) {
+  const selectedObjectId = useNotebookStore((state) => state.selectedObjectId);
+  const editingObjectId = useNotebookStore((state) => state.editingObjectId);
+  const updateMath = useNotebookStore((state) => state.updateMath);
+  const createFlowObjects = useNotebookStore((state) => state.createFlowObjects);
+  // Selection is the user's explicit target. Keep the editing id only as a
+  // fallback because MathLive can retain focus briefly while a menu or virtual
+  // keyboard transfers focus inside its shadow UI.
+  const activeId = selectedObjectId ?? editingObjectId;
+  const expression = page.objects.find(
+    (object): object is MathObject => object.id === activeId && object.type === 'math',
+  );
+  const quickResult = useMemo(
+    () => expression ? quickCalculate(expression.latex) : null,
+    [expression],
+  );
+  const canSolve = expression ? canOfferLocalSolve(expression.latex) : false;
+  const [solving, setSolving] = useState(false);
+  const [solveResult, setSolveResult] = useState<LocalSolveResult | null>(null);
+  const [solveError, setSolveError] = useState<string | null>(null);
+  const solveRequest = useRef(0);
+
+  useEffect(() => {
+    solveRequest.current += 1;
+    setSolving(false);
+    setSolveResult(null);
+    setSolveError(null);
+  }, [expression?.id, expression?.latex]);
+
+  if (!expression || (!quickResult && !canSolve && !solveResult && !solveError)) return null;
+
+  function acceptQuickResult() {
+    if (!expression || !quickResult) return;
+    updateMath(expression.id, appendCalculatedResult(expression.latex, quickResult));
+  }
+
+  async function solve() {
+    if (!expression) return;
+    const request = ++solveRequest.current;
+    setSolving(true);
+    setSolveError(null);
+    setSolveResult(null);
+    try {
+      const result = await solveLocally(expression.latex);
+      if (solveRequest.current === request) setSolveResult(result);
+    } catch (error) {
+      if (solveRequest.current === request) {
+        setSolveError(error instanceof Error ? error.message : 'The local solver could not finish.');
+      }
+    } finally {
+      if (solveRequest.current === request) setSolving(false);
+    }
+  }
+
+  return (
+    <aside
+      className="calculation-rail"
+      aria-label="Local math assistant"
+      style={{ top: Math.max(12, expression.y) }}
+    >
+      {quickResult && (
+        <button
+          type="button"
+          className="quick-result"
+          aria-label={`Accept calculation result ${quickResult}`}
+          onClick={acceptQuickResult}
+        >
+          <span>Result</span>
+          <ReadOnlyMath latex={quickResult} label="Calculated result" />
+          <kbd>Tab</kbd>
+        </button>
+      )}
+      {!quickResult && canSolve && !solveResult && !solveError && (
+        <button type="button" className="solve-offer" disabled={solving} onClick={() => void solve()}>
+          <span>{solving ? 'Solving locally…' : expression.latex.includes('\\int') ? 'Solve integral' : 'Solve equation'}</span>
+          <small>Optional · no steps added</small>
+        </button>
+      )}
+      {solveResult && (
+        <div className="solve-result" aria-live="polite">
+          <span>{solveResult.label}</span>
+          <ReadOnlyMath latex={solveResult.resultLatex} label={solveResult.label} />
+          <p>{solveResult.explanation}</p>
+          <button
+            type="button"
+            onClick={() => createFlowObjects([{ type: 'math', content: solveResult.resultLatex }])}
+          >
+            Add on next line
+          </button>
+        </div>
+      )}
+      {solveError && (
+        <div className="solve-result solve-result--error" role="status">
+          <span>Solver note</span>
+          <p>{solveError}</p>
+          <button type="button" onClick={() => setSolveError(null)}>Dismiss</button>
+        </div>
+      )}
+    </aside>
+  );
+}

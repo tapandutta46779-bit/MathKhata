@@ -72,6 +72,7 @@ describe('spoken mathematics parser', () => {
   });
 
   it('supports common spoken aliases for palette symbols', () => {
+    expect(compact(parseMathSpeech('six into four').latex)).toBe(compact('6\\times4'));
     expect(compact(parseMathSpeech('x division sign y').latex)).toBe(compact('x\\div y'));
     expect(compact(parseMathSpeech('nth root of x').latex)).toBe(compact('\\sqrt[n]{x}'));
     expect(compact(parseMathSpeech('uppercase gamma').latex)).toBe(compact('\\Gamma'));

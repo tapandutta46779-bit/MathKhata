@@ -4,6 +4,7 @@ import {
   addObject as addObjectToNotebook,
   addPage as addPageToNotebook,
   clampObjectToPage,
+  convertMathObjectToText as convertMathObjectToTextDomain,
   createMathObject,
   createNotebook,
   createTextObject,
@@ -17,6 +18,13 @@ import {
   updateObject,
 } from '../domain/notebook';
 import { validateNotebook } from '../domain/schema';
+import {
+  flowObjectHeight,
+  nextWritingPoint,
+  WRITING_CONTENT_WIDTH,
+  WRITING_LINE_HEIGHT,
+  type FlowObjectInput,
+} from '../domain/writingFlow';
 import {
   hasNotebook,
   listNotebooks,
@@ -68,6 +76,8 @@ interface NotebookState {
   setLibraryOpen: (open: boolean) => void;
   clearError: () => void;
   createObject: (type: 'math' | 'text', point?: Point, initialContent?: string) => string | null;
+  createFlowObjects: (items: FlowObjectInput[]) => string[];
+  convertMathObjectToText: (objectId: string, text: string) => void;
   updateMath: (objectId: string, latex: string) => void;
   updateText: (objectId: string, text: string) => void;
   moveObject: (objectId: string, point: Point) => void;
@@ -145,7 +155,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     currentPageId: null,
     selectedObjectId: null,
     editingObjectId: null,
-    insertionPoint: { x: 110, y: 110 },
+    insertionPoint: { x: 82, y: 20 },
     tool: 'select',
     navigatorCollapsed: false,
     paletteOpen: false,
@@ -291,7 +301,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         currentPageId: pageId,
         selectedObjectId: null,
         editingObjectId: null,
-        insertionPoint: { x: 110, y: 110 },
+        insertionPoint: { x: 82, y: 20 },
         lastHistoryGroup: null,
       });
     },
@@ -336,10 +346,15 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       if (!pageId || !notebook) return null;
       const page = getPage(notebook, pageId);
       if (!page) return null;
+      const flowPoint = point ?? nextWritingPoint(page);
       const rawObject =
         type === 'math'
-          ? createMathObject(point ?? state.insertionPoint, initialContent)
-          : createTextObject(point ?? state.insertionPoint, initialContent);
+          ? createMathObject(flowPoint, initialContent)
+          : createTextObject(flowPoint, initialContent);
+      rawObject.height = flowObjectHeight(type, initialContent);
+      if (!point) {
+        rawObject.width = WRITING_CONTENT_WIDTH;
+      }
       const safePoint = clampObjectToPage(rawObject, page, rawObject);
       const object = { ...rawObject, ...safePoint } as PageObject;
       commit(`Create ${type} object`, (current) => addObjectToNotebook(current, pageId, object));
@@ -350,6 +365,58 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         lastHistoryGroup: null,
       });
       return object.id;
+    },
+
+    createFlowObjects(items) {
+      const state = get();
+      const pageId = state.currentPageId;
+      const notebook = state.notebook;
+      if (!pageId || !notebook || items.length === 0) return [];
+      const page = getPage(notebook, pageId);
+      if (!page) return [];
+
+      const firstPoint = nextWritingPoint(page);
+      let nextY = firstPoint.y;
+      const objects = items.map((item) => {
+        const point = { x: firstPoint.x, y: nextY };
+        const object = item.type === 'math'
+          ? createMathObject(point, item.content)
+          : createTextObject(point, item.content);
+        object.width = WRITING_CONTENT_WIDTH;
+        object.height = flowObjectHeight(item.type, item.content);
+        nextY += Math.max(WRITING_LINE_HEIGHT, object.height);
+        const safePoint = clampObjectToPage(object, page, object);
+        return { ...object, ...safePoint } as PageObject;
+      });
+
+      commit('Insert notebook lines', (current) =>
+        objects.reduce(
+          (next, object) => addObjectToNotebook(next, pageId, object),
+          current,
+        ),
+      );
+      const lastObject = objects.at(-1) ?? null;
+      set({
+        selectedObjectId: lastObject?.id ?? null,
+        editingObjectId: lastObject?.id ?? null,
+        insertionPoint: {
+          x: firstPoint.x,
+          y: Math.min(page.height - WRITING_LINE_HEIGHT, nextY),
+        },
+        tool: 'select',
+        lastHistoryGroup: null,
+      });
+      return objects.map((object) => object.id);
+    },
+
+    convertMathObjectToText(objectId, text) {
+      const pageId = get().currentPageId;
+      if (!pageId) return;
+      commit(
+        'Convert mathematics to text',
+        (notebook) => convertMathObjectToTextDomain(notebook, pageId, objectId, text),
+      );
+      set({ selectedObjectId: objectId, editingObjectId: null, lastHistoryGroup: null });
     },
 
     updateMath(objectId, latex) {

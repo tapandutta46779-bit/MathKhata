@@ -1,9 +1,13 @@
 import { useEffect } from 'react';
-import { blurActiveMathfield } from './editor/mathfieldRegistry';
+import {
+  blurActiveMathfield,
+  dismissActiveMathfieldMenu,
+} from './editor/mathfieldRegistry';
 import { MathPalette } from './components/MathPalette';
 import { NotebookLibrary } from './components/NotebookLibrary';
 import { NotebookPage } from './components/NotebookPage';
 import { PageNavigator } from './components/PageNavigator';
+import { PageAssistantRail } from './components/PageAssistantRail';
 import { ToolDock } from './components/ToolDock';
 import { TopBar } from './components/TopBar';
 import { VoicePanel } from './components/VoicePanel';
@@ -80,6 +84,7 @@ export default function App() {
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
+        if (dismissActiveMathfieldMenu()) return;
         if (liveState.editingObjectId || editingTarget) {
           blurActiveMathfield();
           if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -146,6 +151,7 @@ export default function App() {
       <ToolDock />
       <MathPalette />
       {tool === 'voice' && <VoicePanel />}
+      <PageAssistantRail />
       <NotebookLibrary />
       {errorMessage && (
         <div className="error-toast" role="alert">

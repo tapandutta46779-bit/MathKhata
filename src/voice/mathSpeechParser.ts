@@ -206,6 +206,7 @@ function normalize(input: string): string {
     .replace(/\bmultiplication sign\b/g, ' × ')
     .replace(/\bmultiplied by\b/g, ' × ')
     .replace(/\btimes\b/g, ' × ')
+    .replace(/\binto\b/g, ' × ')
     .replace(/\bdivided by\b/g, ' over ')
     .replace(/\bdivision sign\b/g, ' ÷ ')
     .replace(/\bdivide\b/g, ' ÷ ')

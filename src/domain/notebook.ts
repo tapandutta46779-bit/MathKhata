@@ -187,6 +187,37 @@ export function updateObject(
   return changed ? updateNotebook(notebook, pages, now) : notebook;
 }
 
+export function convertMathObjectToText(
+  notebook: Notebook,
+  pageId: string,
+  objectId: string,
+  text: string,
+  now: DateFactory = defaultDate,
+): Notebook {
+  let changed = false;
+  const pages = notebook.pages.map((page) => {
+    if (page.id !== pageId) return page;
+    const objects = page.objects.map((object) => {
+      if (object.id !== objectId || object.type !== 'math') return object;
+      changed = true;
+      return {
+        id: object.id,
+        x: object.x,
+        y: object.y,
+        width: object.width,
+        height: object.height,
+        zIndex: object.zIndex,
+        createdAt: object.createdAt,
+        type: 'text' as const,
+        text,
+        updatedAt: now(),
+      };
+    });
+    return changed ? updatePage(page, objects, now) : page;
+  });
+  return changed ? updateNotebook(notebook, pages, now) : notebook;
+}
+
 export function removeObject(
   notebook: Notebook,
   pageId: string,
@@ -248,4 +279,3 @@ export function getObject(
 ): PageObject | undefined {
   return getPage(notebook, pageId)?.objects.find((object) => object.id === objectId);
 }
-

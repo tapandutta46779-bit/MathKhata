@@ -16,6 +16,10 @@ Mathematics is stored as semantic object data with exact LaTeX suitable for Math
 
 MathKhata may surface uncertainty, candidates, or suggestions. It never silently changes mathematical intent. Voice candidates are provisional until accepted, and future checking remains advisory.
 
+Quick arithmetic stays at the edge of the page and is accepted explicitly. Symbolic solving runs only after the writer asks for it, adds no unwanted derivation steps, and never replaces the handwritten/manual path.
+
+Whole-page analysis preserves page order and keeps unrelated questions separate unless the writer confirms a grouping. Notes are context, suspicious speech is a correction opportunity, and the assistant is closed by default. Opening or closing it must never move notebook objects or make essential controls unreachable.
+
 ## Local-first reliability
 
 Core editing works without a network, account, API key, or AI provider. Autosave is visible and failure is explicit. Unknown or malformed data is quarantined rather than replacing valid work.
@@ -27,4 +31,3 @@ Presentation, persistence, speech recognition, parsing, checking, and future rea
 ## Honest experiments
 
 Stage 1 speech support is a constrained experiment. Recognition and parsing limitations are shown and documented; unsupported capability is never simulated.
-

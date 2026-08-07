@@ -1,5 +1,3 @@
-import type { Point } from '../domain/model';
-
 export type VoiceState =
   | 'idle'
   | 'requesting-microphone'
@@ -36,6 +34,26 @@ export interface MathCandidate {
   latency: VoiceLatency;
 }
 
+export interface VoiceCandidateSegment {
+  kind: 'math' | 'text';
+  sourceText: string;
+  latex?: string;
+  text?: string;
+  confidence: number;
+  ambiguities: string[];
+  unknownTokens: string[];
+}
+
+export interface NotebookVoiceCandidate {
+  transcript: string;
+  segments: VoiceCandidateSegment[];
+  confidence: number;
+  ambiguities: string[];
+  unknownTokens: string[];
+  isFinal: boolean;
+  latency: VoiceLatency;
+}
+
 export interface SpeechProviderCallbacks {
   onState: (state: VoiceState) => void;
   onTranscript: (transcript: SpeechTranscript) => void;
@@ -52,7 +70,6 @@ export interface SpeechProvider {
 }
 
 export interface VoiceInsertionController {
-  accept(candidate: MathCandidate, point: Point): string | null;
+  accept(candidate: NotebookVoiceCandidate): string[];
   cancel(): void;
 }
-

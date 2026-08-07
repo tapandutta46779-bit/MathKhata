@@ -1,7 +1,9 @@
 import type { Page, Point } from '../domain/model';
-import { focusMathfield } from '../editor/mathfieldRegistry';
+import { snapToWritingLine } from '../domain/writingFlow';
+import { blurActiveMathfield, focusMathfield } from '../editor/mathfieldRegistry';
 import { useNotebookStore } from '../store/notebookStore';
 import { PageObjectView } from './PageObjectView';
+import { CalculationRail } from './CalculationRail';
 
 interface NotebookPageProps {
   page: Page;
@@ -23,10 +25,29 @@ export function NotebookPage({ page }: NotebookPageProps) {
   }
 
   function activateAt(point: Point, selectedTool = tool) {
-    setInsertionPoint(point);
+    const writingPoint = selectedTool === 'math' || selectedTool === 'text'
+      ? { ...point, y: snapToWritingLine(point.y, page.height) }
+      : point;
+    setInsertionPoint(writingPoint);
     if (selectedTool === 'math' || selectedTool === 'text') {
-      const id = createObject(selectedTool, point);
+      if (selectedTool === 'text') blurActiveMathfield();
+      const id = createObject(selectedTool, writingPoint);
       if (id && selectedTool === 'math') requestAnimationFrame(() => focusMathfield(id));
+      if (id && selectedTool === 'text') {
+        const focusCreatedText = () => {
+          const field = document.querySelector<HTMLTextAreaElement>(`[data-testid="text-field-${id}"]`);
+          if (!field) return;
+          const state = useNotebookStore.getState();
+          state.setSelectedObject(id);
+          state.setEditingObject(id);
+          field.focus({ preventScroll: true });
+          field.setSelectionRange(field.value.length, field.value.length);
+        };
+        // Creation happens on pointer-down. Focus after the browser completes
+        // the matching pointer-up/click sequence so the prior MathLive editor
+        // cannot reclaim keyboard input.
+        window.setTimeout(focusCreatedText, 80);
+      }
     } else {
       setSelectedObject(null);
     }
@@ -55,6 +76,7 @@ export function NotebookPage({ page }: NotebookPageProps) {
       {page.objects.map((object) => (
         <PageObjectView key={object.id} object={object} />
       ))}
+      <CalculationRail page={page} />
     </article>
   );
 }

@@ -5,6 +5,7 @@ import {
   createMathObject,
   createNotebook,
   createTextObject,
+  convertMathObjectToText,
   deletePage,
   duplicateObject,
   movePage,
@@ -86,5 +87,22 @@ describe('notebook domain', () => {
     expect(removed.pages[0].objects).toHaveLength(1);
     expect(withMath.pages[0].objects).toHaveLength(1);
   });
-});
 
+  it('converts a reviewed Math object to Text only after an explicit command', () => {
+    const factories = deterministicFactories();
+    const initial = createNotebook('Voice repair', factories);
+    const pageId = initial.pages[0].id;
+    const math = createMathObject({ x: 82, y: 20 }, '\\operatorname{why}=0', factories);
+    const withMath = addObject(initial, pageId, math, factories.now);
+    const converted = convertMathObjectToText(withMath, pageId, math.id, 'why = 0', factories.now);
+
+    expect(converted.pages[0].objects[0]).toMatchObject({
+      id: math.id,
+      type: 'text',
+      text: 'why = 0',
+      x: 82,
+      y: 20,
+    });
+    expect(withMath.pages[0].objects[0].type).toBe('math');
+  });
+});

@@ -36,8 +36,51 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuMessage, setMenuMessage] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const overflow = useRef<HTMLDivElement>(null);
 
   useEffect(() => setTitle(notebook.title), [notebook.id, notebook.title]);
+
+  useEffect(() => {
+    const closeForOtherOverlay = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== 'notebook-menu') {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener('mathkhata:overlay-open', closeForOtherOverlay);
+    return () => window.removeEventListener('mathkhata:overlay-open', closeForOtherOverlay);
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => {
+      setMenuOpen(false);
+      requestAnimationFrame(() => window.scrollTo({ left: 0, top: window.scrollY }));
+    };
+    const closeFromOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !overflow.current?.contains(event.target)) close();
+    };
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      close();
+    };
+    document.addEventListener('pointerdown', closeFromOutside, true);
+    window.addEventListener('keydown', closeFromEscape, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeFromOutside, true);
+      window.removeEventListener('keydown', closeFromEscape, true);
+    };
+  }, [menuOpen]);
+
+  function toggleMenu() {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'notebook-menu' }));
+    setMenuOpen(true);
+  }
 
   function exportNotebook() {
     const blob = new Blob([serializeNotebook(notebook)], { type: 'application/json' });
@@ -48,6 +91,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 0);
     setMenuMessage('Structured notebook export created.');
+    setMenuOpen(false);
   }
 
   return (
@@ -89,13 +133,13 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
         <button type="button" aria-label="Undo" title="Undo (⌘Z)" disabled={!canUndo} onClick={undo}>↶</button>
         <button type="button" aria-label="Redo" title="Redo (⌘⇧Z)" disabled={!canRedo} onClick={redo}>↷</button>
       </div>
-      <div className="overflow-wrap">
+      <div className="overflow-wrap" ref={overflow}>
         <button
           type="button"
           aria-label="Notebook menu"
           aria-expanded={menuOpen}
           title="Notebook menu"
-          onClick={() => setMenuOpen((open) => !open)}
+          onClick={toggleMenu}
         >
           •••
         </button>
@@ -108,12 +152,12 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
               New notebook
             </button>
             <button type="button" role="menuitem" onClick={exportNotebook}>Export structured JSON</button>
-            <button type="button" role="menuitem" onClick={() => fileInput.current?.click()}>Import JSON…</button>
-            <button type="button" role="menuitem" onClick={() => window.print()}>Print / Save PDF…</button>
-            {menuMessage && <p role="status">{menuMessage}</p>}
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); fileInput.current?.click(); }}>Import JSON…</button>
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); window.print(); }}>Print / Save PDF…</button>
           </div>
         )}
       </div>
+      {menuMessage && <p className="top-bar-message" role="status">{menuMessage}</p>}
       <input
         ref={fileInput}
         className="visually-hidden"
@@ -139,4 +183,3 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
     </header>
   );
 }
-
