@@ -45,7 +45,7 @@ To install the safe post-commit Google Drive backup and create a milestone snaps
 
 ## Voice status
 
-Chrome Web Speech support is used when genuinely available; nothing is simulated. The Stage 1 parser is deliberately constrained and shows provisional transcripts, unknown words, ambiguity, and measured timing. In the recorded Chrome run, recognition starts ended with `aborted` before a transcript, so live microphone accuracy is not claimed. See [docs/VOICE_EXPERIMENT.md](docs/VOICE_EXPERIMENT.md).
+Chrome Web Speech support is used when genuinely available; nothing is simulated. The Stage 1 parser is deliberately constrained and shows provisional transcripts, unknown words, ambiguity, and measured timing. Every item in the current Symbols palette has a tested spoken example in the in-app voice guide. A live Chrome transcript exposed and now guards the recognition variant “x square + 6 is equal to 42”. See [docs/VOICE_EXPERIMENT.md](docs/VOICE_EXPERIMENT.md).
 
 ## Scope
 

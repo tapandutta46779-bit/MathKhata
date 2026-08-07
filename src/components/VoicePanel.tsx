@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MathfieldElement } from 'mathlive';
+import { MATH_PALETTE_CATEGORIES } from '../domain/mathNotation';
 import { useNotebookStore } from '../store/notebookStore';
 import { markCandidateRendered, parseMathSpeech } from '../voice/mathSpeechParser';
 import { NotebookVoiceInsertionController } from '../voice/voiceInsertionController';
@@ -124,8 +125,8 @@ export function VoicePanel() {
         </div>
       ) : (
         <p className="voice-message">
-          Speak a supported expression. The transcript and structured candidate stay provisional
-          until you accept them.
+          Speak an expression using any notation in Symbols. The transcript and structured
+          candidate stay provisional until you accept them.
         </p>
       )}
 
@@ -154,8 +155,25 @@ export function VoicePanel() {
         )}
         <button type="button" onClick={close}>Cancel</button>
       </div>
-      <p className="voice-footnote">Try “x squared plus six x minus forty equals zero”.</p>
+      <details className="voice-guide">
+        <summary>What can I say?</summary>
+        <div className="voice-guide__content">
+          {MATH_PALETTE_CATEGORIES.map((category) => (
+            <section key={category.id}>
+              <strong>{category.label}</strong>
+              <ul>
+                {category.items.map((item) => (
+                  <li key={item.label}>
+                    <span>{item.label}</span>
+                    <q>{item.voice.phrase}</q>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      </details>
+      <p className="voice-footnote">Try “x square plus six is equal to forty two”.</p>
     </section>
   );
 }
-

@@ -323,6 +323,8 @@ math-field.math-editor:focus { outline: none; }
   right: 28px;
   bottom: 82px;
   width: 390px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
   padding: 14px;
   border: 1px solid rgba(49,45,37,.18);
   border-radius: 15px;
@@ -347,6 +349,14 @@ math-field.candidate-math { display: block; width: 100%; padding: 6px 4px; borde
 .voice-actions button:hover { background: #ebe6dc; }
 .voice-actions .primary-button, .primary-button { color: white; border-color: #823921; background: var(--accent); }
 .voice-actions .primary-button:hover, .primary-button:hover { background: #853b25; }
+.voice-guide { margin-top: 10px; border-top: 1px solid var(--border); }
+.voice-guide summary { padding-top: 9px; color: #6f4b3a; font-size: 10px; font-weight: 700; cursor: pointer; }
+.voice-guide__content { display: grid; gap: 10px; max-height: 220px; margin-top: 9px; padding-right: 4px; overflow-y: auto; }
+.voice-guide__content section > strong { color: var(--ink); font-size: 10px; }
+.voice-guide__content ul { display: grid; gap: 4px; margin: 5px 0 0; padding: 0; list-style: none; }
+.voice-guide__content li { display: grid; grid-template-columns: 92px 1fr; gap: 7px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+.voice-guide__content li span { color: #625e55; font-weight: 650; }
+.voice-guide__content q { overflow-wrap: anywhere; }
 .voice-footnote { margin: 10px 2px 0; color: #969188; font-size: 9px; }
 
 .modal-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(43,40,34,.3); backdrop-filter: blur(4px); }
@@ -388,4 +398,3 @@ math-field.candidate-math { display: block; width: 100%; padding: 6px 4px; borde
   .page-foot { display: none; }
   @page { size: auto; margin: 8mm; }
 }
-

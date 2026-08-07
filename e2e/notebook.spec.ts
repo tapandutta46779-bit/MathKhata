@@ -181,6 +181,16 @@ test('voice control makes a genuine recognition attempt without a fabricated tra
   await page.getByRole('button', { name: /Voice tool/ }).click();
   const panel = page.getByTestId('voice-panel');
   await expect(panel).toBeVisible();
+  const guide = panel.getByText('What can I say?', { exact: true });
+  await guide.click();
+  for (const category of ['Basic', 'Calculus', 'Functions', 'Greek', 'Linear algebra', 'Sets & logic']) {
+    await expect(panel.getByText(category, { exact: true })).toBeVisible();
+  }
+  await expect(panel).toContainText('x square');
+  await expect(panel).toContainText('partial derivative of x squared with respect to x');
+  await expect(panel).toContainText('three by three matrix one two three four five six seven eight nine');
+  await expect(panel).toContainText('p if and only if q');
+  await guide.click();
   const start = page.getByRole('button', { name: 'Start listening' });
   if (await start.isVisible()) {
     await start.click();
