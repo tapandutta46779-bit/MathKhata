@@ -83,6 +83,7 @@ interface NotebookState {
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let saveRevision = 0;
+let initializationPromise: Promise<void> | null = null;
 
 function scheduleSave(notebook: Notebook, set: (partial: Partial<NotebookState>) => void) {
   saveRevision += 1;
@@ -159,32 +160,40 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
 
     async initialize() {
       if (get().hydrated) return;
-      try {
-        let notebook = await loadMostRecentNotebook();
-        if (!notebook) {
-          notebook = createNotebook('My MathKhata');
-          await saveNotebook(notebook);
+      if (initializationPromise) return initializationPromise;
+      initializationPromise = (async () => {
+        try {
+          let notebook = await loadMostRecentNotebook();
+          if (!notebook) {
+            notebook = createNotebook('My MathKhata');
+            await saveNotebook(notebook);
+          }
+          set({
+            notebook,
+            currentPageId: notebook.pages[0]?.id ?? null,
+            selectedObjectId: null,
+            editingObjectId: null,
+            saveStatus: 'saved',
+            hydrated: true,
+          });
+          await get().refreshLibrary();
+        } catch (error) {
+          const recovery = createNotebook('Recovery notebook');
+          set({
+            notebook: recovery,
+            currentPageId: recovery.pages[0].id,
+            saveStatus: 'error',
+            hydrated: true,
+            errorMessage:
+              `Stored notebook could not be opened and was left untouched. ` +
+              `${error instanceof Error ? error.message : 'Unknown loading error'}`,
+          });
         }
-        set({
-          notebook,
-          currentPageId: notebook.pages[0]?.id ?? null,
-          selectedObjectId: null,
-          editingObjectId: null,
-          saveStatus: 'saved',
-          hydrated: true,
-        });
-        await get().refreshLibrary();
-      } catch (error) {
-        const recovery = createNotebook('Recovery notebook');
-        set({
-          notebook: recovery,
-          currentPageId: recovery.pages[0].id,
-          saveStatus: 'error',
-          hydrated: true,
-          errorMessage:
-            `Stored notebook could not be opened and was left untouched. ` +
-            `${error instanceof Error ? error.message : 'Unknown loading error'}`,
-        });
+      })();
+      try {
+        await initializationPromise;
+      } finally {
+        initializationPromise = null;
       }
     },
 
@@ -485,4 +494,3 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     },
   };
 });
-

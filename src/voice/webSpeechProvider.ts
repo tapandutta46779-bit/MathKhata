@@ -55,6 +55,7 @@ export class WebSpeechProvider implements SpeechProvider {
   readonly id = 'chrome-web-speech';
   readonly supported = getConstructor() !== null;
   private recognition: RecognitionLike | null = null;
+  private finalSegments: string[] = [];
 
   start(callbacks: SpeechProviderCallbacks): void {
     const Recognition = getConstructor();
@@ -65,6 +66,7 @@ export class WebSpeechProvider implements SpeechProvider {
     }
 
     this.cancel();
+    this.finalSegments = [];
     callbacks.onState('requesting-microphone');
     const recognition = new Recognition();
     this.recognition = recognition;
@@ -82,11 +84,11 @@ export class WebSpeechProvider implements SpeechProvider {
         if (result.isFinal) finals.push(text);
         else interim += `${text} `;
       }
+      this.finalSegments.push(...finals);
       const timestamp = clock();
-      const transcript: SpeechTranscript | null = finals.length
-        ? { text: finals.join(' '), isFinal: true, recognitionTimestamp: timestamp }
-        : interim.trim()
-          ? { text: interim.trim(), isFinal: false, recognitionTimestamp: timestamp }
+      const combinedText = [...this.finalSegments, interim.trim()].filter(Boolean).join(' ');
+      const transcript: SpeechTranscript | null = combinedText
+        ? { text: combinedText, isFinal: finals.length > 0 && !interim.trim(), recognitionTimestamp: timestamp }
           : null;
       if (transcript) {
         callbacks.onState(transcript.isFinal ? 'finalizing' : 'interim-transcript');
@@ -127,4 +129,3 @@ export class WebSpeechProvider implements SpeechProvider {
     recognition.abort();
   }
 }
-

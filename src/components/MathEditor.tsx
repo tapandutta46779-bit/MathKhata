@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { MathfieldElement } from 'mathlive';
 import type { MathObject } from '../domain/model';
 import {
@@ -32,11 +32,38 @@ export function MathEditor({ object }: MathEditorProps) {
     [object.editor.smartFence],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const field = fieldRef.current;
     if (!field) return;
-    return registerMathfield(object.id, field, handleValueChange);
-  }, [handleValueChange, object.id]);
+    const unregister = registerMathfield(object.id, field, handleValueChange);
+    const activate = () => {
+      field.dataset.ready = 'true';
+      if (useNotebookStore.getState().editingObjectId === object.id) {
+        field.focus();
+        setActiveMathfield(object.id);
+      }
+    };
+    const handleInput = () => queueMicrotask(() => handleValueChange(field.value));
+    const handleFocus = () => {
+      setSelectedObject(object.id);
+      setEditingObject(object.id);
+      setActiveMathfield(object.id);
+    };
+    const handleBlur = () => setEditingObject(null);
+    field.addEventListener('mount', activate);
+    field.addEventListener('input', handleInput);
+    field.addEventListener('focus', handleFocus);
+    field.addEventListener('blur', handleBlur);
+    const readyTimer = setTimeout(activate, 120);
+    return () => {
+      clearTimeout(readyTimer);
+      field.removeEventListener('mount', activate);
+      field.removeEventListener('input', handleInput);
+      field.removeEventListener('focus', handleFocus);
+      field.removeEventListener('blur', handleBlur);
+      unregister();
+    };
+  }, [handleValueChange, object.id, setEditingObject, setSelectedObject]);
 
   useEffect(() => {
     const field = fieldRef.current;
@@ -49,15 +76,6 @@ export function MathEditor({ object }: MathEditorProps) {
       class="math-editor"
       data-testid={`math-field-${object.id}`}
       aria-label="Editable mathematical expression"
-      onInput={(event) => handleValueChange((event.currentTarget as MathfieldElement).value)}
-      onFocus={() => {
-        setSelectedObject(object.id);
-        setEditingObject(object.id);
-        setActiveMathfield(object.id);
-      }}
-      onBlur={() => setEditingObject(null)}
-      onPointerDown={(event) => event.stopPropagation()}
     />
   );
 }
-

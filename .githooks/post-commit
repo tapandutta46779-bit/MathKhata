@@ -1,0 +1,14 @@
+#!/bin/sh
+
+project_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$project_root" ]; then
+  printf 'MathKhata backup warning: repository root could not be resolved.\n' >&2
+  exit 0
+fi
+
+if ! "$project_root/scripts/backup-to-drive.sh" --quiet; then
+  printf 'MathKhata backup warning: Google Drive sync failed; the local commit is safe.\n' >&2
+fi
+
+exit 0
+
