@@ -23,8 +23,6 @@ export default function App() {
   const notebook = useNotebookStore((state) => state.notebook);
   const hydrated = useNotebookStore((state) => state.hydrated);
   const currentPageId = useNotebookStore((state) => state.currentPageId);
-  const editingObjectId = useNotebookStore((state) => state.editingObjectId);
-  const selectedObjectId = useNotebookStore((state) => state.selectedObjectId);
   const tool = useNotebookStore((state) => state.tool);
   const errorMessage = useNotebookStore((state) => state.errorMessage);
   const initialize = useNotebookStore((state) => state.initialize);
@@ -44,16 +42,32 @@ export default function App() {
   }, [initialize]);
 
   useEffect(() => {
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') void saveNow();
+    };
+    const flushOnPageHide = () => void saveNow();
+    document.addEventListener('visibilitychange', flushWhenHidden);
+    window.addEventListener('pagehide', flushOnPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', flushWhenHidden);
+      window.removeEventListener('pagehide', flushOnPageHide);
+    };
+  }, [saveNow]);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const editingTarget = isEditingTarget(event.target);
       const key = event.key.toLowerCase();
+      const liveState = useNotebookStore.getState();
       if (event.metaKey && key === 's') {
         event.preventDefault();
+        event.stopPropagation();
         void saveNow();
         return;
       }
       if (event.metaKey && key === 'z') {
         event.preventDefault();
+        event.stopPropagation();
         if (event.shiftKey) redo();
         else undo();
         return;
@@ -65,20 +79,21 @@ export default function App() {
       }
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (editingObjectId || editingTarget) {
+        event.stopPropagation();
+        if (liveState.editingObjectId || editingTarget) {
           blurActiveMathfield();
           if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
           setEditingObject(null);
-        } else if (tool !== 'select') {
+        } else if (liveState.tool !== 'select') {
           setTool('select');
-        } else if (selectedObjectId) {
+        } else if (liveState.selectedObjectId) {
           setSelectedObject(null);
         }
         setPaletteOpen(false);
         return;
       }
-      if ((event.key === 'Delete' || event.key === 'Backspace') && !editingTarget && !editingObjectId) {
-        if (selectedObjectId) {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !editingTarget && !liveState.editingObjectId) {
+        if (liveState.selectedObjectId) {
           event.preventDefault();
           deleteSelectedObject();
         }
@@ -90,20 +105,17 @@ export default function App() {
         if (key === 'v') setTool('voice');
       }
     }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [
     deleteSelectedObject,
     duplicateSelectedObject,
-    editingObjectId,
     redo,
     saveNow,
-    selectedObjectId,
     setEditingObject,
     setPaletteOpen,
     setSelectedObject,
     setTool,
-    tool,
     undo,
   ]);
 
@@ -144,4 +156,3 @@ export default function App() {
     </div>
   );
 }
-

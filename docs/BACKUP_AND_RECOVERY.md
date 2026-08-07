@@ -41,3 +41,13 @@ Notebook content lives in the browser's IndexedDB and is not part of the source 
 
 The final verified mount, timestamps, and backup contents are recorded here after Stage 1 verification.
 
+## Verified Stage 1 destination
+
+- Detected mount: `~/Library/CloudStorage/GoogleDrive-tapandutta46769@gmail.com/My Drive`
+- Project backup: `~/Library/CloudStorage/GoogleDrive-tapandutta46769@gmail.com/My Drive/MathKhata`
+- Automatic workflow: repository-local `core.hooksPath` points to `.githooks`; every successful commit invokes the fail-safe mirror/bundle script.
+- Verified content: `source-mirror/README.md`, `source-mirror/package.json`, architecture documentation, all six screenshots, and `git-backups/MathKhata-latest.bundle`.
+- Independent integrity check: `git bundle verify` reported a complete history for `main` and `HEAD`.
+- Generated exclusions: dependencies, builds, coverage, Playwright artifacts, caches, temporary files, logs, local secrets/environment files, `.DS_Store`, TypeScript build metadata, and the live `.git` directory.
+
+The exact last run time, source path, branch, and commit are stored after every successful backup in `source-mirror/.backup-metadata/last-backup.txt`. Final Stage 1 verification also creates a timestamped Git bundle and source archive with `./scripts/backup-to-drive.sh --snapshot`.

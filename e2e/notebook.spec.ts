@@ -62,11 +62,27 @@ test('complete local-first notebook flow persists and exports', async ({ page })
     return Number.parseFloat(style?.match(/left:\s*([\d.]+)px/)?.[1] ?? '0');
   }).toBeGreaterThan(oldLeft + 50);
 
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect.poll(async () => {
+    const style = await firstObject.getAttribute('style');
+    return Number.parseFloat(style?.match(/left:\s*([\d.]+)px/)?.[1] ?? '0');
+  }).toBeLessThanOrEqual(oldLeft + 1);
+  await page.getByRole('button', { name: 'Redo' }).click();
+  await expect.poll(async () => {
+    const style = await firstObject.getAttribute('style');
+    return Number.parseFloat(style?.match(/left:\s*([\d.]+)px/)?.[1] ?? '0');
+  }).toBeGreaterThan(oldLeft + 50);
+
   await page.screenshot({ path: 'docs/screenshots/04-spatial-work.png' });
 
   await page.getByRole('button', { name: '+ Add page' }).click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
   await page.screenshot({ path: 'docs/screenshots/06-multiple-pages.png' });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete page 2' }).click();
+  await expect(page.getByText('Page 1 of 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByText('Page 1 of 2')).toBeVisible();
   await page.getByRole('button', { name: 'Open page 1' }).click();
   await expect(page.getByTestId('page-object-math')).toHaveCount(2);
 
@@ -75,6 +91,26 @@ test('complete local-first notebook flow persists and exports', async ({ page })
   await expect(page.getByTestId('page-object-math')).toHaveCount(2);
   await expect(page.getByLabel('Text note')).toHaveValue('Check the discriminant before choosing a branch.');
   await expect(page.getByText('Page 1 of 2')).toBeVisible();
+
+  mathFields = page.locator('math-field.math-editor');
+  await mathFields.first().click({ position: { x: 24, y: 28 } });
+  await expect.poll(() => mathFields.first().evaluate((field) => document.activeElement === field)).toBe(true);
+  await page.keyboard.press('End');
+  await page.keyboard.type('+1');
+  await expect.poll(() => mathFields.first().evaluate((field: any) => field.value)).toContain('+1');
+  await expect(page.getByRole('button', { name: 'Undo' })).toBeEnabled();
+  await page.keyboard.press('Meta+KeyZ');
+  await expect(page.getByRole('button', { name: 'Redo' })).toBeEnabled();
+  await expect.poll(() => mathFields.first().evaluate((field: any) => field.value)).not.toContain('+1');
+  await page.keyboard.press('Meta+Shift+KeyZ');
+  await expect.poll(() => mathFields.first().evaluate((field: any) => field.value)).toContain('+1');
+  await mathFields.first().click({ position: { x: 24, y: 28 } });
+  await expect.poll(() => mathFields.first().evaluate((field) => document.activeElement === field)).toBe(true);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Delete');
+  await expect(page.getByTestId('page-object-math')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByTestId('page-object-math')).toHaveCount(2);
 
   await page.getByRole('button', { name: 'Notebook menu' }).click();
   const downloadPromise = page.waitForEvent('download');
@@ -97,11 +133,61 @@ test('complete local-first notebook flow persists and exports', async ({ page })
   await expect(page.getByLabel('Notebook title')).toHaveValue('My MathKhata');
 });
 
-test('voice control exposes real capability state without a fabricated transcript', async ({ page }) => {
+test('palette inserts structured roots, calculus, and matrices at the MathLive caret', async ({ page }) => {
+  await page.goto('/');
+  const paper = page.getByTestId('notebook-page');
+  const bounds = await paper.boundingBox();
+  if (!bounds) throw new Error('Notebook page has no visible bounds');
+  await page.getByRole('button', { name: /Math tool/ }).click();
+  await page.mouse.click(bounds.x + 180, bounds.y + 180);
+  const field = page.locator('math-field.math-editor');
+  await expect(field).toHaveCount(1);
+  await expect.poll(() => field.evaluate((element) => document.activeElement === element)).toBe(true);
+
+  await page.getByRole('button', { name: 'Toggle symbol palette' }).click();
+  await page.getByRole('button', { name: 'Insert Square root' }).click();
+  await page.keyboard.type('x+1');
+  await page.keyboard.press('Tab');
+  await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\sqrt{x+1}');
+
+  await page.getByRole('tab', { name: 'Calculus' }).click();
+  await page.getByRole('button', { name: 'Insert Definite integral' }).click();
+  await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\int_');
+
+  await page.getByRole('tab', { name: 'Linear algebra' }).click();
+  await page.getByRole('button', { name: 'Insert 2 by 2 matrix' }).click();
+  await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\begin{pmatrix}');
+});
+
+test('renames, creates, and reopens local notebooks', async ({ page }) => {
+  await page.goto('/');
+  const title = page.getByLabel('Notebook title');
+  await title.fill('Notebook A');
+  await title.press('Enter');
+  await expect(title).toHaveValue('Notebook A');
+  await expect(page.getByRole('button', { name: /Saved locally/ })).toBeVisible({ timeout: 10_000 });
+
+  await page.getByRole('button', { name: 'Notebook menu' }).click();
+  await page.getByRole('menuitem', { name: 'New notebook' }).click();
+  await expect(title).toHaveValue('Untitled notebook');
+  await page.getByRole('button', { name: 'Notebook menu' }).click();
+  await page.getByRole('menuitem', { name: 'Open notebook…' }).click();
+  await page.getByRole('button', { name: /Notebook A/ }).click();
+  await expect(title).toHaveValue('Notebook A');
+});
+
+test('voice control makes a genuine recognition attempt without a fabricated transcript', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: /Voice tool/ }).click();
   const panel = page.getByTestId('voice-panel');
   await expect(panel).toBeVisible();
+  const start = page.getByRole('button', { name: 'Start listening' });
+  if (await start.isVisible()) {
+    await start.click();
+    await expect(panel).toContainText(
+      /requesting microphone|listening|interim transcript|finalizing|finished|error/i,
+    );
+  }
   await expect(panel).not.toContainText(/x\s*=\s*-6/);
   await page.screenshot({ path: 'docs/screenshots/05-voice-listening.png' });
 });

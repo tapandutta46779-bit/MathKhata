@@ -26,6 +26,9 @@ describe('structured notebook serialization', () => {
     expect(() => validateNotebook({ ...createNotebook(), schemaVersion: 99 })).toThrow(
       'Unsupported notebook schema version 99',
     );
+    expect(() => validateNotebook({ ...createNotebook(), schemaVersion: 0 })).toThrow(
+      'has no safe migration',
+    );
   });
 
   it('rejects duplicate object identifiers', () => {
@@ -38,4 +41,3 @@ describe('structured notebook serialization', () => {
     );
   });
 });
-

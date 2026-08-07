@@ -94,16 +94,39 @@ export class NotebookValidationError extends Error {
   }
 }
 
-export function validateNotebook(value: unknown): Notebook {
-  if (typeof value === 'object' && value !== null && 'schemaVersion' in value) {
-    const version = (value as { schemaVersion?: unknown }).schemaVersion;
-    if (version !== SCHEMA_VERSION) {
+type NotebookMigration = (value: Record<string, unknown>) => Record<string, unknown>;
+
+// A migration registered at key N transforms schema N into schema N + 1.
+// Schema 1 is the first public format, so the registry is intentionally empty today.
+const notebookMigrations: Partial<Record<number, NotebookMigration>> = Object.freeze({});
+
+export function migrateNotebook(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || !('schemaVersion' in value)) return value;
+  const version = (value as { schemaVersion?: unknown }).schemaVersion;
+  if (!Number.isInteger(version)) return value;
+  if ((version as number) > SCHEMA_VERSION) {
+    throw new NotebookValidationError(
+      `Unsupported notebook schema version ${String(version)}. This build supports version ${SCHEMA_VERSION}.`,
+    );
+  }
+  let migrated = value as Record<string, unknown>;
+  let currentVersion = version as number;
+  while (currentVersion < SCHEMA_VERSION) {
+    const migrate = notebookMigrations[currentVersion];
+    if (!migrate) {
       throw new NotebookValidationError(
-        `Unsupported notebook schema version ${String(version)}. This build supports version ${SCHEMA_VERSION}.`,
+        `Notebook schema version ${currentVersion} has no safe migration to version ${currentVersion + 1}.`,
       );
     }
+    migrated = migrate(migrated);
+    currentVersion += 1;
   }
-  const result = notebookSchema.safeParse(value);
+  return migrated;
+}
+
+export function validateNotebook(value: unknown): Notebook {
+  const migrated = migrateNotebook(value);
+  const result = notebookSchema.safeParse(migrated);
   if (!result.success) {
     throw new NotebookValidationError('Notebook data is malformed.', result.error.flatten());
   }
@@ -151,4 +174,3 @@ export function deserializeNotebook(json: string): Notebook {
   }
   return normalizeNotebook(result.data.notebook);
 }
-
