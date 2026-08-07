@@ -46,13 +46,13 @@ This is the verification ledger for Stage 1. A checked item must be backed by a 
 
 - [x] Complete numeric arithmetic shows a quiet right-side result; click or Tab acceptance appends it to the same MathObject without adding steps.
 - [x] Tab remains available for navigation inside incomplete MathLive templates because no arithmetic suggestion is offered there.
-- [x] Integral/equation solving is explicit, local, dynamically loaded, advisory, and can add a result on the next ruled line.
+- [x] Integral/equation/derivative/limit/finite-series solving is explicit, local, dynamically loaded, advisory, and can add a result on the next ruled line.
 - [x] Unsupported symbolic forms produce a visible limitation note rather than a fabricated closed form.
 - [x] The closed-by-default Page assistant reads the complete current page through `DocumentContextProvider`, proposes ordered problem groups, distinguishes equation systems, incorporates text notes, and flags likely voice corruption.
 - [x] Problem grouping is correctable with split/join/confirm controls, solving is per group, and no analysis silently merges or edits notebook content.
 - [x] Assistant visibility is a persisted user preference: analysis refreshes, math edits, page switches, React remounts, and reloads never reopen a panel the writer closed.
 - [x] At 1280×659 and a narrower viewport, the assistant and notebook menu remain inside the viewport, do not overlap close controls, do not widen the document, and dismiss by second click, Escape, outside pointer, or item selection.
-- [x] Stage 1 makes no trained-model claim. Its deterministic parser/segmenter and local CAS remain reliable foundations; the optional private local-model path and its release gate are documented separately.
+- [x] Stage 1 makes no trained-model claim. Deterministic parsing/segmentation and local CAS remain reliable; optional AION inference discloses its Qwen2.5 ONNX base, downloads only by explicit action, and runs in a worker.
 
 ## Evidence and backup
 

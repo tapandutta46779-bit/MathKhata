@@ -151,7 +151,7 @@ test('palette inserts structured roots, calculus, and matrices at the MathLive c
   await page.keyboard.press('Tab');
   await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\sqrt{x+1}');
 
-  await page.getByRole('tab', { name: 'Calculus' }).click();
+  await page.getByRole('tab', { name: 'Calculus', exact: true }).click();
   await page.getByRole('button', { name: 'Insert Definite integral' }).click();
   await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\int_');
 
@@ -186,7 +186,7 @@ test('voice control makes a genuine recognition attempt without a fabricated tra
   await guide.click();
   await expect(panel).toContainText('x equals six, then y equals eight');
   await expect(panel).toContainText('remember to check the boundary');
-  for (const category of ['Basic', 'Calculus', 'Functions', 'Greek', 'Linear algebra', 'Sets & logic']) {
+  for (const category of ['Basic', 'Calculus', 'Advanced calculus', 'Functions', 'Greek', 'Linear algebra', 'Sets & logic', 'Advanced notation']) {
     await expect(panel.getByText(category, { exact: true })).toBeVisible();
   }
   await expect(panel).toContainText('x square');
@@ -372,13 +372,15 @@ test('retains every on-demand MathLive, Symbols, Voice, menu, and navigation pat
   const categoryExamples = [
     ['Basic', 'Insert Fraction'],
     ['Calculus', 'Insert Definite integral'],
+    ['Advanced calculus', 'Insert Double integral'],
     ['Functions', 'Insert Sine'],
     ['Greek', 'Insert alpha'],
     ['Linear algebra', 'Insert 2 by 2 matrix'],
     ['Sets & logic', 'Insert Element of'],
+    ['Advanced notation', 'Insert Cases'],
   ] as const;
   for (const [category, insertion] of categoryExamples) {
-    await page.getByRole('tab', { name: category }).click();
+    await page.getByRole('tab', { name: category, exact: true }).click();
     await expect(page.getByRole('button', { name: insertion, exact: true })).toBeVisible();
   }
 
@@ -424,7 +426,7 @@ test('retains every on-demand MathLive, Symbols, Voice, menu, and navigation pat
   await page.keyboard.type('+2');
   await expect.poll(() => field.evaluate((element: any) => element.value)).toMatch(/x\^(?:\{3\}|3)\+2/);
 
-  await page.getByRole('tab', { name: 'Calculus' }).click();
+  await page.getByRole('tab', { name: 'Calculus', exact: true }).click();
   await resetField();
   await page.getByRole('button', { name: 'Insert Definite integral' }).click();
   // MathLive traverses the visual upper limit before the lower limit.
@@ -497,6 +499,8 @@ test('whole-page assistant separates questions, reads notes, reviews voice corru
   await expect(assistant).toContainText('Recognition review');
   await expect(assistant).toContainText('These equations form one system.');
   await expect(assistant).toContainText('Likely voice text');
+  await expect(assistant.getByRole('button', { name: /Enable AION/ })).toBeVisible();
+  await expect(assistant).toContainText('Qwen2.5 0.5B Instruct');
 
   const system = assistant.locator('.page-problem--system');
   await system.getByRole('button', { name: 'Solve this problem' }).click();
@@ -517,6 +521,58 @@ test('whole-page assistant separates questions, reads notes, reviews voice corru
   await expect(launcher).toBeVisible();
   await launcher.click();
   await expect(assistant).toBeVisible();
+});
+
+test('long structured mathematics flows across ruled lines without hiding controls', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  const paper = page.getByTestId('notebook-page');
+  const bounds = await paper.boundingBox();
+  if (!bounds) throw new Error('Notebook page has no visible bounds');
+  await page.getByRole('button', { name: /Math tool/ }).click();
+  await page.mouse.click(bounds.x + 130, bounds.y + 68);
+  const field = page.locator('math-field.math-editor').first();
+  await expect(field).toHaveAttribute('data-ready', 'true');
+  await expect.poll(() => field.evaluate((element) => document.activeElement === element)).toBe(true);
+
+  await page.keyboard.type('x^12+2*x^11+3*x^10+4*x^9+5*x^8+6*x^7+7*x^6+8*x^5+9*x^4+10*x^3+11*x^2+12*x+13=0');
+  await expect(field).toHaveAttribute('data-auto-multiline', 'true');
+  await expect.poll(() => field.evaluate((element: any) => Number(element.dataset.lineCount))).toBeGreaterThan(1);
+  await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\begin{multline}');
+
+  const object = page.getByTestId('page-object-math').first();
+  await expect.poll(async () => Number.parseFloat(
+    (await object.getAttribute('style'))?.match(/min-height:\s*([\d.]+)px/)?.[1] ?? '0',
+  )).toBeGreaterThanOrEqual(88);
+  const controlsClearContent = await field.evaluate((element) => {
+    const content = element.shadowRoot?.querySelector('[part="content"]')?.getBoundingClientRect();
+    const contentElement = element.shadowRoot?.querySelector('[part="content"]') as HTMLElement | null;
+    const calculationRail = element.ownerDocument.querySelector('.calculation-rail')?.getBoundingClientRect();
+    const toggles = [...(element.shadowRoot?.querySelectorAll('[part="menu-toggle"], [part="virtual-keyboard-toggle"]') ?? [])]
+      .map((item) => item.getBoundingClientRect())
+      .filter((rect) => rect.width > 0);
+    return !!content
+      && !!contentElement
+      && contentElement.scrollWidth <= contentElement.clientWidth + 1
+      && toggles.every((rect) => content.right <= rect.left + 0.5)
+      && (!calculationRail || toggles.every((rect) => rect.right <= calculationRail.left));
+  });
+  expect(controlsClearContent).toBe(true);
+  await expect(field.locator('[part~="menu-toggle"]')).toBeVisible();
+  await expect(field.locator('[part~="virtual-keyboard-toggle"]')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Toggle symbol palette' }).click();
+  await page.getByRole('tab', { name: 'Advanced calculus' }).click();
+  await expect(page.getByRole('button', { name: 'Insert Triple integral' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Advanced notation' }).click();
+  await expect(page.getByRole('button', { name: 'Insert Norm' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close symbol palette' }).click();
+
+  await page.getByRole('button', { name: /Open page assistant/ }).click();
+  const assistantMath = page.locator('math-field.page-assistant-math').first();
+  await expect(assistantMath).toBeVisible();
+  await expect.poll(() => assistantMath.evaluate((element: any) => element.value)).not.toContain('\\begin{multline}');
+  await page.screenshot({ path: 'docs/screenshots/12-human-multiline-math.png' });
 });
 
 test('keeps page assistant and notebook menu responsive, dismissible, and closed by preference', async ({ page }) => {

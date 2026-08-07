@@ -150,6 +150,10 @@ const RELATIONS: Record<string, string> = {
   '⊆': ' \\subseteq ',
   '⇒': ' \\Rightarrow ',
   '⇔': ' \\Leftrightarrow ',
+  '≈': ' \\approx ',
+  '∝': ' \\propto ',
+  '∥': ' \\parallel ',
+  '⊥': ' \\perp ',
 };
 
 function clock(): number {
@@ -172,6 +176,19 @@ function normalize(input: string): string {
     .replace(/\bcolumn vector\b/g, ' COLUMN_VECTOR ')
     .replace(/\bvector(?: of)?\b/g, ' VECTOR ')
     .replace(/\bpartial derivative\b/g, ' PARTIAL_DERIVATIVE ')
+    .replace(/\bpartial\b/g, ' PARTIAL_SYMBOL ')
+    .replace(/\bdouble integral\b/g, ' DOUBLE_INTEGRAL ')
+    .replace(/\btriple integral\b/g, ' TRIPLE_INTEGRAL ')
+    .replace(/\b(?:closed|contour) integral\b/g, ' CONTOUR_INTEGRAL ')
+    .replace(/\bgradient(?: of)?\b/g, ' GRADIENT ')
+    .replace(/\blaplacian(?: of)?\b/g, ' LAPLACIAN ')
+    .replace(/\bfloor(?: of)?\b/g, ' FLOOR ')
+    .replace(/\bceiling(?: of)?\b/g, ' CEILING ')
+    .replace(/\bnorm(?: of)?\b/g, ' NORM ')
+    .replace(/\bangle\b/g, ' ANGLE ')
+    .replace(/\bfactorial\b/g, ' FACTORIAL ')
+    .replace(/\b(?:open\s+)?cases\b/g, ' CASES ')
+    .replace(/\bevaluate\b/g, ' EVALUATE ')
     .replace(/\b(?:inverse|arc)\s+sine\b/g, ' INVERSE_SINE ')
     .replace(/\b(?:inverse|arc)\s+cosine\b/g, ' INVERSE_COSINE ')
     .replace(/\b(?:inverse|arc)\s+tangent\b/g, ' INVERSE_TANGENT ')
@@ -190,6 +207,10 @@ function normalize(input: string): string {
     .replace(/\bif and only if\b/g, ' ⇔ ')
     .replace(/\b(?:is\s+)?equivalent(?:\s+to)?\b/g, ' ⇔ ')
     .replace(/\bimplies\b/g, ' ⇒ ')
+    .replace(/\b(?:is\s+)?approximately equal(?:s)?(?:\s+to)?\b/g, ' ≈ ')
+    .replace(/\b(?:is\s+)?proportional to\b/g, ' ∝ ')
+    .replace(/\b(?:is\s+)?parallel to\b/g, ' ∥ ')
+    .replace(/\b(?:is\s+)?perpendicular to\b/g, ' ⊥ ')
     .replace(/\bfor (?:every|all)\b/g, ' ∀ ')
     .replace(/\bthere exists?\b/g, ' ∃ ')
     .replace(/\bexists\b/g, ' ∃ ')
@@ -236,6 +257,9 @@ function normalize(input: string): string {
     .replace(/∛/g, ' CBRT ')
     .replace(/∞/g, ' infinity ')
     .replace(/∫/g, ' integral ')
+    .replace(/∬/g, ' DOUBLE_INTEGRAL ')
+    .replace(/∭/g, ' TRIPLE_INTEGRAL ')
+    .replace(/∮/g, ' CONTOUR_INTEGRAL ')
     .replace(/∑/g, ' summation ')
     .replace(/∏/g, ' product ')
     .replace(/²/g, ' squared ')
@@ -246,7 +270,7 @@ function normalize(input: string): string {
     .replace(/\*/g, ' × ')
     .replace(/[/⁄]/g, ' over ')
     .replace(/[,.?!;:]/g, ' ')
-    .replace(/([()=<> ±×÷≤≥≠∈∉⊂⊆∪∩⇒⇔∀∃])/g, ' $1 ')
+    .replace(/([()=<> ±×÷≤≥≠∈∉⊂⊆∪∩⇒⇔∀∃≈∝∥⊥])/g, ' $1 ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -455,6 +479,9 @@ class ExpressionParser {
         this.consume();
         const exponent = this.startsAtom(this.current()) ? this.parseUnary() : '\\placeholder{}';
         base += `^{${exponent}}`;
+      } else if (this.current() === 'FACTORIAL') {
+        this.consume();
+        base += '!';
       } else {
         break;
       }
@@ -523,6 +550,23 @@ class ExpressionParser {
       return `\\left|${this.parseAdditive() || '\\placeholder{}'}\\right|`;
     }
 
+    if (token === 'GRADIENT' || token === 'LAPLACIAN' || token === 'ANGLE') {
+      this.consume();
+      if (this.current() === 'of') this.consume();
+      const argument = this.startsAtom(this.current()) ? this.parseUnary() : '\\placeholder{}';
+      const command = token === 'GRADIENT' ? '\\nabla' : token === 'LAPLACIAN' ? '\\nabla^2' : '\\angle';
+      return `${command} ${argument}`;
+    }
+
+    if (token === 'FLOOR' || token === 'CEILING' || token === 'NORM') {
+      this.consume();
+      if (this.current() === 'of') this.consume();
+      const argument = this.parseAdditive() || '\\placeholder{}';
+      if (token === 'FLOOR') return `\\left\\lfloor${argument}\\right\\rfloor`;
+      if (token === 'CEILING') return `\\left\\lceil${argument}\\right\\rceil`;
+      return `\\left\\lVert${argument}\\right\\rVert`;
+    }
+
     if (token in FUNCTIONS) {
       this.consume();
       if ((token === 'log' || token === 'logarithm') && this.current() === 'base') {
@@ -563,6 +607,10 @@ class ExpressionParser {
       this.consume();
       return '\\infty';
     }
+    if (token === 'PARTIAL_SYMBOL') {
+      this.consume();
+      return '\\partial';
+    }
     if (token === 'EMPTY_SET') {
       this.consume();
       return '\\varnothing';
@@ -589,10 +637,17 @@ class ExpressionParser {
       token === 'CBRT' ||
       token === 'INDEX_ROOT' ||
       token === 'absolute' ||
+      token === 'GRADIENT' ||
+      token === 'LAPLACIAN' ||
+      token === 'ANGLE' ||
+      token === 'FLOOR' ||
+      token === 'CEILING' ||
+      token === 'NORM' ||
       token === 'NEG' ||
       token === 'minus' ||
       token === 'infinity' ||
       token === 'EMPTY_SET' ||
+      token === 'PARTIAL_SYMBOL' ||
       token === 'VECTOR' ||
       token === 'capital' ||
       token === '∀' ||
@@ -629,10 +684,28 @@ function withoutLeadingOf(tokens: string[]): string[] {
 
 function parseBoundedOperator(tokens: string[]): ParseResult | null {
   const operator = tokens[0];
-  if (operator !== 'integral' && operator !== 'sum' && operator !== 'summation' && operator !== 'product') {
+  if (
+    operator !== 'integral'
+    && operator !== 'DOUBLE_INTEGRAL'
+    && operator !== 'TRIPLE_INTEGRAL'
+    && operator !== 'CONTOUR_INTEGRAL'
+    && operator !== 'sum'
+    && operator !== 'summation'
+    && operator !== 'product'
+  ) {
     return null;
   }
-  const symbol = operator === 'integral' ? '\\int' : operator === 'product' ? '\\prod' : '\\sum';
+  const symbol = operator === 'integral'
+    ? '\\int'
+    : operator === 'DOUBLE_INTEGRAL'
+      ? '\\iint'
+      : operator === 'TRIPLE_INTEGRAL'
+        ? '\\iiint'
+        : operator === 'CONTOUR_INTEGRAL'
+          ? '\\oint'
+          : operator === 'product'
+            ? '\\prod'
+            : '\\sum';
   if (tokens[1] !== 'from') {
     const body = parseTokens(withoutLeadingOf(tokens.slice(1)));
     return { latex: `${symbol}${body.latex ? ` ${body.latex}` : ''}`, unknownTokens: body.unknownTokens };
@@ -757,6 +830,29 @@ function parseDeterminant(tokens: string[]): ParseResult | null {
   };
 }
 
+function parseCases(tokens: string[]): ParseResult | null {
+  if (tokens[0] !== 'CASES') return null;
+  const body = parseNormalized(tokens.slice(1));
+  return {
+    latex: `\\begin{cases}${body.latex || '\\placeholder{}'}&\\placeholder{}\\\\\\placeholder{}&\\placeholder{}\\end{cases}`,
+    unknownTokens: body.unknownTokens,
+  };
+}
+
+function parseEvaluation(tokens: string[]): ParseResult | null {
+  if (tokens[0] !== 'EVALUATE') return null;
+  const fromIndex = tokens.indexOf('from', 1);
+  const toIndex = tokens.indexOf('to', fromIndex + 1);
+  if (fromIndex < 0 || toIndex < 0) return null;
+  const body = parseNormalized(tokens.slice(1, fromIndex));
+  const lower = parseNormalized(tokens.slice(fromIndex + 1, toIndex));
+  const upper = parseNormalized(tokens.slice(toIndex + 1));
+  return {
+    latex: `\\left.${body.latex}\\right|_{${lower.latex}}^{${upper.latex}}`,
+    unknownTokens: [...body.unknownTokens, ...lower.unknownTokens, ...upper.unknownTokens],
+  };
+}
+
 function parseNormalized(tokens: string[]): ParseResult {
   const groupedOver = tokens.indexOf('WHOLE_OVER');
   if (groupedOver >= 0) {
@@ -779,6 +875,8 @@ function parseNormalized(tokens: string[]): ParseResult {
   }
 
   return (
+    parseEvaluation(tokens) ??
+    parseCases(tokens) ??
     parseDeterminant(tokens) ??
     parseMatrix(tokens) ??
     parseLimit(tokens) ??

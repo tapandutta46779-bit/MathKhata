@@ -5,8 +5,8 @@ import type {
 } from './types';
 
 const NOTEBOOK_BREAK = /\s*(?:\bnext line\b|\bnew line\b|\bafter that\b|\bthen\b|[;\n]+)\s*/gi;
-const RELATION_SIGNAL = /(?:[=<>≤≥≠∈∉⊂⊆]|\b(?:equal|equals|less than|greater than|element of|subset|implies|equivalent)\b)/i;
-const OPERATOR_SIGNAL = /(?:[+\-−×÷*/^√∫∑∏∞]|\b(?:plus|minus|times|into|divided by|over|square|squared|cubed|power|root|integral|integration|sum|summation|product|derivative|limit|matrix|vector|determinant|union|intersection)\b)/i;
+const RELATION_SIGNAL = /(?:[=<>≤≥≠∈∉⊂⊆≈∝∥⊥]|\b(?:equal|equals|less than|greater than|element of|subset|implies|equivalent|approximately|proportional|parallel|perpendicular|if and only if)\b)/i;
+const OPERATOR_SIGNAL = /(?:[+\-−×÷*/^√∫∬∭∮∑∏∞∇∂]|\b(?:plus|minus|times|into|divided by|over|square|squared|cubed|power|root|integral|integration|sum|summation|product|derivative|partial|limit|matrix|vector|determinant|union|intersection|gradient|laplacian|floor|ceiling|norm|factorial|angle|cases|evaluate|absolute|empty set|for all|there exists)\b|\bd\s+[a-z]\b)/i;
 const FUNCTION_OR_SYMBOL_SIGNAL = /\b(?:sin|sine|cos|cosine|tan|tangent|secant|cosecant|cotangent|log|logarithm|exponential|infinity|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|rho|sigma|phi|psi|omega)\b/i;
 
 function clock(): number {

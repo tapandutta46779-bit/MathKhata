@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MathfieldElement } from 'mathlive';
 import {
+  AION_APPROXIMATE_DOWNLOAD,
+  AION_RUNTIME_DESCRIPTION,
+} from '../aion/runtime';
+import { useAIONRuntime } from '../aion/useAIONRuntime';
+import {
   analyzeNotebookPage,
   confirmProblemGroup,
   joinProblemWithPrevious,
@@ -84,6 +89,7 @@ export function PageAssistantRail() {
   const [open, setOpen] = useState(storedOpenPreference);
   const [groups, setGroups] = useState<PageProblemGroup[]>([]);
   const [solveStates, setSolveStates] = useState<Record<string, SolveState>>({});
+  const aion = useAIONRuntime();
 
   useEffect(() => {
     setGroups(analysis?.groups ?? []);
@@ -188,6 +194,43 @@ export function PageAssistantRail() {
           Analyze page again
         </button>
       </div>
+      <section className="aion-card" aria-label="Optional AION local model">
+        <div className="aion-card__heading">
+          <div>
+            <strong>AION</strong>
+            <span>Optional local model</span>
+          </div>
+          <em className={`aion-status aion-status--${aion.status}`}>{aion.status}</em>
+        </div>
+        <p>
+          {AION_RUNTIME_DESCRIPTION}. The model is not trained by MathKhata and is never required
+          for notebook editing, voice parsing, grouping, or local CAS.
+        </p>
+        {aion.status === 'idle' && (
+          <button type="button" onClick={aion.enable}>
+            Enable AION ({AION_APPROXIMATE_DOWNLOAD})
+          </button>
+        )}
+        {(aion.status === 'loading' || aion.status === 'analyzing') && (
+          <div className="aion-progress" role="status">
+            <span>{aion.message}</span>
+            {aion.progress !== undefined && <progress max="100" value={aion.progress} />}
+          </div>
+        )}
+        {aion.status === 'ready' && (
+          <button type="button" onClick={() => context && aion.analyze(context)}>
+            Analyze current page with AION
+          </button>
+        )}
+        {aion.status === 'error' && (
+          <div className="aion-error" role="status">
+            <span>{aion.message}</span>
+            <button type="button" onClick={aion.enable}>Retry AION</button>
+          </div>
+        )}
+        {aion.result && <div className="aion-result" aria-live="polite">{aion.result}</div>}
+        {aion.device && <small>Runs in this browser via {aion.device.toUpperCase()}; model files stay in the browser cache.</small>}
+      </section>
       <div className="page-assistant__groups">
         {groups.length === 0 && (
           <p className="page-assistant__empty">
@@ -280,7 +323,7 @@ export function PageAssistantRail() {
           );
         })}
       </div>
-      <footer>Deterministic grouping and local CAS are active. No model training is claimed.</footer>
+      <footer>Deterministic grouping and local CAS stay active with or without AION.</footer>
     </aside>
   );
 }

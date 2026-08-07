@@ -33,4 +33,4 @@ Dexie stores a full validated notebook record, with autosave after document muta
 
 ## Future reasoning
 
-`DocumentContextProvider` derives current page, selection, nearby objects, prior equations, annotations, spatial relationships, and limited edit context from the domain. The current page assistant consumes this contract without direct storage access. Any optional future local model must use the same read-only input and schema-validated advisory output; see [LOCAL_MODEL_PATH.md](LOCAL_MODEL_PATH.md).
+`DocumentContextProvider` derives current page, selection, nearby objects, prior equations, annotations, spatial relationships, and limited edit context from the domain. The deterministic page assistant consumes this contract without direct storage access. Optional AION inference receives a compact prompt derived from the same read-only context in a dedicated worker; it cannot access persistence or mutate a notebook. See [LOCAL_MODEL_PATH.md](LOCAL_MODEL_PATH.md).

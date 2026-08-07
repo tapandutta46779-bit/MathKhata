@@ -6,6 +6,10 @@ import {
 } from '../assistant/quickCalculate';
 import type { MathObject } from '../domain/model';
 import {
+  layoutMathOnRuledLines,
+  unwrapAutomaticMathLayout,
+} from '../domain/mathLineFlow';
+import {
   dismissMathfieldMenuFromOutsidePointer,
   dismissMathfieldMenu,
   focusMathfieldElement,
@@ -25,9 +29,26 @@ export function MathEditor({ object }: MathEditorProps) {
   const setEditingObject = useNotebookStore((state) => state.setEditingObject);
 
   const handleValueChange = useCallback(
-    (value: string) => updateMath(object.id, value),
+    (value: string) => updateMath(object.id, unwrapAutomaticMathLayout(value)),
     [object.id, updateMath],
   );
+
+  const applyLineLayout = useCallback((field: MathfieldElement, semanticLatex: string) => {
+    const currentSemantic = field.dataset.autoMultiline === 'true'
+      ? unwrapAutomaticMathLayout(field.value)
+      : field.value;
+    const layout = layoutMathOnRuledLines(semanticLatex);
+    const shouldReplace = currentSemantic !== semanticLatex
+      || (layout.automatic && field.dataset.autoMultiline !== 'true')
+      || (!layout.automatic && field.dataset.autoMultiline === 'true')
+      || Number(field.dataset.lineCount ?? '1') !== layout.lineCount;
+    if (!shouldReplace) return;
+    const wasAtEnd = field.position === field.lastOffset;
+    field.value = layout.latex;
+    field.dataset.autoMultiline = String(layout.automatic);
+    field.dataset.lineCount = String(layout.lineCount);
+    if (wasAtEnd) field.position = field.lastOffset;
+  }, []);
 
   const setRef = useCallback(
     (element: Element | null) => {
@@ -51,7 +72,25 @@ export function MathEditor({ object }: MathEditorProps) {
         setActiveMathfield(object.id);
       }
     };
-    const handleInput = () => queueMicrotask(() => handleValueChange(field.value));
+    const handleInput = () => {
+      const wasAtEnd = field.position === field.lastOffset;
+      const semanticLatex = unwrapAutomaticMathLayout(field.value);
+      queueMicrotask(() => {
+        handleValueChange(semanticLatex);
+        const layout = layoutMathOnRuledLines(semanticLatex);
+        if (
+          wasAtEnd &&
+          ((layout.automatic && field.dataset.autoMultiline !== 'true')
+            || (!layout.automatic && field.dataset.autoMultiline === 'true')
+            || Number(field.dataset.lineCount ?? '1') !== layout.lineCount)
+        ) {
+          field.value = layout.latex;
+          field.dataset.autoMultiline = String(layout.automatic);
+          field.dataset.lineCount = String(layout.lineCount);
+          field.position = field.lastOffset;
+        }
+      });
+    };
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event as KeyboardEvent & { __mathKhataMenuDismissal?: boolean })
         .__mathKhataMenuDismissal) return;
@@ -100,13 +139,18 @@ export function MathEditor({ object }: MathEditorProps) {
         field.selectionIsCollapsed &&
         field.position === field.lastOffset
       ) {
-        const result = quickCalculate(field.value);
+        const semanticLatex = unwrapAutomaticMathLayout(field.value);
+        const result = quickCalculate(semanticLatex);
         if (result) {
           event.preventDefault();
           event.stopImmediatePropagation();
-          field.value = appendCalculatedResult(field.value, result);
+          const nextLatex = appendCalculatedResult(semanticLatex, result);
+          const layout = layoutMathOnRuledLines(nextLatex);
+          field.value = layout.latex;
+          field.dataset.autoMultiline = String(layout.automatic);
+          field.dataset.lineCount = String(layout.lineCount);
           field.position = field.lastOffset;
-          handleValueChange(field.value);
+          handleValueChange(nextLatex);
           return;
         }
         event.preventDefault();
@@ -232,13 +276,14 @@ export function MathEditor({ object }: MathEditorProps) {
 
   useEffect(() => {
     const field = fieldRef.current;
-    if (field && field.value !== object.latex) field.value = object.latex;
-  }, [object.latex]);
+    if (field) applyLineLayout(field, object.latex);
+  }, [applyLineLayout, object.latex]);
 
   return (
     <math-field
       ref={setRef}
       class="math-editor"
+      style={{ height: object.height }}
       data-testid={`math-field-${object.id}`}
       aria-label="Editable mathematical expression"
     />

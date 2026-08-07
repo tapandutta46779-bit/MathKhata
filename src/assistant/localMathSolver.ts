@@ -1,5 +1,5 @@
 export interface LocalSolveResult {
-  kind: 'integral' | 'equation';
+  kind: 'integral' | 'derivative' | 'limit' | 'summation' | 'product' | 'equation';
   label: string;
   resultLatex: string;
   explanation: string;
@@ -15,6 +15,19 @@ interface IntegralParts {
   variable: string;
   lowerLatex?: string;
   upperLatex?: string;
+}
+
+interface CalculusExpression {
+  expressionLatex: string;
+  variable: string;
+  targetLatex?: string;
+}
+
+interface BoundedSeries {
+  expressionLatex: string;
+  variable: string;
+  lowerLatex: string;
+  upperLatex: string;
 }
 
 function readBraced(source: string, start: number): BracedGroup | null {
@@ -72,6 +85,59 @@ function parseIntegral(latex: string): IntegralParts | null {
   };
 }
 
+function stripOuterParentheses(latex: string): string {
+  const clean = latex.trim();
+  const match = clean.match(/^\\left\((.*)\\right\)$/s);
+  return match?.[1] ?? clean;
+}
+
+function parseDerivative(latex: string): CalculusExpression | null {
+  const source = latex.trim().replace(/=$/, '').trim();
+  const match = source.match(
+    /^\\frac\{(?:d|\\partial)\}\{(?:d|\\partial\s*)?([a-zA-Z])\}(.+)$/s,
+  );
+  if (!match) return null;
+  return { variable: match[1], expressionLatex: stripOuterParentheses(match[2]) };
+}
+
+function parseLimit(latex: string): CalculusExpression | null {
+  const source = latex.trim().replace(/=$/, '').trim();
+  if (!source.startsWith('\\lim_')) return null;
+  const script = readScriptArgument(source, 5);
+  if (!script) return null;
+  const approach = script.value.match(/^([a-zA-Z])\\to(.+)$/s);
+  const expressionLatex = source.slice(script.next).trim();
+  if (!approach || !expressionLatex) return null;
+  return {
+    variable: approach[1],
+    targetLatex: approach[2].trim(),
+    expressionLatex,
+  };
+}
+
+function parseBoundedSeries(latex: string, command: '\\sum' | '\\prod'): BoundedSeries | null {
+  const source = latex.trim().replace(/=$/, '').trim();
+  if (!source.startsWith(command)) return null;
+  let cursor = command.length;
+  if (source[cursor] !== '_') return null;
+  const lower = readScriptArgument(source, cursor + 1);
+  if (!lower) return null;
+  cursor = lower.next;
+  if (source[cursor] !== '^') return null;
+  const upper = readScriptArgument(source, cursor + 1);
+  if (!upper) return null;
+  cursor = upper.next;
+  const assignment = lower.value.match(/^([a-zA-Z])=(.+)$/s);
+  const expressionLatex = source.slice(cursor).trim();
+  if (!assignment || !expressionLatex) return null;
+  return {
+    variable: assignment[1],
+    lowerLatex: assignment[2],
+    upperLatex: upper.value,
+    expressionLatex,
+  };
+}
+
 export function canOfferLocalSolve(latex: string): boolean {
   if (/\\placeholder|#\?|\u25a1/.test(latex)) return false;
   if (/\\int(?![A-Za-z])/.test(latex)) {
@@ -79,6 +145,8 @@ export function canOfferLocalSolve(latex: string): boolean {
     if (!integral) return false;
     return (integral.lowerLatex === undefined) === (integral.upperLatex === undefined);
   }
+  if (parseDerivative(latex) || parseLimit(latex)) return true;
+  if (parseBoundedSeries(latex, '\\sum') || parseBoundedSeries(latex, '\\prod')) return true;
   if (!latex.includes('=') || latex.trim().endsWith('=')) return false;
   return /[a-zA-Z]/.test(latex.replace(/\\(?:times|div|cdot)/g, ''));
 }
@@ -112,6 +180,54 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       explanation: indefinite
         ? `Integrated with respect to ${integral.variable}.`
         : `Evaluated from ${integral.lowerLatex} to ${integral.upperLatex}.`,
+    };
+  }
+
+  const derivative = parseDerivative(latex);
+  if (derivative) {
+    const expression = nerdamer.convertFromLaTeX(derivative.expressionLatex);
+    const result = nerdamer.diff(expression, derivative.variable);
+    return {
+      kind: 'derivative',
+      label: `Derivative with respect to ${derivative.variable}`,
+      resultLatex: result.toTeX(),
+      explanation: 'Differentiated symbolically in the local CAS.',
+    };
+  }
+
+  const limit = parseLimit(latex);
+  if (limit?.targetLatex) {
+    const expression = nerdamer.convertFromLaTeX(limit.expressionLatex);
+    const target = nerdamer.convertFromLaTeX(limit.targetLatex).toString();
+    const result = nerdamer.limit(expression, limit.variable, target);
+    return {
+      kind: 'limit',
+      label: `Limit as ${limit.variable} approaches ${limit.targetLatex}`,
+      resultLatex: result.toTeX(),
+      explanation: 'Evaluated symbolically in the local CAS.',
+    };
+  }
+
+  for (const [command, kind, label] of [
+    ['\\sum', 'summation', 'Finite sum'],
+    ['\\prod', 'product', 'Finite product'],
+  ] as const) {
+    const series = parseBoundedSeries(latex, command);
+    if (!series) continue;
+    if (/\\infty/.test(series.upperLatex)) {
+      throw new Error(`${label} currently requires a finite upper bound.`);
+    }
+    const expression = nerdamer.convertFromLaTeX(series.expressionLatex);
+    const lower = nerdamer.convertFromLaTeX(series.lowerLatex).toString();
+    const upper = nerdamer.convertFromLaTeX(series.upperLatex).toString();
+    const result = command === '\\sum'
+      ? nerdamer.sum(expression, series.variable, lower, upper)
+      : nerdamer.product(expression, series.variable, lower, upper);
+    return {
+      kind,
+      label,
+      resultLatex: result.toTeX(),
+      explanation: `Evaluated from ${series.lowerLatex} to ${series.upperLatex} in the local CAS.`,
     };
   }
 

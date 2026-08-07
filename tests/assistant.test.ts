@@ -39,16 +39,33 @@ describe('local quick calculation', () => {
 });
 
 describe('opt-in local symbolic solver', () => {
-  it('offers solving only for integrals and complete variable equations', () => {
+  it('offers solving for supported complete calculus and equation forms', () => {
     expect(canOfferLocalSolve('\\int x^2\\,dx')).toBe(true);
     expect(canOfferLocalSolve('\\int_{0}^{2}x^2\\,dx')).toBe(true);
     expect(canOfferLocalSolve('\\int_0^2x^2\\,dx')).toBe(true);
     expect(canOfferLocalSolve('x^2=4')).toBe(true);
+    expect(canOfferLocalSolve('\\frac{d}{dx}\\left(x^3\\right)')).toBe(true);
+    expect(canOfferLocalSolve('\\lim_{x\\to0}\\frac{\\sin(x)}{x}')).toBe(true);
+    expect(canOfferLocalSolve('\\sum_{n=1}^{5}n')).toBe(true);
+    expect(canOfferLocalSolve('\\prod_{n=1}^{5}n')).toBe(true);
     expect(canOfferLocalSolve('x^2=')).toBe(false);
     expect(canOfferLocalSolve('\\int_{0}x^2\\,dx')).toBe(false);
     expect(canOfferLocalSolve('\\int_{\\placeholder{}}^{2}x^2\\,dx')).toBe(false);
     expect(canOfferLocalSolve('\\int x^2')).toBe(false);
     expect(canOfferLocalSolve('6\\times4')).toBe(false);
+  });
+
+  it('evaluates derivatives, limits, finite sums, and finite products', async () => {
+    const derivative = await solveLocally('\\frac{d}{dx}\\left(x^3\\right)');
+    const limit = await solveLocally('\\lim_{x\\to0}\\frac{\\sin(x)}{x}');
+    const sum = await solveLocally('\\sum_{n=1}^{5}n');
+    const product = await solveLocally('\\prod_{n=1}^{5}n');
+
+    expect(derivative.kind).toBe('derivative');
+    expect(compact(derivative.resultLatex)).toBe('3\\cdotx^{2}');
+    expect(limit.resultLatex).toBe('1');
+    expect(sum.resultLatex).toBe('15');
+    expect(product.resultLatex).toBe('120');
   });
 
   it('finds an antiderivative without adding steps', async () => {

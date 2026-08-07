@@ -352,9 +352,13 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
           ? createMathObject(flowPoint, initialContent)
           : createTextObject(flowPoint, initialContent);
       rawObject.height = flowObjectHeight(type, initialContent);
-      if (!point) {
-        rawObject.width = WRITING_CONTENT_WIDTH;
-      }
+      // A click chooses the writing line, not a small floating textbox. Give
+      // normal Math/Text writing the remaining ruled-paper width while still
+      // allowing the finished object to be dragged spatially afterwards.
+      rawObject.width = Math.min(
+        WRITING_CONTENT_WIDTH,
+        Math.max(120, page.width - flowPoint.x - 28),
+      );
       const safePoint = clampObjectToPage(rawObject, page, rawObject);
       const object = { ...rawObject, ...safePoint } as PageObject;
       commit(`Create ${type} object`, (current) => addObjectToNotebook(current, pageId, object));
@@ -424,7 +428,31 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       if (!pageId) return;
       commit(
         'Edit mathematics',
-        (notebook) => updateObject(notebook, pageId, objectId, { latex }),
+        (notebook) => {
+          const page = getPage(notebook, pageId);
+          const source = page?.objects.find((object) => object.id === objectId);
+          if (!page || !source || source.type !== 'math') return notebook;
+          const nextHeight = flowObjectHeight('math', latex);
+          const delta = nextHeight - source.height;
+          let next = updateObject(notebook, pageId, objectId, { latex, height: nextHeight });
+          if (delta === 0) return next;
+          // Flow-created writing shares the ruled-paper column. When a math
+          // line grows into a multiline expression, move only later objects in
+          // that same column so handwriting order stays intact. Freely placed
+          // objects elsewhere on the page are deliberately left untouched.
+          for (const candidate of page.objects) {
+            if (
+              candidate.id === objectId
+              || Math.abs(candidate.x - source.x) > 8
+              || candidate.y < source.y + Math.min(source.height, WRITING_LINE_HEIGHT)
+            ) continue;
+            const maxY = Math.max(12, page.height - candidate.height - 12);
+            next = updateObject(next, pageId, candidate.id, {
+              y: Math.max(12, Math.min(maxY, candidate.y + delta)),
+            });
+          }
+          return next;
+        },
         `math:${objectId}`,
       );
     },

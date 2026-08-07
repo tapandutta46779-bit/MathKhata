@@ -1,9 +1,12 @@
 import type { InsertableObjectType, Page, Point } from './model';
+import { automaticMathLineCount } from './mathLineFlow';
 
 export const WRITING_LEFT = 82;
 export const WRITING_TOP = 20;
 export const WRITING_LINE_HEIGHT = 44;
-export const WRITING_CONTENT_WIDTH = 610;
+// Leave a narrow calculation/controls gutter on the right while using nearly
+// the full ruled line for handwriting-style Math and Text.
+export const WRITING_CONTENT_WIDTH = 590;
 
 export interface FlowObjectInput {
   type: InsertableObjectType;
@@ -12,9 +15,8 @@ export interface FlowObjectInput {
 
 export function flowObjectHeight(type: InsertableObjectType, content: string): number {
   if (type === 'math') {
-    return /\\(?:frac|int|sum|prod|begin)(?![A-Za-z])/.test(content)
-      ? WRITING_LINE_HEIGHT * 2
-      : WRITING_LINE_HEIGHT;
+    const structuralLines = /\\(?:frac|int|sum|prod|begin)(?![A-Za-z])/.test(content) ? 2 : 1;
+    return WRITING_LINE_HEIGHT * Math.max(structuralLines, automaticMathLineCount(content));
   }
   const visualLines = Math.max(1, Math.ceil(content.trim().length / 78));
   return WRITING_LINE_HEIGHT * visualLines;

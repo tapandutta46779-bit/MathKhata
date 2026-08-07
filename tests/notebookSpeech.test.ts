@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createNotebook } from '../src/domain/notebook';
+import { MATH_PALETTE_CATEGORIES } from '../src/domain/mathNotation';
 import { WRITING_LINE_HEIGHT, WRITING_TOP } from '../src/domain/writingFlow';
 import { useNotebookStore } from '../src/store/notebookStore';
 import {
@@ -71,6 +72,14 @@ describe('notebook voice parsing', () => {
 
     expect(candidate.segments[0].kind).toBe('math');
     expect(compact(candidate.segments[0].latex)).toBe('6\\times4');
+  });
+
+  it.each(
+    MATH_PALETTE_CATEGORIES.flatMap((category) =>
+      category.items.map((item) => [category.label, item.label, item.voice.phrase] as const),
+    ),
+  )('classifies the %s palette phrase “%s” as mathematics', (_category, _label, phrase) => {
+    expect(parseNotebookSpeech(phrase, 0).segments[0]?.kind).toBe('math');
   });
 
   it('accepts every segment as an editable object on successive ruled lines', () => {

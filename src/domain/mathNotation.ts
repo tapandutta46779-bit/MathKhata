@@ -56,6 +56,20 @@ export const MATH_PALETTE_CATEGORIES: MathPaletteCategory[] = [
     ],
   },
   {
+    id: 'advanced-calculus',
+    label: 'Advanced calculus',
+    items: [
+      { label: 'Double integral', visual: '∬', template: '\\iint #0\\,d#?\\,d#?', voice: { phrase: 'double integral f d x d y', latex: '\\iint f\\,dx\\,dy' } },
+      { label: 'Triple integral', visual: '∭', template: '\\iiint #0\\,d#?\\,d#?\\,d#?', voice: { phrase: 'triple integral f d x d y d z', latex: '\\iiint f\\,dx\\,dy\\,dz' } },
+      { label: 'Contour integral', visual: '∮', template: '\\oint_{#0}#?\\,d#?', voice: { phrase: 'contour integral f d z', latex: '\\oint f\\,dz' } },
+      { label: 'Gradient', visual: '∇f', template: '\\nabla #0', voice: { phrase: 'gradient of f', latex: '\\nabla f' } },
+      { label: 'Laplacian', visual: '∇²f', template: '\\nabla^2 #0', voice: { phrase: 'laplacian of f', latex: '\\nabla^2 f' } },
+      { label: 'Evaluation bar', visual: '[f]ₐᵇ', template: '\\left.#0\\right|_{#?}^{#?}', voice: { phrase: 'evaluate f from a to b', latex: '\\left.f\\right|_{a}^{b}' } },
+      { label: 'Differential', visual: 'dx', template: '\\,d#0', voice: { phrase: 'd x', latex: 'dx' } },
+      { label: 'Partial', visual: '∂', template: '\\partial', voice: { phrase: 'partial', latex: '\\partial' } },
+    ],
+  },
+  {
     id: 'functions',
     label: 'Functions',
     items: [
@@ -136,6 +150,22 @@ export const MATH_PALETTE_CATEGORIES: MathPaletteCategory[] = [
       { label: 'There exists', visual: '∃', template: '\\exists', voice: { phrase: 'there exists x', latex: '\\exists x' } },
       { label: 'Implies', visual: '⇒', template: '\\Rightarrow', voice: { phrase: 'p implies q', latex: 'p\\Rightarrow q' } },
       { label: 'Equivalent', visual: '⇔', template: '\\Leftrightarrow', voice: { phrase: 'p if and only if q', latex: 'p\\Leftrightarrow q' } },
+    ],
+  },
+  {
+    id: 'advanced-notation',
+    label: 'Advanced notation',
+    items: [
+      { label: 'Approximately equal', visual: '≈', template: '\\approx', voice: { phrase: 'x is approximately equal to y', latex: 'x\\approx y' } },
+      { label: 'Proportional to', visual: '∝', template: '\\propto', voice: { phrase: 'x is proportional to y', latex: 'x\\propto y' } },
+      { label: 'Parallel', visual: '∥', template: '\\parallel', voice: { phrase: 'a is parallel to b', latex: 'a\\parallel b' } },
+      { label: 'Perpendicular', visual: '⊥', template: '\\perp', voice: { phrase: 'a is perpendicular to b', latex: 'a\\perp b' } },
+      { label: 'Angle', visual: '∠', template: '\\angle #0', voice: { phrase: 'angle a', latex: '\\angle a' } },
+      { label: 'Factorial', visual: 'n!', template: '#0!', voice: { phrase: 'n factorial', latex: 'n!' } },
+      { label: 'Floor', visual: '⌊x⌋', template: '\\left\\lfloor#0\\right\\rfloor', voice: { phrase: 'floor of x', latex: '\\left\\lfloor x\\right\\rfloor' } },
+      { label: 'Ceiling', visual: '⌈x⌉', template: '\\left\\lceil#0\\right\\rceil', voice: { phrase: 'ceiling of x', latex: '\\left\\lceil x\\right\\rceil' } },
+      { label: 'Norm', visual: '‖x‖', template: '\\left\\lVert#0\\right\\rVert', voice: { phrase: 'norm of x', latex: '\\left\\lVert x\\right\\rVert' } },
+      { label: 'Cases', visual: '{…', template: '\\begin{cases}#0&#?\\\\#?&#?\\end{cases}', voice: { phrase: 'cases x', latex: '\\begin{cases}x&\\placeholder{}\\\\\\placeholder{}&\\placeholder{}\\end{cases}' } },
     ],
   },
 ];
