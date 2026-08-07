@@ -259,6 +259,39 @@ test('paper-like lines offer a quiet calculation and an opt-in local solve', asy
   ).toBe(152);
 });
 
+test('finite integrals survive reload and evaluate after first focus', async ({ page }) => {
+  await page.goto('/');
+  const paper = page.getByTestId('notebook-page');
+  const bounds = await paper.boundingBox();
+  if (!bounds) throw new Error('Notebook page has no visible bounds');
+
+  await page.getByRole('button', { name: /Math tool/ }).click();
+  await page.mouse.click(bounds.x + 125, bounds.y + 65);
+  let field = page.locator('math-field.math-editor').first();
+  await expect(field).toHaveAttribute('data-ready', 'true');
+  await field.evaluate((element: any) => {
+    element.value = '\\int_{0}^{\\pi}\\cos(x)\\,\\mathrm{d}x';
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+  });
+  await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\int');
+  await expect(page.getByRole('button', { name: 'Solve integral' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Saved locally/ })).toBeVisible({ timeout: 10_000 });
+
+  await page.reload();
+  field = page.locator('math-field.math-editor').first();
+  await expect(field).toHaveAttribute('data-ready', 'true');
+  await expect.poll(() => field.evaluate((element: any) => element.value)).toContain('\\int');
+  const beforeFocus = await field.evaluate((element: any) => element.value);
+  await field.click();
+  await expect.poll(() => field.evaluate((element: any) => element.value)).toBe(beforeFocus);
+  await expect(page.getByRole('button', { name: 'Solve integral' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Solve integral' }).click();
+  await expect(page.getByText('Integral value', { exact: true })).toBeVisible({ timeout: 10_000 });
+  const result = page.locator('math-field.assistant-math').first();
+  await expect.poll(() => result.evaluate((element: any) => element.value)).toBe('0');
+});
+
 test('retains every on-demand MathLive, Symbols, Voice, menu, and navigation path', async ({ page }) => {
   test.setTimeout(90_000);
   await page.goto('/');

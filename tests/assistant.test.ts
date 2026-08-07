@@ -43,6 +43,7 @@ describe('opt-in local symbolic solver', () => {
     expect(canOfferLocalSolve('\\int x^2\\,dx')).toBe(true);
     expect(canOfferLocalSolve('\\int_{0}^{2}x^2\\,dx')).toBe(true);
     expect(canOfferLocalSolve('\\int_0^2x^2\\,dx')).toBe(true);
+    expect(canOfferLocalSolve('\\int _{0} ^{\\pi} \\cos x\\,\\mathrm{d}x')).toBe(true);
     expect(canOfferLocalSolve('x^2=4')).toBe(true);
     expect(canOfferLocalSolve('\\frac{d}{dx}\\left(x^3\\right)')).toBe(true);
     expect(canOfferLocalSolve('\\lim_{x\\to0}\\frac{\\sin(x)}{x}')).toBe(true);
@@ -81,6 +82,13 @@ describe('opt-in local symbolic solver', () => {
     expect(compact(result.resultLatex)).toBe('\\frac{8}{3}');
   });
 
+  it('falls back to antiderivative-at-bounds for elementary finite integrals', async () => {
+    const result = await solveLocally('\\int_{0}^{\\pi}\\cos x\\,dx');
+
+    expect(result.kind).toBe('integral');
+    expect(result.resultLatex).toBe('0');
+  });
+
   it('accepts MathLive compact single-token integral bounds', async () => {
     const result = await solveLocally('\\int_0^2x^2\\,dx');
 
@@ -101,6 +109,6 @@ describe('opt-in local symbolic solver', () => {
   it('reports when no reliable closed form was found', async () => {
     await expect(
       solveLocally('\\int_{0}^{\\infty}e^{x^2+3x+5}\\,dx'),
-    ).rejects.toThrow(/could not find a reliable closed form/i);
+    ).rejects.toThrow(/convergence check/i);
   });
 });

@@ -64,15 +64,34 @@ export function MathEditor({ object }: MathEditorProps) {
   useLayoutEffect(() => {
     const field = fieldRef.current;
     if (!field) return;
+    let mounting = true;
+    let hydrationFrame = 0;
+    const storedLatex = () => {
+      const state = useNotebookStore.getState();
+      const current = state.notebook?.pages
+        .find((page) => page.id === state.currentPageId)
+        ?.objects.find((candidate) => candidate.id === object.id);
+      return current?.type === 'math' ? current.latex : '';
+    };
     const unregister = registerMathfield(object.id, field, handleValueChange);
     const activate = () => {
+      // A pre-mount MathLive setter can paint the correct shadow DOM while its
+      // internal model still reports an empty value. Reapply after mount so a
+      // first focus/input cannot overwrite the saved expression with ''.
+      applyLineLayout(field, storedLatex());
       field.dataset.ready = 'true';
+      cancelAnimationFrame(hydrationFrame);
+      hydrationFrame = requestAnimationFrame(() => { mounting = false; });
       if (useNotebookStore.getState().editingObjectId === object.id) {
         focusMathfieldElement(field);
         setActiveMathfield(object.id);
       }
     };
     const handleInput = () => {
+      if (mounting && field.value === '' && storedLatex()) {
+        applyLineLayout(field, storedLatex());
+        return;
+      }
       const wasAtEnd = field.position === field.lastOffset;
       const semanticLatex = unwrapAutomaticMathLayout(field.value);
       queueMicrotask(() => {
@@ -261,6 +280,7 @@ export function MathEditor({ object }: MathEditorProps) {
     const readyTimer = setTimeout(activate, 120);
     return () => {
       clearTimeout(readyTimer);
+      cancelAnimationFrame(hydrationFrame);
       field.removeEventListener('mount', activate);
       field.removeEventListener('input', handleInput);
       field.removeEventListener('keydown', handleKeyDown, true);
@@ -272,7 +292,7 @@ export function MathEditor({ object }: MathEditorProps) {
       document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
       unregister();
     };
-  }, [handleValueChange, object.id, setEditingObject, setSelectedObject]);
+  }, [applyLineLayout, handleValueChange, object.id, setEditingObject, setSelectedObject]);
 
   useEffect(() => {
     const field = fieldRef.current;

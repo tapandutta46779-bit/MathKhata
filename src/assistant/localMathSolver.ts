@@ -57,8 +57,12 @@ function parseIntegral(latex: string): IntegralParts | null {
   const integralIndex = source.indexOf('\\int');
   if (integralIndex < 0) return null;
   let cursor = integralIndex + 4;
+  const skipWhitespace = () => {
+    while (/\s/.test(source[cursor] ?? '')) cursor += 1;
+  };
   let lowerLatex: string | undefined;
   let upperLatex: string | undefined;
+  skipWhitespace();
   for (let count = 0; count < 2; count += 1) {
     const marker = source[cursor];
     if (marker !== '_' && marker !== '^') break;
@@ -67,13 +71,15 @@ function parseIntegral(latex: string): IntegralParts | null {
     if (marker === '_') lowerLatex = group.value;
     else upperLatex = group.value;
     cursor = group.next;
+    skipWhitespace();
   }
   const body = source
     .slice(cursor)
     .replace(/\\[,!;:]/g, '')
-    .replace(/\\mathrm\{d\}/g, 'd')
+    .replace(/\\(?:mathrm|operatorname|text)\{d\}/g, 'd')
+    .replace(/\\differentialD/g, 'd')
     .trim();
-  const differential = body.match(/d([a-zA-Z])$/);
+  const differential = body.match(/d\s*([a-zA-Z])$/);
   if (!differential || differential.index === undefined) return null;
   const integrandLatex = body.slice(0, differential.index).trim();
   if (!integrandLatex) return null;
@@ -160,14 +166,26 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       throw new Error('Complete both integral bounds before asking the local solver.');
     }
     const integrand = nerdamer.convertFromLaTeX(integral.integrandLatex);
-    const result = integral.lowerLatex !== undefined && integral.upperLatex !== undefined
-      ? nerdamer.defint(
-          integrand,
-          nerdamer.convertFromLaTeX(integral.lowerLatex).toString(),
-          nerdamer.convertFromLaTeX(integral.upperLatex).toString(),
-          integral.variable,
-        )
+    const definite = integral.lowerLatex !== undefined && integral.upperLatex !== undefined;
+    const lower = definite ? nerdamer.convertFromLaTeX(integral.lowerLatex!).toString() : undefined;
+    const upper = definite ? nerdamer.convertFromLaTeX(integral.upperLatex!).toString() : undefined;
+    if (definite && /\\infty|infinity/i.test(`${integral.lowerLatex} ${integral.upperLatex}`)) {
+      throw new Error('This improper integral needs a convergence check before evaluation. Infinite-bound convergence is not yet verified by the local solver.');
+    }
+    let result = definite
+      ? nerdamer.defint(integrand, lower!, upper!, integral.variable)
       : nerdamer.integrate(integrand, integral.variable);
+    if (definite && /\\int|defint|integrate/i.test(`${result.toString()} ${result.toTeX()}`)) {
+      // Nerdamer leaves several elementary finite definite integrals (for
+      // example ∫₀^π cos(x)dx) unevaluated. Compute an antiderivative and
+      // apply the fundamental theorem before declaring failure.
+      const antiderivative = nerdamer.integrate(integrand, integral.variable);
+      if (!/\\int|integrate/i.test(`${antiderivative.toString()} ${antiderivative.toTeX()}`)) {
+        const atUpper = antiderivative.evaluate({ [integral.variable]: upper! });
+        const atLower = antiderivative.evaluate({ [integral.variable]: lower! });
+        result = nerdamer.simplify(`(${atUpper.toString()})-(${atLower.toString()})`);
+      }
+    }
     const resultLatex = result.toTeX();
     if (/\\int|defint|integrate/i.test(`${result.toString()} ${resultLatex}`)) {
       throw new Error('The local solver could not find a reliable closed form for this integral.');
