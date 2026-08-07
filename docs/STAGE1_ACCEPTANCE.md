@@ -42,7 +42,7 @@ This is the verification ledger for Stage 1. A checked item must be backed by a 
 
 - [x] Required screenshots are captured from the running application.
 - [x] Source mirror and latest Git bundle are written to the detected Google Drive MathKhata folder.
-- [ ] Final milestone snapshot is created only after the final verification commit.
+- [x] Final milestone source snapshot and timestamped Git bundle were created after the verification commit.
 - [x] Backup source files and the latest bundle were found and the bundle passed `git bundle verify`.
 
 ## Latest automated evidence

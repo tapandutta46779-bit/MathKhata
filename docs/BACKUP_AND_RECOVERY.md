@@ -51,3 +51,5 @@ The final verified mount, timestamps, and backup contents are recorded here afte
 - Generated exclusions: dependencies, builds, coverage, Playwright artifacts, caches, temporary files, logs, local secrets/environment files, `.DS_Store`, TypeScript build metadata, and the live `.git` directory.
 
 The exact last run time, source path, branch, and commit are stored after every successful backup in `source-mirror/.backup-metadata/last-backup.txt`. Final Stage 1 verification also creates a timestamped Git bundle and source archive with `./scripts/backup-to-drive.sh --snapshot`.
+
+Stage 1 milestone snapshot `20260807T082509Z` was created successfully. A later documentation-only commit may advance `MathKhata-latest.bundle`; the timestamped milestone remains immutable.
