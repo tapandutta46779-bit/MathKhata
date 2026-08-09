@@ -60,6 +60,6 @@ The structured `.mathkhata.json` export is the portable backup and migration for
 
 ## Security posture
 
-The desktop renderer loads only packaged `mathkhata://app` content in production. Node integration is disabled; context isolation, renderer sandboxing, web security, restrictive navigation, a CSP, ASAR integrity validation, and Electron fuses are enabled. The only privileged renderer bridge accepts fixed notebook commands and validated requests to the loopback AION service. It cannot request an arbitrary URL or arbitrary filesystem path.
+The desktop renderer loads packaged `mathkhata://app` content in production. Node integration is disabled; context isolation, renderer sandboxing, web security, restrictive navigation, a CSP, ASAR integrity validation, and Electron fuses are enabled. The privileged renderer bridge accepts fixed notebook commands and validated requests to the loopback AION service; it cannot request an arbitrary URL or arbitrary filesystem path. The CSP separately permits model-file downloads from Hugging Face for the first-run local speech recognizer. No microphone audio is sent with those model requests.
 
 Runtime production dependencies must report zero known vulnerabilities with `npm audit --omit=dev`. Installer tooling is kept outside the shipped renderer archive and must also be reviewed on each release.

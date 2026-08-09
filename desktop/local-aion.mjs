@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { StringDecoder } from 'node:string_decoder';
 
 export const LOCAL_AION_HOST = '127.0.0.1';
 export const LOCAL_AION_PORT = 11434;
@@ -45,6 +46,8 @@ export function requestLocalAion(
     host = LOCAL_AION_HOST,
     port = LOCAL_AION_PORT,
     maxBytes = 16 * 1024 * 1024,
+    onChunk,
+    signal,
   } = {},
 ) {
   if (typeof apiPath !== 'string' || !apiPath.startsWith('/api/')) {
@@ -52,12 +55,27 @@ export function requestLocalAion(
   }
   return new Promise((resolve, reject) => {
     let settled = false;
+    let request;
+    const aborted = () => {
+      const error = signal?.reason instanceof Error
+        ? signal.reason
+        : Object.assign(new Error('AION request was cancelled.'), { name: 'AbortError' });
+      request?.destroy(error);
+    };
     const finish = (callback, value) => {
       if (settled) return;
       settled = true;
+      signal?.removeEventListener('abort', aborted);
       callback(value);
     };
-    const request = http.request({
+    if (signal?.aborted) {
+      aborted();
+      finish(reject, signal.reason instanceof Error
+        ? signal.reason
+        : Object.assign(new Error('AION request was cancelled.'), { name: 'AbortError' }));
+      return;
+    }
+    request = http.request({
       hostname: host,
       port,
       path: apiPath,
@@ -65,6 +83,7 @@ export function requestLocalAion(
       headers: body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : undefined,
     }, (response) => {
       const chunks = [];
+      const decoder = new StringDecoder('utf8');
       let total = 0;
       response.on('data', (chunk) => {
         total += chunk.length;
@@ -73,16 +92,33 @@ export function requestLocalAion(
           return;
         }
         chunks.push(chunk);
+        if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
+          try {
+            const decoded = decoder.write(chunk);
+            if (decoded) onChunk?.(decoded);
+          } catch (error) {
+            response.destroy(error instanceof Error ? error : new Error('AION stream consumer failed.'));
+          }
+        }
       });
       response.on('error', (error) => finish(reject, error));
-      response.on('end', () => finish(resolve, {
-        ok: Boolean(response.statusCode && response.statusCode >= 200 && response.statusCode < 300),
-        status: response.statusCode || 0,
-        text: Buffer.concat(chunks).toString('utf8'),
-      }));
+      response.on('end', () => {
+        try {
+          const decoded = decoder.end();
+          if (decoded && response.statusCode && response.statusCode >= 200 && response.statusCode < 300) onChunk?.(decoded);
+          finish(resolve, {
+            ok: Boolean(response.statusCode && response.statusCode >= 200 && response.statusCode < 300),
+            status: response.statusCode || 0,
+            text: Buffer.concat(chunks).toString('utf8'),
+          });
+        } catch (error) {
+          finish(reject, error instanceof Error ? error : new Error('AION stream consumer failed.'));
+        }
+      });
     });
     request.setTimeout(timeoutMs, () => request.destroy(new Error('AION local service timed out.')));
     request.on('error', (error) => finish(reject, error));
+    signal?.addEventListener('abort', aborted, { once: true });
     request.end(body);
   });
 }

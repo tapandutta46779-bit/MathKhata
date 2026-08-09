@@ -469,7 +469,7 @@ math-field.assistant-math { display: block; grid-column: 1 / -1; width: 100%; pa
 .aion-status--ready { color: #426449; background: #dcebdd; }
 .aion-status--error { color: #8b312a; background: #f5deda; }
 .aion-chat { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
-.aion-chat__conversation { min-width: 0; min-height: 0; padding: 17px 16px 24px; overflow-y: auto; overscroll-behavior: contain; }
+.aion-chat__conversation { min-width: 0; min-height: 0; padding: 17px 16px 56px; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 56px; }
 .aion-welcome { display: grid; justify-items: start; gap: 8px; max-width: 340px; margin: 6vh auto 0; }
 .aion-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: #fff; background: linear-gradient(145deg, #a25336, #713c2a); font: 700 17px/1 Georgia, serif; box-shadow: 0 6px 15px rgba(113,60,42,.2); }
 .aion-welcome h2 { margin: 3px 0 0; color: #37342e; font: 20px/1.25 Georgia, serif; }
@@ -494,7 +494,7 @@ math-field.assistant-math { display: block; grid-column: 1 / -1; width: 100%; pa
 .aion-answer-line { display: grid; grid-template-columns: 13px minmax(0, 1fr); gap: 2px; }
 .aion-answer-line__marker { color: #9a482c; }
 .aion-result math-field.page-assistant-math { display: inline-block; width: auto; max-width: 100%; min-height: 0; margin: 0 2px; vertical-align: -.32em; font-size: 16px; }
-.aion-result math-field.page-assistant-math--display { display: block; width: 100%; margin: 7px 0 10px; overflow-x: auto; vertical-align: baseline; font-size: 19px; }
+.aion-result math-field.page-assistant-math--display { display: block; width: 100%; min-height: 2.8em; margin: 9px 0 14px; overflow-x: auto; overflow-y: visible; vertical-align: baseline; font-size: 19px; }
 .aion-composer { display: grid; gap: 5px; margin: 0 11px 11px; padding: 9px 10px 7px; border: 1px solid rgba(55,51,42,.16); border-radius: 13px; background: #fffefa; box-shadow: 0 7px 20px rgba(49,44,36,.09); }
 .aion-composer textarea { width: 100%; max-height: 150px; padding: 1px; resize: none; border: 0; outline: 0; color: var(--ink); background: transparent; font: 10px/1.5 inherit; }
 .aion-composer > div { display: flex; align-items: center; gap: 8px; }
@@ -906,6 +906,7 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 .ambiguity { margin: 7px 0 0; color: #8c572e; font-size: 10px; line-height: 1.4; }
 .latency-readout { margin: 8px 0 0; color: var(--muted); font-size: 9px; }
 .voice-error { padding: 8px; border-radius: 7px; color: #902c26; background: #f9e5e1; font-size: 11px; }
+.voice-provider-status { margin: 8px 2px; color: #6d6257; font-size: 9px; line-height: 1.45; }
 .voice-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .voice-actions button, .primary-button { padding: 8px 11px; border: 1px solid var(--border); border-radius: 8px; background: #f5f2eb; font-size: 11px; }
 .voice-actions button:hover { background: #ebe6dc; }

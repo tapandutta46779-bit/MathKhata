@@ -59,6 +59,7 @@ export interface SpeechProviderCallbacks {
   onTranscript: (transcript: SpeechTranscript) => void;
   onError: (message: string) => void;
   onEnd: () => void;
+  onStatus?: (message: string) => void;
 }
 
 export interface SpeechProvider {

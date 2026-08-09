@@ -35,4 +35,6 @@ export function requestLocalAion(apiPath: string, options?: {
   host?: string;
   port?: number;
   maxBytes?: number;
+  onChunk?: (chunk: string) => void;
+  signal?: AbortSignal;
 }): Promise<LocalAionResponse>;

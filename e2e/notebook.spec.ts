@@ -568,6 +568,13 @@ test('long structured mathematics flows across ruled lines without hiding contro
   await page.mouse.click(bounds.x + 130, bounds.y + 68);
   const field = page.locator('math-field.math-editor').first();
   await expect(field).toHaveAttribute('data-ready', 'true');
+  await expect.poll(() => page.evaluate(async () => {
+    await document.fonts.ready;
+    const required = ['KaTeX_Main', 'KaTeX_Math', 'KaTeX_Size1', 'KaTeX_Size2', 'KaTeX_Size3', 'KaTeX_Size4'];
+    await Promise.all(required.map((family) => document.fonts.load(`16px ${family}`)));
+    const loaded = new Set([...document.fonts].filter((font) => font.status === 'loaded').map((font) => font.family));
+    return !document.body.classList.contains('ML__fonts-did-not-load') && required.every((family) => loaded.has(family));
+  })).toBe(true);
   await expect.poll(() => field.evaluate((element) => document.activeElement === element)).toBe(true);
 
   await page.keyboard.type('x^12+2*x^11+3*x^10+4*x^9+5*x^8+6*x^7+7*x^6+8*x^5+9*x^4+10*x^3+11*x^2+12*x+13=0');

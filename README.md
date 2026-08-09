@@ -2,11 +2,11 @@
 
 MathKhata is a local-first mathematical notebook and research workspace for laptops. Its page is the interface: write structured mathematics and ordinary notes directly on ruled lines, then return later without losing layout or mathematical editability.
 
-Version 1.0 runs as an installable macOS, Windows, or Linux desktop application and as a browser/PWA build. It supports a physical keyboard, trackpad or mouse, and optional microphone access. It has no backend, account, cloud database, required AI dependency, telemetry, or API-key requirement.
+Version 1.0 runs as an installable macOS, Windows, or Linux desktop application and as a browser/PWA build. It supports a physical keyboard, trackpad or mouse, and optional microphone access. It has no account, cloud database, telemetry, or API-key requirement. The desktop speech model is downloaded once on first use and cached locally; recorded audio is then transcribed on-device.
 
 ## Desktop application
 
-The desktop build packages the complete notebook, MathLive keyboard and menus, Symbols, Voice, AION connection, 2D/3D graphing, Geometry, Scientific workspace, and floating calculator for offline use. The renderer is sandboxed and has no Node.js or unrestricted filesystem access.
+The desktop build packages the complete notebook, MathLive keyboard and menus, Symbols, Voice, AION connection, 2D/3D graphing, Geometry, Scientific workspace, and floating calculator. Notebook work, deterministic mathematics, and cached speech recognition work offline. The renderer is sandboxed and has no Node.js or unrestricted filesystem access.
 
 ```sh
 npm install
@@ -72,7 +72,7 @@ To install the safe post-commit Google Drive backup and create a milestone snaps
 
 ## Voice status
 
-Chrome Web Speech support is used when genuinely available; nothing is simulated. One utterance may contain both mathematics and ordinary language: “x equals six, then y equals eight” becomes two math lines, while an unfamiliar prose phrase remains text. “Then”, “next line”, and “new line” continue on the next ruled line. Every Symbols-palette item has a tested spoken example. A final transcript may receive a private AION second pass; the immediate deterministic candidate remains usable if AION is slow or unavailable. See [docs/VOICE_EXPERIMENT.md](docs/VOICE_EXPERIMENT.md).
+Chrome Web Speech support is used in Chrome when genuinely available. Electron does not reliably provide Chrome's hosted recognition service, so the desktop build records microphone PCM only after permission and runs a cached local Whisper speech model in a sandboxed worker. Its model files are downloaded from Hugging Face on first use; audio is not uploaded. Nothing is simulated. One utterance may contain both mathematics and ordinary language: “x equals six, then y equals eight” becomes two math lines, while an unfamiliar prose phrase remains text. “Then”, “next line”, and “new line” continue on the next ruled line. Every Symbols-palette item has a tested spoken example. A final transcript may receive a private AION second pass; the immediate deterministic candidate remains usable if AION is slow or unavailable. See [docs/VOICE_EXPERIMENT.md](docs/VOICE_EXPERIMENT.md).
 
 ## Product scope
 

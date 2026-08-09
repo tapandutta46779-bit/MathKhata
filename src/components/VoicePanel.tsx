@@ -8,11 +8,14 @@ import {
 } from '../voice/notebookSpeechParser';
 import { NotebookVoiceInsertionController } from '../voice/voiceInsertionController';
 import { WebSpeechProvider } from '../voice/webSpeechProvider';
+import { DesktopSpeechProvider } from '../voice/desktopSpeechProvider';
 import type { NotebookVoiceCandidate, VoiceState } from '../voice/types';
 import { refineVoiceCandidateWithAION } from '../voice/aionVoiceInterpreter';
 
 export function VoicePanel() {
-  const provider = useMemo(() => new WebSpeechProvider(), []);
+  const provider = useMemo(() => window.mathKhataDesktop
+    ? new DesktopSpeechProvider()
+    : new WebSpeechProvider(), []);
   const controller = useMemo(() => new NotebookVoiceInsertionController(), []);
   const setTool = useNotebookStore((state) => state.setTool);
   const undo = useNotebookStore((state) => state.undo);
@@ -20,6 +23,7 @@ export function VoicePanel() {
   const [voiceState, setVoiceState] = useState<VoiceState>(provider.supported ? 'idle' : 'unsupported');
   const [candidate, setCandidate] = useState<NotebookVoiceCandidate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [providerStatus, setProviderStatus] = useState<string | null>(null);
   const [aionVoiceState, setAionVoiceState] = useState<'idle' | 'refining' | 'refined' | 'fallback'>('idle');
   const mounted = useRef(true);
   const refinementRef = useRef<AbortController | null>(null);
@@ -52,6 +56,7 @@ export function VoicePanel() {
 
   function start() {
     setError(null);
+    setProviderStatus(null);
     setCandidate(null);
     setAionVoiceState('idle');
     provider.start({
@@ -96,6 +101,7 @@ export function VoicePanel() {
         }
       },
       onError: setError,
+      onStatus: setProviderStatus,
       onEnd: () => {
         if (mounted.current) {
           setVoiceState((current) =>
@@ -119,8 +125,8 @@ export function VoicePanel() {
 
       {!provider.supported ? (
         <p className="voice-message">
-          Web Speech recognition is unavailable in this browser. Nothing is being simulated; the
-          replaceable speech-provider boundary remains ready for another engine.
+          Speech recognition is unavailable on this device. Nothing is being simulated and no
+          transcript will be created without recorded speech.
         </p>
       ) : candidate ? (
         <div className="voice-candidate">
@@ -179,6 +185,7 @@ export function VoicePanel() {
       )}
 
       {error && <p className="voice-error" role="alert">{error}</p>}
+      {providerStatus && <p className="voice-provider-status" role="status">{providerStatus}</p>}
       <div className="voice-actions">
         {(voiceState === 'idle' || voiceState === 'finished' || voiceState === 'error') && provider.supported && (
           <button type="button" className="primary-button" onClick={start}>

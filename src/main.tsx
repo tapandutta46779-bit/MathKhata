@@ -4,9 +4,10 @@ import { MathfieldElement } from 'mathlive';
 import App from './App';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { registerOfflineApp } from './offline';
+import 'mathlive/static.css';
 import './styles.css';
 
-MathfieldElement.fontsDirectory = `${import.meta.env.BASE_URL}fonts`;
+MathfieldElement.fontsDirectory = new URL(`${import.meta.env.BASE_URL}fonts/`, document.baseURI).href;
 MathfieldElement.soundsDirectory = null;
 
 if (window.mathKhataDesktop) {

@@ -25,6 +25,17 @@ contextBridge.exposeInMainWorld('mathKhataDesktop', Object.freeze({
   },
   aion: Object.freeze({
     check: () => ipcRenderer.invoke('aion:check'),
-    chat: (payload) => ipcRenderer.invoke('aion:chat', payload),
+    chat(requestId, payload, onChunk) {
+      if (typeof requestId !== 'string' || typeof onChunk !== 'function') {
+        return Promise.reject(new Error('AION stream request is invalid.'));
+      }
+      const listener = (_event, message) => {
+        if (message?.requestId === requestId && typeof message.chunk === 'string') onChunk(message.chunk);
+      };
+      ipcRenderer.on('aion:stream', listener);
+      return ipcRenderer.invoke('aion:chat', { requestId, payload })
+        .finally(() => ipcRenderer.removeListener('aion:stream', listener));
+    },
+    cancel: (requestId) => ipcRenderer.send('aion:cancel', requestId),
   }),
 }));

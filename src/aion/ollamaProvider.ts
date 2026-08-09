@@ -44,6 +44,8 @@ function cleanVisibleAnswer(text: string): string {
   return text
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<think(?:ing)?>[\s\S]*$/gi, '')
+    .replace(/<t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$/i, '')
     .replace(/```(?:latex|tex|math)\s*([\s\S]*?)```/gi, (_, math: string) => `\\[${math.trim()}\\]`)
     .replace(/```(?:markdown|text)?\s*([\s\S]*?)```/gi, (_, content: string) => content.trim())
     .trim();
@@ -124,10 +126,29 @@ export async function askAIONLocal(
   };
   const desktop = window.mathKhataDesktop?.aion;
   if (desktop) {
-    const raw = await withAbort(desktop.chat(requestPayload), options.signal);
-    const lines = raw.split('\n');
-    buffer = lines.pop() ?? '';
-    lines.forEach(consumeLine);
+    const requestId = globalThis.crypto?.randomUUID?.()
+      ?? `aion-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let streamFailure: unknown;
+    const consumeChunk = (chunk: string) => {
+      if (streamFailure) return;
+      try {
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        lines.forEach(consumeLine);
+      } catch (error) {
+        streamFailure = error;
+        desktop.cancel(requestId);
+      }
+    };
+    const cancel = () => desktop.cancel(requestId);
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    try {
+      await withAbort(desktop.chat(requestId, requestPayload, consumeChunk), options.signal);
+      if (streamFailure) throw streamFailure;
+    } finally {
+      options.signal?.removeEventListener('abort', cancel);
+    }
   } else {
     const response = await fetch(`${AION_OLLAMA_ENDPOINT}/api/chat`, {
       method: 'POST',

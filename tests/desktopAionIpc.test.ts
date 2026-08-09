@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { requestLocalAion, validateAionPayload } from '../desktop/local-aion.mjs';
 
 let server: Server | undefined;
@@ -44,6 +44,61 @@ describe('packaged desktop AION transport', () => {
     expect(JSON.parse(tags.text).models[0].name).toBe('qwen3:8b');
     expect(chat.ok).toBe(true);
     expect(chat.text).toContain('AION desktop reply');
+  });
+
+  it('delivers ordered chunks before the loopback response completes', async () => {
+    let ended = false;
+    server = createServer((_request, response) => {
+      response.setHeader('Content-Type', 'application/x-ndjson');
+      response.write('{"message":{"content":"one"}}\n');
+      setTimeout(() => response.write('{"message":{"content":" two"}}\n'), 15);
+      setTimeout(() => {
+        ended = true;
+        response.end('{"done":true}\n');
+      }, 50);
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Stub address unavailable.');
+    const chunks: string[] = [];
+
+    const responsePromise = requestLocalAion('/api/chat', {
+      port: address.port,
+      method: 'POST',
+      body: '{}',
+      onChunk: (chunk) => chunks.push(chunk),
+    });
+    await vi.waitFor(() => expect(chunks.length).toBeGreaterThanOrEqual(2));
+
+    expect(ended).toBe(false);
+    expect(chunks.join('')).toContain('one');
+    expect(chunks.join('')).toContain(' two');
+    await expect(responsePromise).resolves.toMatchObject({ ok: true });
+  });
+
+  it('aborts an in-flight loopback stream promptly', async () => {
+    server = createServer((_request, response) => {
+      response.setHeader('Content-Type', 'application/x-ndjson');
+      response.write('{"message":{"content":"started"}}\n');
+      setTimeout(() => response.end('{"done":true}\n'), 1_000);
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Stub address unavailable.');
+    const controller = new AbortController();
+    const chunks: string[] = [];
+    const responsePromise = requestLocalAion('/api/chat', {
+      port: address.port,
+      method: 'POST',
+      body: '{}',
+      signal: controller.signal,
+      onChunk: (chunk) => chunks.push(chunk),
+    });
+    await vi.waitFor(() => expect(chunks).toHaveLength(1));
+
+    controller.abort();
+
+    await expect(responsePromise).rejects.toMatchObject({ name: 'AbortError' });
   });
 
   it('reports an unavailable local service without weakening the deterministic fallback', async () => {

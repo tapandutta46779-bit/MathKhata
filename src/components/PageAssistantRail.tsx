@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MathfieldElement } from 'mathlive';
 import { useAIONRuntime } from '../aion/useAIONRuntime';
 import {
@@ -167,6 +167,7 @@ export function PageAssistantRail() {
   const [solveStates, setSolveStates] = useState<Record<string, SolveState>>({});
   const [aionQuestion, setAionQuestion] = useState('');
   const [conversation, setConversation] = useState<AIONConversationTurn[]>([]);
+  const conversationRef = useRef<HTMLDivElement | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [assistantView, setAssistantView] = useState<'chat' | 'outline'>('chat');
   const aion = useAIONRuntime();
@@ -194,6 +195,15 @@ export function PageAssistantRail() {
       turn.id === activeTurnId ? { ...turn, answer: aion.result! } : turn
     )));
   }, [activeTurnId, aion.result]);
+
+  useEffect(() => {
+    if (!activeTurnId) return;
+    const frame = requestAnimationFrame(() => {
+      const element = conversationRef.current;
+      if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeTurnId, aion.result, aion.status]);
 
   if (!analysis) return null;
 
@@ -320,7 +330,7 @@ export function PageAssistantRail() {
       </nav>
       {assistantView === 'chat' && (
         <section className="aion-chat" aria-label="AION mathematical conversation">
-          <div className="aion-chat__conversation">
+          <div className="aion-chat__conversation" ref={conversationRef}>
             {conversation.length === 0 && aion.status !== 'analyzing' && (
               <div className="aion-welcome">
                 <span className="aion-mark">A</span>

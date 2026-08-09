@@ -9,13 +9,26 @@ const projectRoot = path.resolve(moduleDirectory, '..');
 const distRoot = path.join(projectRoot, 'dist');
 const developmentUrl = process.env.MATHKHATA_DEV_URL || 'http://127.0.0.1:4173';
 const applicationUrl = 'mathkhata://app/';
+const contentTypes = new Map([
+  ['.html', 'text/html; charset=utf-8'],
+  ['.js', 'text/javascript; charset=utf-8'],
+  ['.css', 'text/css; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.webp', 'image/webp'],
+  ['.ico', 'image/x-icon'],
+  ['.woff2', 'font/woff2'],
+  ['.woff', 'font/woff'],
+  ['.wasm', 'application/wasm'],
+]);
 const productionCsp = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co",
   "worker-src 'self' blob:",
   "media-src 'self' blob:",
   "object-src 'none'",
@@ -72,6 +85,9 @@ async function registerApplicationProtocol() {
     }
     const response = await net.fetch(pathToFileURL(targetPath).href);
     const headers = new Headers(response.headers);
+    const contentType = contentTypes.get(path.extname(targetPath).toLowerCase());
+    if (contentType) headers.set('Content-Type', contentType);
+    if (/\.(?:woff2?|wasm)$/i.test(targetPath)) headers.set('Cache-Control', 'public, max-age=31536000, immutable');
     if (targetPath.endsWith('.html')) headers.set('Content-Security-Policy', productionCsp);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   });
@@ -230,6 +246,14 @@ async function createWindow() {
 }
 
 function installAionBridge() {
+  const activeRequests = new Map();
+  const requestKey = (senderId, requestId) => `${senderId}:${requestId}`;
+  const requireRequestId = (requestId) => {
+    if (typeof requestId !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(requestId)) {
+      throw new Error('AION request identifier is invalid.');
+    }
+    return requestId;
+  };
   ipcMain.handle('aion:check', async (event) => {
     assertTrustedSender(event);
     const response = await requestLocalAion('/api/tags', { timeoutMs: 5_000, maxBytes: 2 * 1024 * 1024 });
@@ -241,20 +265,45 @@ function installAionBridge() {
         : [],
     };
   });
-  ipcMain.handle('aion:chat', async (event, payload) => {
+  ipcMain.handle('aion:chat', async (event, request) => {
     assertTrustedSender(event);
-    const body = validateAionPayload(payload);
-    const response = await requestLocalAion('/api/chat', {
-      method: 'POST',
-      body: JSON.stringify(body),
-      timeoutMs: 180_000,
-    });
-    if (!response.ok) {
-      let message = `AION returned ${response.status}.`;
-      try { message = JSON.parse(response.text).error || message; } catch { /* Keep the safe status message. */ }
-      throw new Error(message);
+    const requestId = requireRequestId(request?.requestId);
+    const body = validateAionPayload(request?.payload);
+    const key = requestKey(event.sender.id, requestId);
+    if (activeRequests.has(key)) throw new Error('AION request identifier is already active.');
+    const controller = new AbortController();
+    const cancelDestroyedSender = () => controller.abort();
+    activeRequests.set(key, controller);
+    event.sender.once('destroyed', cancelDestroyedSender);
+    try {
+      const response = await requestLocalAion('/api/chat', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        timeoutMs: 180_000,
+        signal: controller.signal,
+        onChunk: (chunk) => {
+          if (!event.sender.isDestroyed()) event.sender.send('aion:stream', { requestId, chunk });
+        },
+      });
+      if (!response.ok) {
+        let message = `AION returned ${response.status}.`;
+        try { message = JSON.parse(response.text).error || message; } catch { /* Keep the safe status message. */ }
+        throw new Error(message);
+      }
+      return { completed: true };
+    } finally {
+      event.sender.removeListener('destroyed', cancelDestroyedSender);
+      activeRequests.delete(key);
     }
-    return response.text;
+  });
+  ipcMain.on('aion:cancel', (event, rawRequestId) => {
+    try {
+      assertTrustedSender(event);
+      const requestId = requireRequestId(rawRequestId);
+      activeRequests.get(requestKey(event.sender.id, requestId))?.abort();
+    } catch {
+      // Invalid or untrusted cancellation messages are ignored.
+    }
   });
 }
 
