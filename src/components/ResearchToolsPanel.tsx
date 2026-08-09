@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import type { MathfieldElement } from 'mathlive';
 import {
   angleDegrees,
   circleCircleIntersections,
@@ -8,6 +9,7 @@ import {
   geometryPointLabel,
   lineIntersection,
   lineCircleIntersections,
+  parseCircleConstruction,
   polygonArea,
   polygonPerimeter,
   reflectCoordinate,
@@ -70,6 +72,17 @@ async function numericEvaluatorWithRestrictions(expression: string) {
   return (values: Record<string, number>) => conditions.every((condition) => condition(values)) ? evaluate(values) : Number.NaN;
 }
 
+function splitTopLevelComma(source: string): [string, string] | null {
+  let depth = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === '(' || character === '[') depth += 1;
+    else if (character === ')' || character === ']') depth -= 1;
+    else if (character === ',' && depth === 0) return [source.slice(0, index), source.slice(index + 1)];
+  }
+  return null;
+}
+
 function gridStep(scale: number): number {
   const raw = 64 / scale;
   const power = 10 ** Math.floor(Math.log10(raw));
@@ -95,11 +108,48 @@ function usePersistentResearchState<T>(key: string, initialValue: T): [T, Dispat
   return [state, setState];
 }
 
+function useResponsiveCanvasSize(ref: React.RefObject<HTMLCanvasElement | null>) {
+  const [size, setSize] = useState({ width: 900, height: 500 });
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return undefined;
+    const update = () => {
+      const bounds = canvas.getBoundingClientRect();
+      const width = Math.max(320, Math.round(bounds.width));
+      const height = Math.max(280, Math.round(bounds.height));
+      setSize((current) => current.width === width && current.height === height ? current : { width, height });
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(update);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [ref]);
+  return size;
+}
+
 interface GraphExpression {
   id: number;
   expression: string;
   color: string;
   visible: boolean;
+}
+
+interface Graph2DSettings {
+  showGrid: boolean;
+  showMinorGrid: boolean;
+  showAxes: boolean;
+  showNumbers: boolean;
+  lockViewport: boolean;
+  gridMode: 'cartesian' | 'polar';
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+  xStep: number;
+  yStep: number;
+  xLabel: string;
+  yLabel: string;
 }
 
 function Graph2D({ storagePrefix }: { storagePrefix: string }) {
@@ -108,11 +158,51 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
     { id: 2, expression: 'x^2/8-2', color: GRAPH_COLORS[1], visible: true },
   ]);
   const [viewport, setViewport] = usePersistentResearchState(`${storagePrefix}:2d:viewport`, { centerX: 0, centerY: 0, scale: 52 });
+  const [settings, setSettings] = usePersistentResearchState<Graph2DSettings>(`${storagePrefix}:2d:settings`, {
+    showGrid: true,
+    showMinorGrid: true,
+    showAxes: true,
+    showNumbers: true,
+    lockViewport: false,
+    gridMode: 'cartesian',
+    xMin: -10,
+    xMax: 10,
+    yMin: -6,
+    yMax: 6,
+    xStep: 0,
+    yStep: 0,
+    xLabel: 'x',
+    yLabel: 'y',
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
   const [trace, setTrace] = useState<{ x: number; y: number; color: string } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasSize = useResponsiveCanvasSize(canvasRef);
+  const settingsRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerX: number; pointerY: number; centerX: number; centerY: number } | null>(null);
   const evaluatorsRef = useRef<Array<{ color: string; evaluate: (values: Record<string, number>) => number }>>([]);
+
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+    const dismiss = (event: KeyboardEvent | PointerEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setSettingsOpen(false);
+        }
+        return;
+      }
+      if (!settingsRef.current?.contains(event.target as Node)) setSettingsOpen(false);
+    };
+    window.addEventListener('keydown', dismiss, true);
+    window.addEventListener('pointerdown', dismiss, true);
+    return () => {
+      window.removeEventListener('keydown', dismiss, true);
+      window.removeEventListener('pointerdown', dismiss, true);
+    };
+  }, [settingsOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +217,8 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
       context.fillRect(0, 0, width, height);
       try {
         const step = gridStep(viewport.scale);
+        const xStep = settings.xStep > 0 ? settings.xStep : step;
+        const yStep = settings.yStep > 0 ? settings.yStep : step;
         const worldLeft = viewport.centerX - width / (2 * viewport.scale);
         const worldRight = viewport.centerX + width / (2 * viewport.scale);
         const worldBottom = viewport.centerY - height / (2 * viewport.scale);
@@ -134,81 +226,226 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         const screenX = (x: number) => width / 2 + (x - viewport.centerX) * viewport.scale;
         const screenY = (y: number) => height / 2 - (y - viewport.centerY) * viewport.scale;
 
+        if (settings.showGrid && settings.gridMode === 'cartesian' && settings.showMinorGrid) {
+          const minorX = xStep / 5;
+          const minorY = yStep / 5;
+          if (minorX * viewport.scale >= 7) {
+            context.strokeStyle = '#f0ede6'; context.lineWidth = .65;
+            for (let x = Math.ceil(worldLeft / minorX) * minorX; x <= worldRight; x += minorX) {
+              if (Math.abs(x / xStep - Math.round(x / xStep)) < 1e-7) continue;
+              const px = screenX(x); context.beginPath(); context.moveTo(px, 0); context.lineTo(px, height); context.stroke();
+            }
+          }
+          if (minorY * viewport.scale >= 7) {
+            context.strokeStyle = '#f0ede6'; context.lineWidth = .65;
+            for (let y = Math.ceil(worldBottom / minorY) * minorY; y <= worldTop; y += minorY) {
+              if (Math.abs(y / yStep - Math.round(y / yStep)) < 1e-7) continue;
+              const py = screenY(y); context.beginPath(); context.moveTo(0, py); context.lineTo(width, py); context.stroke();
+            }
+          }
+        }
+        if (settings.showGrid && settings.gridMode === 'polar') {
+          const originX = screenX(0); const originY = screenY(0);
+          const maxRadius = Math.hypot(Math.max(Math.abs(worldLeft), Math.abs(worldRight)), Math.max(Math.abs(worldBottom), Math.abs(worldTop)));
+          context.strokeStyle = '#e4e0d7'; context.lineWidth = 1;
+          for (let radius = xStep; radius <= maxRadius; radius += xStep) { context.beginPath(); context.arc(originX, originY, radius * viewport.scale, 0, Math.PI * 2); context.stroke(); }
+          for (let angle = 0; angle < Math.PI; angle += Math.PI / 12) {
+            const reach = maxRadius * viewport.scale;
+            context.beginPath(); context.moveTo(originX - Math.cos(angle) * reach, originY + Math.sin(angle) * reach); context.lineTo(originX + Math.cos(angle) * reach, originY - Math.sin(angle) * reach); context.stroke();
+          }
+        }
         context.font = '10px ui-monospace, monospace';
         context.textAlign = 'center';
         context.textBaseline = 'top';
-        for (let x = Math.ceil(worldLeft / step) * step; x <= worldRight; x += step) {
-          const px = screenX(x);
-          context.strokeStyle = Math.abs(x) < step / 100 ? '#8b877d' : '#e4e0d7';
-          context.lineWidth = Math.abs(x) < step / 100 ? 1.5 : 1;
+        for (let x = Math.ceil(worldLeft / xStep) * xStep; x <= worldRight; x += xStep) {
+          const px = screenX(x); const axis = Math.abs(x) < xStep / 100;
+          if (!settings.showGrid && !(settings.showAxes && axis)) continue;
+          context.strokeStyle = axis ? '#77736b' : '#d9d5cc';
+          context.lineWidth = axis ? 1.6 : 1;
           context.beginPath(); context.moveTo(px, 0); context.lineTo(px, height); context.stroke();
-          if (Math.abs(x) > step / 100) {
-            context.fillStyle = '#8c887f';
+          if (settings.showNumbers && settings.showAxes && !axis) {
+            context.fillStyle = '#77736b';
             context.fillText(Number(x.toPrecision(5)).toString(), px, Math.min(height - 14, Math.max(3, screenY(0) + 4)));
           }
         }
         context.textAlign = 'left';
         context.textBaseline = 'middle';
-        for (let y = Math.ceil(worldBottom / step) * step; y <= worldTop; y += step) {
-          const py = screenY(y);
-          context.strokeStyle = Math.abs(y) < step / 100 ? '#8b877d' : '#e4e0d7';
-          context.lineWidth = Math.abs(y) < step / 100 ? 1.5 : 1;
+        for (let y = Math.ceil(worldBottom / yStep) * yStep; y <= worldTop; y += yStep) {
+          const py = screenY(y); const axis = Math.abs(y) < yStep / 100;
+          if (!settings.showGrid && !(settings.showAxes && axis)) continue;
+          context.strokeStyle = axis ? '#77736b' : '#d9d5cc';
+          context.lineWidth = axis ? 1.6 : 1;
           context.beginPath(); context.moveTo(0, py); context.lineTo(width, py); context.stroke();
-          if (Math.abs(y) > step / 100) {
-            context.fillStyle = '#8c887f';
+          if (settings.showNumbers && settings.showAxes && !axis) {
+            context.fillStyle = '#77736b';
             context.fillText(Number(y.toPrecision(5)).toString(), Math.min(width - 35, Math.max(4, screenX(0) + 5)), py);
           }
         }
+        if (settings.showAxes) {
+          context.fillStyle = '#4f4b44'; context.font = 'bold 11px ui-monospace, monospace';
+          context.textAlign = 'right'; context.textBaseline = 'top'; context.fillText(settings.xLabel || 'x', width - 8, Math.max(4, Math.min(height - 16, screenY(0) + 5)));
+          context.textAlign = 'left'; context.textBaseline = 'top'; context.fillText(settings.yLabel || 'y', Math.max(5, Math.min(width - 18, screenX(0) + 6)), 6);
+        }
 
         const active = expressions.filter((entry) => entry.visible && entry.expression.trim());
-        const evaluators = await Promise.all(active.map(async (entry) => ({
-          color: entry.color,
-          evaluate: await numericEvaluatorWithRestrictions(entry.expression),
-        })));
+        const parameterValues: Record<string, number> = {};
+        active.forEach((entry) => {
+          const parameter = entry.expression.trim().match(/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/);
+          if (parameter && !['x', 'y'].includes(parameter[1])) parameterValues[parameter[1]] = Number(parameter[2]);
+        });
+        type Compiled2D =
+          | { kind: 'y'; color: string; evaluate: (values: Record<string, number>) => number }
+          | { kind: 'x'; color: string; evaluate: (values: Record<string, number>) => number }
+          | { kind: 'implicit'; color: string; evaluate: (values: Record<string, number>) => number }
+          | { kind: 'point'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number }
+          | { kind: 'parametric'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number };
+        const compiled = (await Promise.all(active.map(async (entry): Promise<Compiled2D | null> => {
+          const source = entry.expression.trim();
+          if (/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/.test(source) && !/^[xy]\s*=/.test(source)) return null;
+          const restrictions = (source.match(/\{[^{}]+\}/g) ?? []).join('');
+          const base = source.replace(/\{[^{}]+\}/g, '').trim();
+          const tuple = base.match(/^\((.*)\)$/);
+          const coordinates = tuple ? splitTopLevelComma(tuple[1]) : null;
+          if (coordinates) {
+            const isParametric = /\bt\b/.test(coordinates[0]) || /\bt\b/.test(coordinates[1]);
+            return {
+              kind: isParametric ? 'parametric' : 'point',
+              color: entry.color,
+              evaluateX: await numericEvaluatorWithRestrictions(`${coordinates[0]}${restrictions}`),
+              evaluateY: await numericEvaluatorWithRestrictions(`${coordinates[1]}${restrictions}`),
+            };
+          }
+          const yExplicit = base.match(/^y\s*=\s*(.+)$/i);
+          if (yExplicit) return { kind: 'y', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`${yExplicit[1]}${restrictions}`) };
+          const xExplicit = base.match(/^x\s*=\s*(.+)$/i);
+          if (xExplicit) return { kind: 'x', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`${xExplicit[1]}${restrictions}`) };
+          const equals = base.indexOf('=');
+          if (equals > 0) {
+            const left = base.slice(0, equals); const right = base.slice(equals + 1);
+            return { kind: 'implicit', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`(${left})-(${right})${restrictions}`) };
+          }
+          return { kind: 'y', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`${base}${restrictions}`) };
+        }))).filter((entry): entry is Compiled2D => Boolean(entry));
         if (cancelled) return;
-        evaluatorsRef.current = evaluators;
-        for (const entry of evaluators) {
+        evaluatorsRef.current = compiled.filter((entry): entry is Extract<Compiled2D, { kind: 'y' }> => entry.kind === 'y').map((entry) => ({ color: entry.color, evaluate: (values) => entry.evaluate({ ...parameterValues, ...values }) }));
+        for (const entry of compiled) {
           context.strokeStyle = entry.color;
           context.lineWidth = 2.25;
           context.lineJoin = 'round';
+          if (entry.kind === 'point') {
+            const x = entry.evaluateX(parameterValues); const y = entry.evaluateY(parameterValues);
+            if (Number.isFinite(x) && Number.isFinite(y)) {
+              context.fillStyle = entry.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
+              context.beginPath(); context.arc(screenX(x), screenY(y), 6, 0, Math.PI * 2); context.fill(); context.stroke();
+            }
+            continue;
+          }
+          if (entry.kind === 'parametric') {
+            context.beginPath(); let drawing = false;
+            for (let sample = 0; sample <= 500; sample += 1) {
+              const t = -10 + sample * 20 / 500;
+              const x = entry.evaluateX({ ...parameterValues, t }); const y = entry.evaluateY({ ...parameterValues, t });
+              const px = screenX(x); const py = screenY(y);
+              if (![px, py].every(Number.isFinite)) { drawing = false; continue; }
+              if (!drawing) { context.moveTo(px, py); drawing = true; } else context.lineTo(px, py);
+            }
+            context.stroke();
+            continue;
+          }
+          if (entry.kind === 'implicit') {
+            const columns = Math.max(90, Math.min(220, Math.round(width / 5)));
+            const rows = Math.max(60, Math.min(150, Math.round(height / 5)));
+            const values: number[][] = [];
+            for (let row = 0; row <= rows; row += 1) {
+              const y = worldTop - row * (worldTop - worldBottom) / rows;
+              const rowValues = [];
+              for (let column = 0; column <= columns; column += 1) {
+                const x = worldLeft + column * (worldRight - worldLeft) / columns;
+                rowValues.push(entry.evaluate({ ...parameterValues, x, y }));
+              }
+              values.push(rowValues);
+            }
+            const crossing = (ax: number, ay: number, av: number, bx: number, by: number, bv: number) => {
+              if (![av, bv].every(Number.isFinite) || av * bv > 0 || Math.abs(av - bv) < 1e-12) return null;
+              const ratio = av / (av - bv);
+              return { x: ax + (bx - ax) * ratio, y: ay + (by - ay) * ratio };
+            };
+            context.beginPath();
+            for (let row = 0; row < rows; row += 1) {
+              const yTop = worldTop - row * (worldTop - worldBottom) / rows;
+              const yBottom = worldTop - (row + 1) * (worldTop - worldBottom) / rows;
+              for (let column = 0; column < columns; column += 1) {
+                const xLeft = worldLeft + column * (worldRight - worldLeft) / columns;
+                const xRight = worldLeft + (column + 1) * (worldRight - worldLeft) / columns;
+                const intersections = [
+                  crossing(xLeft, yTop, values[row][column], xRight, yTop, values[row][column + 1]),
+                  crossing(xRight, yTop, values[row][column + 1], xRight, yBottom, values[row + 1][column + 1]),
+                  crossing(xRight, yBottom, values[row + 1][column + 1], xLeft, yBottom, values[row + 1][column]),
+                  crossing(xLeft, yBottom, values[row + 1][column], xLeft, yTop, values[row][column]),
+                ].filter((point): point is { x: number; y: number } => Boolean(point));
+                for (let index = 0; index + 1 < intersections.length; index += 2) {
+                  context.moveTo(screenX(intersections[index].x), screenY(intersections[index].y));
+                  context.lineTo(screenX(intersections[index + 1].x), screenY(intersections[index + 1].y));
+                }
+              }
+            }
+            context.stroke();
+            continue;
+          }
           context.beginPath();
           let drawing = false;
           let previousY = 0;
-          for (let pixel = 0; pixel <= width; pixel += 2) {
-            const x = worldLeft + pixel / viewport.scale;
-            const y = entry.evaluate({ x });
-            const py = screenY(y);
-            const discontinuity = drawing && Math.abs(py - previousY) > height * .8;
-            if (!Number.isFinite(py) || py < -height * 4 || py > height * 5 || discontinuity) {
+          const horizontal = entry.kind === 'y';
+          const pixelLimit = horizontal ? width : height;
+          for (let pixel = 0; pixel <= pixelLimit; pixel += 2) {
+            const independent = horizontal ? worldLeft + pixel / viewport.scale : worldTop - pixel / viewport.scale;
+            const dependent = entry.evaluate({ ...parameterValues, [horizontal ? 'x' : 'y']: independent });
+            const px = horizontal ? pixel : screenX(dependent);
+            const py = horizontal ? screenY(dependent) : pixel;
+            const discontinuity = drawing && Math.abs((horizontal ? py : px) - previousY) > (horizontal ? height : width) * .8;
+            if (!Number.isFinite(px) || !Number.isFinite(py) || px < -width * 4 || px > width * 5 || py < -height * 4 || py > height * 5 || discontinuity) {
               drawing = false;
             } else if (!drawing) {
-              context.moveTo(pixel, py);
+              context.moveTo(px, py);
               drawing = true;
-            } else context.lineTo(pixel, py);
-            previousY = py;
+            } else context.lineTo(px, py);
+            previousY = horizontal ? py : px;
           }
           context.stroke();
         }
         setError('');
       } catch {
         evaluatorsRef.current = [];
-        setError('Check each visible expression. Examples: sin(x), x^2, exp(-x^2).');
+        setError('Check each visible line. Try y=sin(x), x=2, (x-2)^2+(y+1)^2=9, (cos(t),sin(t)), or a=2.');
       }
     };
     void draw();
     return () => { cancelled = true; };
-  }, [expressions, viewport]);
+  }, [canvasSize.height, canvasSize.width, expressions, settings, viewport]);
 
   const updateExpression = (id: number, patch: Partial<GraphExpression>) => {
     setExpressions((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
   };
 
+  const applyAxisBounds = () => {
+    const xRange = settings.xMax - settings.xMin;
+    const yRange = settings.yMax - settings.yMin;
+    if (!(xRange > 0) || !(yRange > 0)) return;
+    setViewport({
+      centerX: (settings.xMin + settings.xMax) / 2,
+      centerY: (settings.yMin + settings.yMax) / 2,
+      scale: Math.max(12, Math.min(300, Math.min(900 / xRange, 500 / yRange))),
+    });
+  };
+
   return (
     <section className="research-graph-lab">
       <aside className="graph-expression-list" aria-label="2D graph expressions">
-        <header><strong>Expressions</strong><span>{expressions.length}/6</span></header>
-        {expressions.map((entry, index) => (
-          <div className="graph-expression" key={entry.id}>
+        <header><strong>Expressions</strong><span>{expressions.length}/12</span></header>
+        {expressions.map((entry, index) => {
+          const parameter = entry.expression.trim().match(/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/);
+          const isParameter = Boolean(parameter && !['x', 'y'].includes(parameter[1]));
+          return <div className={`graph-expression${isParameter ? ' graph-expression--parameter' : ''}`} key={entry.id}>
             <button
               type="button"
               className={`graph-color${entry.visible ? ' is-visible' : ''}`}
@@ -216,14 +453,15 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
               aria-label={`${entry.visible ? 'Hide' : 'Show'} expression ${index + 1}`}
               onClick={() => updateExpression(entry.id, { visible: !entry.visible })}
             />
-            <label><span>y =</span><input aria-label={`Expression ${index + 1}`} value={entry.expression} onChange={(event) => updateExpression(entry.id, { expression: event.target.value })} /></label>
+            <label><span>{index + 1}</span><input aria-label={`Expression ${index + 1}`} placeholder="y=sin(x)" value={entry.expression} onChange={(event) => updateExpression(entry.id, { expression: event.target.value })} /></label>
             {expressions.length > 1 && <button type="button" aria-label={`Remove expression ${index + 1}`} onClick={() => setExpressions((current) => current.filter((item) => item.id !== entry.id))}>×</button>}
+            {isParameter && parameter && <label className="graph-inline-slider"><span>{parameter[1]} = {Number(parameter[2]).toFixed(2)}</span><input type="range" aria-label={`Parameter ${parameter[1]} value`} min="-10" max="10" step="0.1" value={Number(parameter[2])} onChange={(event) => updateExpression(entry.id, { expression: `${parameter[1]}=${event.target.value}` })} /></label>}
           </div>
-        ))}
+        })}
         <button
           type="button"
           className="graph-add-expression"
-          disabled={expressions.length >= 6}
+          disabled={expressions.length >= 12}
           onClick={() => setExpressions((current) => [...current, {
             id: Math.max(0, ...current.map((entry) => entry.id)) + 1,
             expression: '',
@@ -233,20 +471,38 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         >
           + Add expression
         </button>
-        <p>Drag to pan · wheel to zoom · point to trace</p>
+        <p>Write complete lines: <b>y=sin(x)</b>, <b>x=2</b>, <b>(x-2)^2+(y+1)^2=9</b>, <b>(cos(t),sin(t))</b>, or <b>a=2</b>.</p>
       </aside>
       <div className="graph-stage">
-        <div className="graph-controls" aria-label="2D graph view controls">
-          <button type="button" aria-label="Zoom in" onClick={() => setViewport((view) => ({ ...view, scale: Math.min(300, view.scale * 1.25) }))}>+</button>
-          <button type="button" aria-label="Zoom out" onClick={() => setViewport((view) => ({ ...view, scale: Math.max(12, view.scale / 1.25) }))}>−</button>
+        <div className="graph-controls" aria-label="2D graph view controls" ref={settingsRef}>
+          <div className="graph-settings-anchor">
+            <button type="button" aria-label="2D graph settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((current) => !current)}>Settings</button>
+            {settingsOpen && <section className="graph-settings-popover" aria-label="2D graph settings panel">
+              <header><strong>Graph settings</strong><button type="button" aria-label="Close 2D graph settings" onClick={() => setSettingsOpen(false)}>×</button></header>
+              <div className="graph-settings-checks">
+                <label><input type="checkbox" checked={settings.showGrid} onChange={(event) => setSettings((current) => ({ ...current, showGrid: event.target.checked }))} /> Grid</label>
+                <label><input type="checkbox" checked={settings.showMinorGrid} onChange={(event) => setSettings((current) => ({ ...current, showMinorGrid: event.target.checked }))} /> Minor grid</label>
+                <label><input type="checkbox" checked={settings.showAxes} onChange={(event) => setSettings((current) => ({ ...current, showAxes: event.target.checked }))} /> Axes</label>
+                <label><input type="checkbox" checked={settings.showNumbers} onChange={(event) => setSettings((current) => ({ ...current, showNumbers: event.target.checked }))} /> Numbers</label>
+                <label><input type="checkbox" checked={settings.lockViewport} onChange={(event) => setSettings((current) => ({ ...current, lockViewport: event.target.checked }))} /> Lock viewport</label>
+              </div>
+              <label>Grid<select aria-label="2D grid type" value={settings.gridMode} onChange={(event) => setSettings((current) => ({ ...current, gridMode: event.target.value as Graph2DSettings['gridMode'] }))}><option value="cartesian">Cartesian</option><option value="polar">Polar</option></select></label>
+              <div className="graph-axis-settings"><strong>x axis</strong><label>min<input type="number" value={settings.xMin} onChange={(event) => setSettings((current) => ({ ...current, xMin: Number(event.target.value) }))} /></label><label>max<input type="number" value={settings.xMax} onChange={(event) => setSettings((current) => ({ ...current, xMax: Number(event.target.value) }))} /></label><label>step<input type="number" min="0" step="0.1" value={settings.xStep} onChange={(event) => setSettings((current) => ({ ...current, xStep: Number(event.target.value) }))} /></label><label>label<input value={settings.xLabel} onChange={(event) => setSettings((current) => ({ ...current, xLabel: event.target.value }))} /></label></div>
+              <div className="graph-axis-settings"><strong>y axis</strong><label>min<input type="number" value={settings.yMin} onChange={(event) => setSettings((current) => ({ ...current, yMin: Number(event.target.value) }))} /></label><label>max<input type="number" value={settings.yMax} onChange={(event) => setSettings((current) => ({ ...current, yMax: Number(event.target.value) }))} /></label><label>step<input type="number" min="0" step="0.1" value={settings.yStep} onChange={(event) => setSettings((current) => ({ ...current, yStep: Number(event.target.value) }))} /></label><label>label<input value={settings.yLabel} onChange={(event) => setSettings((current) => ({ ...current, yLabel: event.target.value }))} /></label></div>
+              <button type="button" className="research-primary" onClick={applyAxisBounds}>Apply bounds</button>
+            </section>}
+          </div>
+          <button type="button" aria-label="Zoom in" disabled={settings.lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.min(300, view.scale * 1.25) }))}>+</button>
+          <button type="button" aria-label="Zoom out" disabled={settings.lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.max(12, view.scale / 1.25) }))}>−</button>
           <button type="button" aria-label="Reset graph view" onClick={() => setViewport({ centerX: 0, centerY: 0, scale: 52 })}>⌂</button>
         </div>
         <canvas
           ref={canvasRef}
-          width={900}
-          height={500}
+          width={canvasSize.width}
+          height={canvasSize.height}
           aria-label="Interactive 2D graph"
           onPointerDown={(event) => {
+            if (settings.lockViewport) return;
             event.currentTarget.setPointerCapture(event.pointerId);
             dragRef.current = { pointerX: event.clientX, pointerY: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY };
           }}
@@ -276,6 +532,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           onPointerLeave={() => { if (!dragRef.current) setTrace(null); }}
           onWheel={(event) => {
             event.preventDefault();
+            if (settings.lockViewport) return;
             const canvas = event.currentTarget;
             const bounds = canvas.getBoundingClientRect();
             const px = (event.clientX - bounds.left) * canvas.width / bounds.width;
@@ -338,6 +595,15 @@ interface Graph3DParametricSurface extends Graph3DPointExpression {
   opacity: number;
 }
 
+interface Graph3DBounds {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+  zMin: number;
+  zMax: number;
+}
+
 type SurfaceRenderMode = 'solid' | 'mesh' | 'contours';
 type SurfaceProjection = 'perspective' | 'orthographic';
 
@@ -352,22 +618,57 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   const [curves3D, setCurves3D] = usePersistentResearchState<Graph3DCurveExpression[]>(`${storagePrefix}:3d:curves`, []);
   const [parametricSurfaces, setParametricSurfaces] = usePersistentResearchState<Graph3DParametricSurface[]>(`${storagePrefix}:3d:parametric-surfaces`, []);
   const [implicitSurfaces, setImplicitSurfaces] = usePersistentResearchState<SurfaceExpression[]>(`${storagePrefix}:3d:implicit-surfaces`, []);
-  const [domain, setDomain] = usePersistentResearchState(`${storagePrefix}:3d:domain`, 5);
+  const [bounds, setBounds] = usePersistentResearchState<Graph3DBounds>(`${storagePrefix}:3d:bounds`, { xMin: -5, xMax: 5, yMin: -5, yMax: 5, zMin: -5, zMax: 5 });
   const [resolution, setResolution] = usePersistentResearchState(`${storagePrefix}:3d:resolution`, 29);
   const [camera, setCamera] = usePersistentResearchState(`${storagePrefix}:3d:camera`, { yaw: -.72, pitch: -.58, zoom: 1 });
   const [renderMode, setRenderMode] = usePersistentResearchState<SurfaceRenderMode>(`${storagePrefix}:3d:render`, 'solid');
   const [projection, setProjection] = usePersistentResearchState<SurfaceProjection>(`${storagePrefix}:3d:projection`, 'perspective');
   const [showAxes, setShowAxes] = usePersistentResearchState(`${storagePrefix}:3d:axes`, true);
   const [showGrid, setShowGrid] = usePersistentResearchState(`${storagePrefix}:3d:grid`, true);
+  const [showNumbers, setShowNumbers] = usePersistentResearchState(`${storagePrefix}:3d:numbers`, true);
+  const [showCube, setShowCube] = usePersistentResearchState(`${storagePrefix}:3d:cube`, true);
   const [showSurfaceIntersections, setShowSurfaceIntersections] = usePersistentResearchState(`${storagePrefix}:3d:intersections`, true);
   const [perspectiveStrength, setPerspectiveStrength] = usePersistentResearchState(`${storagePrefix}:3d:perspective-strength`, .65);
   const [lockRotation, setLockRotation] = usePersistentResearchState(`${storagePrefix}:3d:lock-rotation`, false);
   const [lockZoom, setLockZoom] = usePersistentResearchState(`${storagePrefix}:3d:lock-zoom`, false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
   const [trace, setTrace] = useState<{ x: number; y: number; z: number; color: string; expression: string } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasSize = useResponsiveCanvasSize(canvasRef);
+  const settingsRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
   const tracePointsRef = useRef<Array<{ screenX: number; screenY: number; x: number; y: number; z: number; color: string; expression: string }>>([]);
+  const orderedBounds = (minimum: number, maximum: number): [number, number] => minimum === maximum
+    ? [minimum - 1, maximum + 1]
+    : [Math.min(minimum, maximum), Math.max(minimum, maximum)];
+  const [xMin, xMax] = orderedBounds(bounds.xMin, bounds.xMax);
+  const [yMin, yMax] = orderedBounds(bounds.yMin, bounds.yMax);
+  const [zMin, zMax] = orderedBounds(bounds.zMin, bounds.zMax);
+  const xRange = xMax - xMin; const yRange = yMax - yMin; const zRange = zMax - zMin;
+  const domain = Math.max(1, xRange / 2, yRange / 2, zRange / 2);
+  const viewCenter = { x: (xMin + xMax) / 2, y: (yMin + yMax) / 2, z: (zMin + zMax) / 2 };
+
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+    const dismiss = (event: KeyboardEvent | PointerEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setSettingsOpen(false);
+        }
+        return;
+      }
+      if (!settingsRef.current?.contains(event.target as Node)) setSettingsOpen(false);
+    };
+    window.addEventListener('keydown', dismiss, true);
+    window.addEventListener('pointerdown', dismiss, true);
+    return () => {
+      window.removeEventListener('keydown', dismiss, true);
+      window.removeEventListener('pointerdown', dismiss, true);
+    };
+  }, [settingsOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -385,10 +686,11 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         const sinPitch = Math.sin(camera.pitch);
         const scale = camera.zoom * Math.min(canvas.width, canvas.height) / (domain * 3.05);
         const project = (x: number, y: number, z: number) => {
-          const yawX = x * cosYaw - y * sinYaw;
-          const yawY = x * sinYaw + y * cosYaw;
-          const pitchY = yawY * cosPitch - z * sinPitch;
-          const depth = yawY * sinPitch + z * cosPitch;
+          const centeredX = x - viewCenter.x; const centeredY = y - viewCenter.y; const centeredZ = z - viewCenter.z;
+          const yawX = centeredX * cosYaw - centeredY * sinYaw;
+          const yawY = centeredX * sinYaw + centeredY * cosYaw;
+          const pitchY = yawY * cosPitch - centeredZ * sinPitch;
+          const depth = yawY * sinPitch + centeredZ * cosPitch;
           const cameraDistance = domain * (8.5 - perspectiveStrength * 5);
           const perspectiveScale = projection === 'perspective'
             ? cameraDistance / Math.max(domain * 1.4, cameraDistance + depth)
@@ -409,15 +711,30 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           context.lineTo(to.x, to.y);
           context.stroke();
         };
+        const gridEvery = domain <= 4 ? .5 : domain <= 8 ? 1 : 2;
         if (showGrid) {
           context.save();
-          context.setLineDash([3, 4]);
-          const gridEvery = domain <= 4 ? 1 : domain <= 8 ? 2 : 3;
-          for (let value = -domain; value <= domain + .001; value += gridEvery) {
-            drawSpatialLine([-domain, value, 0], [domain, value, 0], 'rgba(95,91,82,.18)');
-            drawSpatialLine([value, -domain, 0], [value, domain, 0], 'rgba(95,91,82,.18)');
+          context.setLineDash([]);
+          const gridPlaneZ = Math.max(zMin, Math.min(zMax, 0));
+          for (let value = Math.ceil(yMin / gridEvery) * gridEvery; value <= yMax + .001; value += gridEvery) {
+            const major = Math.abs(value / (gridEvery * 2) - Math.round(value / (gridEvery * 2))) < 1e-7;
+            const color = major ? 'rgba(95,91,82,.22)' : 'rgba(95,91,82,.11)';
+            drawSpatialLine([xMin, value, gridPlaneZ], [xMax, value, gridPlaneZ], color, major ? 1 : .65);
+          }
+          for (let value = Math.ceil(xMin / gridEvery) * gridEvery; value <= xMax + .001; value += gridEvery) {
+            const major = Math.abs(value / (gridEvery * 2) - Math.round(value / (gridEvery * 2))) < 1e-7;
+            const color = major ? 'rgba(95,91,82,.22)' : 'rgba(95,91,82,.11)';
+            drawSpatialLine([value, yMin, gridPlaneZ], [value, yMax, gridPlaneZ], color, major ? 1 : .65);
           }
           context.restore();
+        }
+        if (showCube) {
+          const corners: Array<[number, number, number]> = [
+            [xMin, yMin, zMin], [xMax, yMin, zMin], [xMax, yMax, zMin], [xMin, yMax, zMin],
+            [xMin, yMin, zMax], [xMax, yMin, zMax], [xMax, yMax, zMax], [xMin, yMax, zMax],
+          ];
+          const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+          edges.forEach(([start, end]) => drawSpatialLine(corners[start], corners[end], 'rgba(77,73,67,.16)', .8));
         }
 
         const reservedParameters = new Set(['x', 'y', 'z', 't', 'u', 'v']);
@@ -448,11 +765,11 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             const surfaceGrid: Array<Array<{ x: number; y: number; z: number; depth: number; worldX: number; worldY: number; rawZ: number }>> = [];
             for (let row = 0; row < resolution; row += 1) {
               const points = [];
-              const y = -domain + row * domain * 2 / (resolution - 1);
+              const y = yMin + row * yRange / (resolution - 1);
               for (let column = 0; column < resolution; column += 1) {
-                const x = -domain + column * domain * 2 / (resolution - 1);
+                const x = xMin + column * xRange / (resolution - 1);
                 const rawZ = evaluate({ x, y, ...parameterValues });
-                const z = Math.max(-domain * 2.5, Math.min(domain * 2.5, rawZ));
+                const z = Math.max(zMin, Math.min(zMax, rawZ));
                 const projected = project(x, y, z);
                 if (cancelled) return;
                 points.push({ ...projected, z, rawZ, worldX: x, worldY: y });
@@ -525,16 +842,18 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           try {
             const evaluate = await numericEvaluatorWithRestrictions(surface.expression);
             const sampleCount = Math.max(11, Math.min(17, Math.round(resolution / 2)));
-            const step = domain * 2 / (sampleCount - 1);
+            const stepX = xRange / (sampleCount - 1);
+            const stepY = yRange / (sampleCount - 1);
+            const stepZ = zRange / (sampleCount - 1);
             const values: number[][][] = [];
             for (let zIndex = 0; zIndex < sampleCount; zIndex += 1) {
-              const z = -domain + zIndex * step;
+              const z = zMin + zIndex * stepZ;
               const plane: number[][] = [];
               for (let yIndex = 0; yIndex < sampleCount; yIndex += 1) {
-                const y = -domain + yIndex * step;
+                const y = yMin + yIndex * stepY;
                 const row = [];
                 for (let xIndex = 0; xIndex < sampleCount; xIndex += 1) {
-                  const x = -domain + xIndex * step;
+                  const x = xMin + xIndex * stepX;
                   row.push(evaluate({ x, y, z, ...parameterValues }));
                 }
                 plane.push(row);
@@ -551,15 +870,15 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
               implicitPoints.push({ ...projected, worldX, worldY, worldZ, color: surface.color, opacity: surface.opacity, expression: surface.expression });
             };
             for (let zIndex = 0; zIndex < sampleCount; zIndex += 1) {
-              const z = -domain + zIndex * step;
+              const z = zMin + zIndex * stepZ;
               for (let yIndex = 0; yIndex < sampleCount; yIndex += 1) {
-                const y = -domain + yIndex * step;
+                const y = yMin + yIndex * stepY;
                 for (let xIndex = 0; xIndex < sampleCount; xIndex += 1) {
-                  const x = -domain + xIndex * step;
+                  const x = xMin + xIndex * stepX;
                   const first = { x, y, z, value: values[zIndex][yIndex][xIndex] };
-                  if (xIndex + 1 < sampleCount) addCrossing(first, { x: x + step, y, z, value: values[zIndex][yIndex][xIndex + 1] });
-                  if (yIndex + 1 < sampleCount) addCrossing(first, { x, y: y + step, z, value: values[zIndex][yIndex + 1][xIndex] });
-                  if (zIndex + 1 < sampleCount) addCrossing(first, { x, y, z: z + step, value: values[zIndex + 1][yIndex][xIndex] });
+                  if (xIndex + 1 < sampleCount) addCrossing(first, { x: x + stepX, y, z, value: values[zIndex][yIndex][xIndex + 1] });
+                  if (yIndex + 1 < sampleCount) addCrossing(first, { x, y: y + stepY, z, value: values[zIndex][yIndex + 1][xIndex] });
+                  if (zIndex + 1 < sampleCount) addCrossing(first, { x, y, z: z + stepZ, value: values[zIndex + 1][yIndex][xIndex] });
                 }
               }
             }
@@ -570,12 +889,12 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         cells.sort((left, right) => left.depth - right.depth);
         for (const cell of cells) {
           context.save();
-          const heightFade = .62 + .38 * Math.max(0, Math.min(1, (cell.height / domain + 1) / 2));
+          const heightFade = .62 + .38 * Math.max(0, Math.min(1, (cell.height - zMin) / zRange));
           context.globalAlpha = cell.opacity * heightFade;
           if (renderMode === 'contours') {
             const minimum = Math.min(...cell.points.map((point) => point.z));
             const maximum = Math.max(...cell.points.map((point) => point.z));
-            const contourStep = Math.max(.25, domain / 5);
+            const contourStep = Math.max(.25, zRange / 10);
             context.strokeStyle = cell.color;
             context.lineWidth = 1.15;
             for (let level = Math.ceil(minimum / contourStep) * contourStep; level <= maximum + 1e-8; level += contourStep) {
@@ -614,7 +933,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           if (index % 7 === 0) tracePoints.push({ screenX: point.x, screenY: point.y, x: point.worldX, y: point.worldY, z: point.worldZ, color: point.color, expression: `${point.expression} = 0` });
         });
         if (showSurfaceIntersections && surfaceSamples.length > 1) {
-          const threshold = domain * 1.7 / Math.max(1, resolution - 1);
+          const threshold = Math.max(xRange, yRange, zRange) * .85 / Math.max(1, resolution - 1);
           context.save();
           context.fillStyle = '#3f315c';
           context.globalAlpha = .9;
@@ -670,10 +989,13 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           } catch { issues.push(`Point ${pointIndex + 1}: check its coordinates.`); }
         }
         if (showAxes) {
+          const axisX = Math.max(xMin, Math.min(xMax, 0));
+          const axisY = Math.max(yMin, Math.min(yMax, 0));
+          const axisZ = Math.max(zMin, Math.min(zMax, 0));
           const axes = [
-            { start: [-domain * 1.1, 0, 0] as [number, number, number], end: [domain * 1.2, 0, 0] as [number, number, number], label: 'x', color: '#a45236' },
-            { start: [0, -domain * 1.1, 0] as [number, number, number], end: [0, domain * 1.2, 0] as [number, number, number], label: 'y', color: '#3777a5' },
-            { start: [0, 0, -domain * 1.1] as [number, number, number], end: [0, 0, domain * 1.2] as [number, number, number], label: 'z', color: '#5f8b4c' },
+            { start: [xMin, axisY, axisZ] as [number, number, number], end: [xMax, axisY, axisZ] as [number, number, number], label: 'x', color: '#a45236' },
+            { start: [axisX, yMin, axisZ] as [number, number, number], end: [axisX, yMax, axisZ] as [number, number, number], label: 'y', color: '#3777a5' },
+            { start: [axisX, axisY, zMin] as [number, number, number], end: [axisX, axisY, zMax] as [number, number, number], label: 'z', color: '#5f8b4c' },
           ];
           context.font = 'bold 12px ui-monospace, monospace';
           axes.forEach((axis) => {
@@ -682,6 +1004,20 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             context.fillStyle = axis.color;
             context.fillText(axis.label, endpoint.x + 4, endpoint.y - 4);
           });
+          if (showNumbers) {
+            const tickEvery = gridEvery * 2;
+            context.font = '9px ui-monospace, monospace';
+            context.fillStyle = '#77736b';
+            const drawTick = (value: number, x: number, y: number, z: number) => {
+              if (Math.abs(value) < 1e-8) return;
+              const point = project(x, y, z);
+              context.beginPath(); context.arc(point.x, point.y, 2, 0, Math.PI * 2); context.fill();
+              context.fillText(`${Number(value.toPrecision(4))}`, point.x + 4, point.y - 3);
+            };
+            for (let value = Math.ceil(xMin / tickEvery) * tickEvery; value <= xMax + .001; value += tickEvery) drawTick(value, value, axisY, axisZ);
+            for (let value = Math.ceil(yMin / tickEvery) * tickEvery; value <= yMax + .001; value += tickEvery) drawTick(value, axisX, value, axisZ);
+            for (let value = Math.ceil(zMin / tickEvery) * tickEvery; value <= zMax + .001; value += tickEvery) drawTick(value, axisX, axisY, value);
+          }
         }
         tracePointsRef.current = tracePoints;
         setError(issues.join(' '));
@@ -692,7 +1028,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
     };
     void draw();
     return () => { cancelled = true; };
-  }, [camera, curves3D, domain, implicitSurfaces, parameters, parametricSurfaces, perspectiveStrength, points3D, projection, renderMode, resolution, showAxes, showGrid, showSurfaceIntersections, surfaces]);
+  }, [bounds, camera, canvasSize.height, canvasSize.width, curves3D, domain, implicitSurfaces, parameters, parametricSurfaces, perspectiveStrength, points3D, projection, renderMode, resolution, showAxes, showCube, showGrid, showNumbers, showSurfaceIntersections, surfaces]);
 
   const updateSurface = (id: number, patch: Partial<SurfaceExpression>) => {
     setSurfaces((current) => current.map((surface) => surface.id === id ? { ...surface, ...patch } : surface));
@@ -785,36 +1121,60 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           </div>)}
           <div className="graph-object-adders"><button type="button" onClick={() => setPoints3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: '1', y: '1', z: '1', color: GRAPH_COLORS[(surfaces.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Point</button><button type="button" onClick={() => setCurves3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: 'cos(t)', y: 'sin(t)', z: 't/3', tMin: -6.28, tMax: 6.28, color: GRAPH_COLORS[(surfaces.length + points3D.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Parametric curve</button><button type="button" onClick={() => setParametricSurfaces((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: '(2+cos(v))*cos(u)', y: '(2+cos(v))*sin(u)', z: 'sin(v)', uMin: 0, uMax: 6.28, vMin: 0, vMax: 6.28, color: GRAPH_COLORS[(surfaces.length + points3D.length + curves3D.length + current.length) % GRAPH_COLORS.length], visible: true, opacity: .62 }])}>+ Parametric surface</button></div>
         </section>
-        <div className="surface-view-options">
-          <label>Rendering<select aria-label="3D rendering style" value={renderMode} onChange={(event) => setRenderMode(event.target.value as SurfaceRenderMode)}><option value="solid">Solid + mesh</option><option value="mesh">Wire mesh</option><option value="contours">Contour mesh</option></select></label>
-          <label>Projection<select aria-label="3D projection" value={projection} onChange={(event) => setProjection(event.target.value as SurfaceProjection)}><option value="perspective">Perspective</option><option value="orthographic">Orthographic</option></select></label>
-          <label><input type="checkbox" checked={showAxes} onChange={(event) => setShowAxes(event.target.checked)} /> Axes</label>
-          <label><input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} /> Ground grid</label>
-          <label><input type="checkbox" checked={showSurfaceIntersections} onChange={(event) => setShowSurfaceIntersections(event.target.checked)} /> Surface intersections</label>
-          <label><input type="checkbox" checked={lockRotation} onChange={(event) => setLockRotation(event.target.checked)} /> Lock rotation</label>
-          <label><input type="checkbox" checked={lockZoom} onChange={(event) => setLockZoom(event.target.checked)} /> Lock zoom</label>
-        </div>
-        <label className="graph-slider">Perspective {Math.round(perspectiveStrength * 100)}%<input type="range" min="0" max="1" step="0.05" disabled={projection === 'orthographic'} value={perspectiveStrength} onChange={(event) => setPerspectiveStrength(Number(event.target.value))} /></label>
-        <label className="graph-slider">Domain ±{domain}<input type="range" min="2" max="12" step="1" value={domain} onChange={(event) => setDomain(Number(event.target.value))} /></label>
-        <label className="graph-slider">Mesh {resolution}×{resolution}<input type="range" min="17" max="45" step="2" value={resolution} onChange={(event) => setResolution(Number(event.target.value))} /></label>
-        <div className="surface-presets" aria-label="3D camera presets">
-          <button type="button" onClick={() => setCameraPreset('iso')}>Perspective</button>
-          <button type="button" onClick={() => setCameraPreset('top')}>Top</button>
-          <button type="button" onClick={() => setCameraPreset('front')}>Front</button>
-          <button type="button" onClick={() => setCameraPreset('side')}>Side</button>
-        </div>
         <p>Drag to orbit · wheel to zoom · hover to inspect · restrict explicit/implicit expressions with {'{x>-2}{x<2}'}</p>
       </aside>
       <div className="graph-stage">
-        <div className="graph-controls" aria-label="3D graph view controls">
+        <div className="graph-controls" aria-label="3D graph view controls" ref={settingsRef}>
+          <div className="graph-settings-anchor">
+            <button type="button" aria-label="3D graph settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((current) => !current)}>Settings</button>
+            {settingsOpen && <section className="graph-settings-popover graph-settings-popover--3d" aria-label="3D graph settings panel">
+              <header><strong>3D graph settings</strong><button type="button" aria-label="Close 3D graph settings" onClick={() => setSettingsOpen(false)}>×</button></header>
+              <div className="surface-view-options">
+                <label>Rendering<select aria-label="3D rendering style" value={renderMode} onChange={(event) => setRenderMode(event.target.value as SurfaceRenderMode)}><option value="solid">Solid + mesh</option><option value="mesh">Wire mesh</option><option value="contours">Contour mesh</option></select></label>
+                <label>Projection<select aria-label="3D projection" value={projection} onChange={(event) => setProjection(event.target.value as SurfaceProjection)}><option value="perspective">Perspective</option><option value="orthographic">Orthographic</option></select></label>
+                <label><input type="checkbox" checked={showAxes} onChange={(event) => setShowAxes(event.target.checked)} /> Axes</label>
+                <label><input type="checkbox" checked={showNumbers} onChange={(event) => setShowNumbers(event.target.checked)} /> Axis numbers</label>
+                <label><input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} /> XY grid</label>
+                <label><input type="checkbox" checked={showCube} onChange={(event) => setShowCube(event.target.checked)} /> Bounding cube</label>
+                <label><input type="checkbox" checked={showSurfaceIntersections} onChange={(event) => setShowSurfaceIntersections(event.target.checked)} /> Intersections</label>
+                <label><input type="checkbox" checked={lockRotation} onChange={(event) => setLockRotation(event.target.checked)} /> Lock rotation</label>
+                <label><input type="checkbox" checked={lockZoom} onChange={(event) => setLockZoom(event.target.checked)} /> Lock zoom</label>
+              </div>
+              <label className="graph-slider">Perspective {Math.round(perspectiveStrength * 100)}%<input type="range" min="0" max="1" step="0.05" disabled={projection === 'orthographic'} value={perspectiveStrength} onChange={(event) => setPerspectiveStrength(Number(event.target.value))} /></label>
+              <section className="graph-3d-bounds" aria-label="3D axis bounds">
+                <header><strong>Axis bounds</strong><span>Set each visible dimension independently</span></header>
+                <div>
+                  <strong>x</strong>
+                  <label>min<input aria-label="3D x minimum" type="number" step="1" value={bounds.xMin} onChange={(event) => setBounds((current) => ({ ...current, xMin: Number(event.target.value) }))} /></label>
+                  <label>max<input aria-label="3D x maximum" type="number" step="1" value={bounds.xMax} onChange={(event) => setBounds((current) => ({ ...current, xMax: Number(event.target.value) }))} /></label>
+                </div>
+                <div>
+                  <strong>y</strong>
+                  <label>min<input aria-label="3D y minimum" type="number" step="1" value={bounds.yMin} onChange={(event) => setBounds((current) => ({ ...current, yMin: Number(event.target.value) }))} /></label>
+                  <label>max<input aria-label="3D y maximum" type="number" step="1" value={bounds.yMax} onChange={(event) => setBounds((current) => ({ ...current, yMax: Number(event.target.value) }))} /></label>
+                </div>
+                <div>
+                  <strong>z</strong>
+                  <label>min<input aria-label="3D z minimum" type="number" step="1" value={bounds.zMin} onChange={(event) => setBounds((current) => ({ ...current, zMin: Number(event.target.value) }))} /></label>
+                  <label>max<input aria-label="3D z maximum" type="number" step="1" value={bounds.zMax} onChange={(event) => setBounds((current) => ({ ...current, zMax: Number(event.target.value) }))} /></label>
+                </div>
+                <div className="graph-3d-bound-actions">
+                  <button type="button" onClick={() => setBounds({ xMin: -5, xMax: 5, yMin: -5, yMax: 5, zMin: -5, zMax: 5 })}>Reset bounds</button>
+                  <button type="button" onClick={() => setBounds({ xMin: -domain, xMax: domain, yMin: -domain, yMax: domain, zMin: -domain, zMax: domain })}>Equalize ±{Number(domain.toPrecision(3))}</button>
+                </div>
+              </section>
+              <label className="graph-slider">Mesh {resolution}×{resolution}<input type="range" min="17" max="45" step="2" value={resolution} onChange={(event) => setResolution(Number(event.target.value))} /></label>
+              <div className="surface-presets" aria-label="3D camera presets"><button type="button" onClick={() => setCameraPreset('iso')}>Perspective</button><button type="button" onClick={() => setCameraPreset('top')}>Top</button><button type="button" onClick={() => setCameraPreset('front')}>Front</button><button type="button" onClick={() => setCameraPreset('side')}>Side</button></div>
+            </section>}
+          </div>
           <button type="button" aria-label="Zoom 3D view in" disabled={lockZoom} onClick={() => setCamera((view) => ({ ...view, zoom: Math.min(2.6, view.zoom * 1.2) }))}>+</button>
           <button type="button" aria-label="Zoom 3D view out" disabled={lockZoom} onClick={() => setCamera((view) => ({ ...view, zoom: Math.max(.45, view.zoom / 1.2) }))}>−</button>
           <button type="button" aria-label="Reset 3D view" onClick={() => setCameraPreset('iso')}>⌂</button>
         </div>
         <canvas
           ref={canvasRef}
-          width={900}
-          height={500}
+          width={canvasSize.width}
+          height={canvasSize.height}
           aria-label="Interactive 3D graph"
           onPointerDown={(event) => {
             if (lockRotation) return;
@@ -826,8 +1186,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
               const drag = dragRef.current;
               setCamera((view) => ({
                 ...view,
-                yaw: drag.yaw + (event.clientX - drag.x) * .009,
-                pitch: Math.max(-1.52, Math.min(1.52, drag.pitch + (event.clientY - drag.y) * .009)),
+                yaw: drag.yaw - (event.clientX - drag.x) * .004,
+                pitch: Math.max(-1.52, Math.min(1.52, drag.pitch + (event.clientY - drag.y) * .004)),
               }));
               setTrace(null);
               return;
@@ -843,8 +1203,12 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             }, null);
             setTrace(closest ? { x: closest.x, y: closest.y, z: closest.z, color: closest.color, expression: closest.expression } : null);
           }}
-          onPointerUp={(event) => { dragRef.current = null; event.currentTarget.releasePointerCapture(event.pointerId); }}
+          onPointerUp={(event) => {
+            dragRef.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
           onPointerCancel={() => { dragRef.current = null; }}
+          onLostPointerCapture={() => { dragRef.current = null; }}
           onPointerLeave={() => { if (!dragRef.current) setTrace(null); }}
           onDoubleClick={() => setCameraPreset('iso')}
           onWheel={(event) => {
@@ -865,6 +1229,7 @@ type GeometryConstraint =
   | { type: 'parallel-guide'; sources: [number, number]; through: number; length: number }
   | { type: 'perpendicular-guide'; sources: [number, number]; through: number; length: number }
   | { type: 'compass-edge'; sources: [number, number]; center: number }
+  | { type: 'radius-edge'; center: number; radius: number; angle: number }
   | { type: 'translate'; source: number; dx: number; dy: number }
   | { type: 'rotate'; source: number; angle: number }
   | { type: 'dilate'; source: number; scale: number }
@@ -906,6 +1271,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const [showMeasurements, setShowMeasurements] = usePersistentResearchState(`${storagePrefix}:geometry:measurements`, true);
   const [showIntersections, setShowIntersections] = usePersistentResearchState(`${storagePrefix}:geometry:intersections`, true);
   const [showGrid, setShowGrid] = usePersistentResearchState(`${storagePrefix}:geometry:grid`, true);
+  const [showMinorGrid, setShowMinorGrid] = usePersistentResearchState(`${storagePrefix}:geometry:minor-grid`, true);
   const [showAxes, setShowAxes] = usePersistentResearchState(`${storagePrefix}:geometry:axes`, true);
   const [lockViewport, setLockViewport] = usePersistentResearchState(`${storagePrefix}:geometry:lock-viewport`, false);
   const [angleUnit, setAngleUnit] = usePersistentResearchState<'degrees' | 'radians'>(`${storagePrefix}:geometry:angle-unit`, 'degrees');
@@ -915,6 +1281,8 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const [transform, setTransform] = useState({ dx: 2, dy: 1, angle: 90, scale: 2 });
   const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasSize = useResponsiveCanvasSize(canvasRef);
+  const constructionInputRef = useRef<HTMLInputElement | null>(null);
   const nextPointIdRef = useRef(Math.max(0, ...points.map((point) => point.id)) + 1);
   const nextObjectIdRef = useRef(Math.max(0, ...objects.map((object) => object.id)) + 1);
   const dragRef = useRef<
@@ -947,6 +1315,12 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           } else if (constraint.type === 'compass-edge') {
             const first = byId.get(constraint.sources[0]); const last = byId.get(constraint.sources[1]); const center = byId.get(constraint.center);
             if (first && last && center) coordinate = { x: center.x + geometryDistance(first, last), y: center.y };
+          } else if (constraint.type === 'radius-edge') {
+            const center = byId.get(constraint.center);
+            if (center) coordinate = {
+              x: center.x + Math.cos(constraint.angle) * constraint.radius,
+              y: center.y + Math.sin(constraint.angle) * constraint.radius,
+            };
           } else {
             const source = byId.get(constraint.source);
             if (source) {
@@ -980,6 +1354,20 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     const worldRight = viewport.centerX + canvas.width / (2 * viewport.scale);
     const worldBottom = viewport.centerY - canvas.height / (2 * viewport.scale);
     const worldTop = viewport.centerY + canvas.height / (2 * viewport.scale);
+    if (showGrid && showMinorGrid) {
+      const minor = step / 5;
+      if (minor * viewport.scale >= 7) {
+        context.strokeStyle = '#f0ede6'; context.lineWidth = .65;
+        for (let x = Math.ceil(worldLeft / minor) * minor; x <= worldRight; x += minor) {
+          if (Math.abs(x / step - Math.round(x / step)) < 1e-7) continue;
+          const px = screenX(x); context.beginPath(); context.moveTo(px, 0); context.lineTo(px, canvas.height); context.stroke();
+        }
+        for (let y = Math.ceil(worldBottom / minor) * minor; y <= worldTop; y += minor) {
+          if (Math.abs(y / step - Math.round(y / step)) < 1e-7) continue;
+          const py = screenY(y); context.beginPath(); context.moveTo(0, py); context.lineTo(canvas.width, py); context.stroke();
+        }
+      }
+    }
     context.font = '11px ui-monospace, monospace';
     context.textAlign = 'center';
     context.textBaseline = 'top';
@@ -1141,7 +1529,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       context.fillStyle = '#292821'; context.font = 'bold 11px ui-monospace, monospace'; context.textAlign = 'left'; context.textBaseline = 'bottom';
       context.fillText(point.label, screenX(point.x) + 7, screenY(point.y) - 6);
     });
-  }, [angleUnit, hoverPoint, objects, pendingPointIds, points, selectedObjectIds, showAxes, showGrid, showIntersections, showMeasurements, viewport]);
+  }, [angleUnit, canvasSize.height, canvasSize.width, hoverPoint, objects, pendingPointIds, points, selectedObjectIds, showAxes, showGrid, showIntersections, showMeasurements, showMinorGrid, viewport]);
 
   const pointById = (id: number) => points.find((point) => point.id === id);
   const objectDescription = (object: GeometryObject) => {
@@ -1165,6 +1553,15 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     return `${object.type === 'line' ? 'Line' : 'Ray'} ${labels}`;
   };
 
+  const objectExpression = (object: GeometryObject) => {
+    const labels = object.points.map((id) => pointById(id)?.label ?? '?');
+    if (object.type === 'circle') {
+      const center = pointById(object.points[0]); const edge = pointById(object.points[1]);
+      return `circle(${labels[0]}, ${center && edge ? geometryDistance(center, edge).toFixed(3) : labels[1]})`;
+    }
+    return `${object.type}(${labels.join(', ')})`;
+  };
+
   const finishPolygon = () => {
     if (pendingPointIds.length < 3) return;
     setObjects((current) => [...current, { id: nextObjectIdRef.current++, type: 'polygon', points: [...pendingPointIds] }]);
@@ -1185,7 +1582,9 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             ? [...constraint.sources, constraint.through]
             : constraint.type === 'compass-edge'
               ? [...constraint.sources, constraint.center]
-              : [constraint.source];
+              : constraint.type === 'radius-edge'
+                ? [constraint.center]
+                : [constraint.source];
         if (dependencies.some((id) => removed.has(id))) { removed.add(point.id); changed = true; }
       });
     }
@@ -1231,8 +1630,23 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const executeConstructionCommand = () => {
     const command = constructionCommand.trim();
     const pointForLabel = (label: string) => points.find((point) => point.label.toLowerCase() === label.trim().toLowerCase());
+    const circle = parseCircleConstruction(command);
+    if (circle) {
+      if (circle.kind === 'center-edge') {
+        const center = pointForLabel(circle.centerLabel); const edge = pointForLabel(circle.edgeLabel);
+        if (!center || !edge) { setCommandError('The circle center or radius point does not exist yet.'); return; }
+        setObjects((current) => [...current, { id: nextObjectIdRef.current++, type: 'circle', points: [center.id, edge.id] }]);
+        setCommandError(''); setConstructionCommand(''); return;
+      }
+      const center = circle.kind === 'coordinates-radius' ? addPointAt(circle.center) : pointForLabel(circle.centerLabel);
+      if (!center) { setCommandError(`Point ${circle.kind === 'center-radius' ? circle.centerLabel : ''} does not exist yet.`); return; }
+      const radius = circle.radius;
+      const edge = addPointAt({ x: center.x + radius, y: center.y }, { type: 'radius-edge', center: center.id, radius, angle: 0 });
+      setObjects((current) => [...current, { id: nextObjectIdRef.current++, type: 'circle', points: [center.id, edge.id] }]);
+      setCommandError(''); setConstructionCommand(''); return;
+    }
     const match = command.match(/^([a-z]+)\s*\((.*)\)$/i);
-    if (!match) { setCommandError('Use point(2,3), segment(A,B), midpoint(A,B), line(A,B), circle(A,B), or polygon(A,B,C).'); return; }
+    if (!match) { setCommandError('Write point(2,3), segment(A,B), circle(A,3), circle((2,1),3), (x-2)^2+(y-1)^2=9, or polygon(A,B,C).'); return; }
     const operation = match[1].toLowerCase();
     const args = match[2].split(',').map((part) => part.trim()).filter(Boolean);
     if (operation === 'point' && args.length === 2 && args.every((value) => Number.isFinite(Number(value)))) {
@@ -1244,40 +1658,66 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     if (operation === 'midpoint' && resolved.length === 2) {
       addPointAt(geometryMidpoint(resolved[0]!, resolved[1]!), { type: 'midpoint', sources: [resolved[0]!.id, resolved[1]!.id] }); setCommandError(''); setConstructionCommand(''); return;
     }
-    const validType = ['segment', 'vector', 'line', 'ray', 'circle', 'polygon', 'angle'].includes(operation);
+    const validType = ['segment', 'vector', 'line', 'ray', 'polygon', 'angle'].includes(operation);
     const validCount = operation === 'polygon' ? ids.length >= 3 : operation === 'angle' ? ids.length === 3 : ids.length === 2;
     if (!validType || !validCount) { setCommandError('That construction or number of point labels is not supported.'); return; }
     setObjects((current) => [...current, { id: nextObjectIdRef.current++, type: operation, points: ids } as GeometryObject]);
     setCommandError(''); setConstructionCommand('');
   };
 
+  const insertGeometryToken = (token: string) => {
+    const input = constructionInputRef.current;
+    const start = input?.selectionStart ?? constructionCommand.length;
+    const end = input?.selectionEnd ?? start;
+    const next = `${constructionCommand.slice(0, start)}${token}${constructionCommand.slice(end)}`;
+    setConstructionCommand(next);
+    requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
+  const selectedCircle = objects.find((object): object is Extract<GeometryObject, { type: 'circle' }> => object.type === 'circle' && selectedObjectIds.includes(object.id));
+  const selectedCircleCenter = selectedCircle ? pointById(selectedCircle.points[0]) : undefined;
+  const selectedCircleEdge = selectedCircle ? pointById(selectedCircle.points[1]) : undefined;
+  const selectedCircleRadius = selectedCircleCenter && selectedCircleEdge ? geometryDistance(selectedCircleCenter, selectedCircleEdge) : 0;
+  const radiusComesFromCompass = selectedCircleEdge?.constraint?.type === 'compass-edge';
+  const updateSelectedCircleRadius = (radius: number) => {
+    if (!selectedCircleCenter || !selectedCircleEdge || !(radius > 0) || radiusComesFromCompass) return;
+    const currentRadius = geometryDistance(selectedCircleCenter, selectedCircleEdge);
+    const angle = currentRadius > 1e-9 ? Math.atan2(selectedCircleEdge.y - selectedCircleCenter.y, selectedCircleEdge.x - selectedCircleCenter.x) : 0;
+    setPoints((current) => current.map((point) => point.id === selectedCircleEdge.id ? {
+      ...point,
+      x: selectedCircleCenter.x + Math.cos(angle) * radius,
+      y: selectedCircleCenter.y + Math.sin(angle) * radius,
+      constraint: point.constraint?.type === 'radius-edge' ? { ...point.constraint, radius, angle } : point.constraint,
+    } : point));
+  };
+
   return (
     <section className="geometry-lab">
-      <aside className="geometry-sidebar" aria-label="Geometry construction tools">
-        <header><strong>Geometry</strong><span>{points.length} points · {objects.length} objects</span></header>
-        <div className="geometry-tool-grid" role="toolbar" aria-label="Geometry tools">
-          {GEOMETRY_TOOLS.map((entry) => <button type="button" key={entry.id} className={tool === entry.id ? 'is-active' : ''} aria-label={entry.label} aria-pressed={tool === entry.id} onClick={() => { setTool(entry.id); setPendingPointIds([]); }}><span>{entry.symbol}</span>{entry.label.replace(/ and .*/, '').replace(/Construct /, '').replace(/Add /, '')}</button>)}
-        </div>
-        <div className="geometry-options">
-          <label><input type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} /> Snap to grid</label>
-          <label><input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} /> Grid</label>
-          <label><input type="checkbox" checked={showAxes} onChange={(event) => setShowAxes(event.target.checked)} /> Axes & numbers</label>
-          <label><input type="checkbox" checked={showMeasurements} onChange={(event) => setShowMeasurements(event.target.checked)} /> Measurements</label>
-          <label><input type="checkbox" checked={showIntersections} onChange={(event) => setShowIntersections(event.target.checked)} /> Intersections</label>
-          <label><input type="checkbox" checked={lockViewport} onChange={(event) => setLockViewport(event.target.checked)} /> Lock viewport</label>
-          <label>Angles <select aria-label="Geometry angle unit" value={angleUnit} onChange={(event) => setAngleUnit(event.target.value as 'degrees' | 'radians')}><option value="degrees">Degrees</option><option value="radians">Radians</option></select></label>
+      <aside className="geometry-sidebar" aria-label="Geometry expression rail">
+        <header><strong>Expressions</strong><span>{points.length} points · {objects.length} objects</span></header>
+        <div className="geometry-token-navigator" aria-label="Geometry token navigator">
+          <span>Insert point</span>
+          <div>{points.map((point) => <button type="button" key={point.id} onClick={() => insertGeometryToken(point.label)}>{point.label}</button>)}</div>
         </div>
         <div className="geometry-command">
-          <label>Construction expression<input aria-label="Geometry construction expression" placeholder="segment(A,B)" value={constructionCommand} onChange={(event) => setConstructionCommand(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') executeConstructionCommand(); }} /></label>
+          <label>New expression<input ref={constructionInputRef} aria-label="Geometry construction expression" placeholder="circle(A,3)" value={constructionCommand} onChange={(event) => setConstructionCommand(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') executeConstructionCommand(); }} /></label>
           <button type="button" onClick={executeConstructionCommand}>Add</button>
           {commandError && <p>{commandError}</p>}
         </div>
+        <p className="geometry-expression-help">Try <b>point(2,1)</b>, <b>circle(A,3)</b>, <b>circle((2,1),3)</b>, or <b>(x-2)^2+(y-1)^2=9</b>.</p>
         {tool === 'polygon' && pendingPointIds.length > 0 && <button type="button" className="geometry-finish" disabled={pendingPointIds.length < 3} onClick={finishPolygon}>Finish polygon ({pendingPointIds.length})</button>}
         {pendingPointIds.length > 0 && <p className="geometry-instruction">Selected {pendingPointIds.map((id) => pointById(id)?.label).join(' → ')}. Choose the next point.</p>}
         <div className="geometry-object-list" aria-label="Geometry objects">
-          <strong>Objects</strong>
+          <strong>Construction lines</strong>
           {!objects.length && <p>Choose a tool, then construct directly on the coordinate plane.</p>}
-          {objects.map((object) => <button type="button" key={object.id} className={selectedObjectIds.includes(object.id) ? 'is-selected' : ''} aria-pressed={selectedObjectIds.includes(object.id)} onClick={(event) => setSelectedObjectIds((current) => event.shiftKey ? (current.includes(object.id) ? current.filter((id) => id !== object.id) : [...current, object.id]) : [object.id])}>{object.visible === false ? 'Hidden · ' : ''}{objectDescription(object)}</button>)}
+          {objects.map((object, index) => <div className={`geometry-expression-row${selectedObjectIds.includes(object.id) ? ' is-selected' : ''}`} key={object.id}>
+            <button type="button" className={`graph-color${object.visible === false ? '' : ' is-visible'}`} style={{ '--graph-color': object.color ?? GRAPH_COLORS[index % GRAPH_COLORS.length] } as React.CSSProperties} aria-label={`${object.visible === false ? 'Show' : 'Hide'} geometry object ${index + 1}`} onClick={() => setObjects((current) => current.map((entry) => entry.id === object.id ? { ...entry, visible: entry.visible === false } : entry))} />
+            <button type="button" className="geometry-expression-select" aria-pressed={selectedObjectIds.includes(object.id)} onClick={(event) => setSelectedObjectIds((current) => event.shiftKey ? (current.includes(object.id) ? current.filter((id) => id !== object.id) : [...current, object.id]) : [object.id])}><b>{index + 1}</b><span>{objectExpression(object)}</span><small>{objectDescription(object)}</small></button>
+            <button type="button" aria-label={`Delete geometry object ${index + 1}`} onClick={() => { setObjects((current) => current.filter((entry) => entry.id !== object.id)); setSelectedObjectIds((current) => current.filter((id) => id !== object.id)); }}>×</button>
+          </div>)}
         </div>
         {selectedObjectIds.length > 0 && <section className="geometry-selection-panel" aria-label="Selected geometry controls">
           <header><strong>{selectedObjectIds.length} selected</strong><button type="button" onClick={() => setSelectedObjectIds([])}>Clear</button></header>
@@ -1285,6 +1725,13 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             <label>Color <input type="color" aria-label="Selected geometry color" value={objects.find((object) => selectedObjectIds.includes(object.id))?.color ?? '#9a482c'} onChange={(event) => setObjects((current) => current.map((object) => selectedObjectIds.includes(object.id) ? { ...object, color: event.target.value } : object))} /></label>
             <button type="button" onClick={() => setObjects((current) => current.map((object) => selectedObjectIds.includes(object.id) ? { ...object, visible: object.visible === false } : object))}>{objects.filter((object) => selectedObjectIds.includes(object.id)).every((object) => object.visible === false) ? 'Show' : 'Hide'}</button>
           </div>
+          {selectedCircle && selectedCircleCenter && selectedCircleEdge && <div className="geometry-circle-editor" aria-label="Selected circle radius controls">
+            <strong>Circle center and radius</strong>
+            <div><label>center x<input type="number" step="0.25" aria-label="Selected circle center x" disabled={Boolean(selectedCircleCenter.constraint)} value={Number(selectedCircleCenter.x.toFixed(4))} onChange={(event) => setPoints((current) => current.map((point) => point.id === selectedCircleCenter.id ? { ...point, x: Number(event.target.value) } : point))} /></label><label>center y<input type="number" step="0.25" aria-label="Selected circle center y" disabled={Boolean(selectedCircleCenter.constraint)} value={Number(selectedCircleCenter.y.toFixed(4))} onChange={(event) => setPoints((current) => current.map((point) => point.id === selectedCircleCenter.id ? { ...point, y: Number(event.target.value) } : point))} /></label></div>
+            <label>radius<input type="number" min="0.001" step="0.1" aria-label="Selected circle radius" disabled={radiusComesFromCompass} value={Number(selectedCircleRadius.toFixed(4))} onChange={(event) => updateSelectedCircleRadius(Number(event.target.value))} /></label>
+            <input type="range" min="0.1" max={Math.max(10, selectedCircleRadius * 2)} step="0.1" aria-label="Selected circle radius slider" disabled={radiusComesFromCompass} value={selectedCircleRadius} onChange={(event) => updateSelectedCircleRadius(Number(event.target.value))} />
+            {radiusComesFromCompass && <small>This radius follows the source segment. Edit that segment to preserve the compass constraint.</small>}
+          </div>}
           <div className="geometry-transform-grid">
             <label>dx <input type="number" step="0.25" value={transform.dx} onChange={(event) => setTransform((current) => ({ ...current, dx: Number(event.target.value) }))} /></label>
             <label>dy <input type="number" step="0.25" value={transform.dy} onChange={(event) => setTransform((current) => ({ ...current, dy: Number(event.target.value) }))} /></label>
@@ -1301,6 +1748,19 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           <strong>Points</strong>
           {points.map((point) => <div key={point.id} title={point.constraint ? `Constrained: ${point.constraint.type}` : 'Free point'}><b>{point.label}{point.constraint ? '◇' : ''}</b><label>x <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} x coordinate`} value={Number(point.x.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, x: Number(event.target.value) } : entry))} /></label><label>y <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} y coordinate`} value={Number(point.y.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, y: Number(event.target.value) } : entry))} /></label></div>)}
         </div>
+        <details className="geometry-settings-panel">
+          <summary>Graph paper settings</summary>
+          <div className="geometry-options">
+            <label><input type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} /> Snap to grid</label>
+            <label><input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} /> Grid</label>
+            <label><input type="checkbox" checked={showMinorGrid} onChange={(event) => setShowMinorGrid(event.target.checked)} /> Minor grid</label>
+            <label><input type="checkbox" checked={showAxes} onChange={(event) => setShowAxes(event.target.checked)} /> Axes & numbers</label>
+            <label><input type="checkbox" checked={showMeasurements} onChange={(event) => setShowMeasurements(event.target.checked)} /> Measurements</label>
+            <label><input type="checkbox" checked={showIntersections} onChange={(event) => setShowIntersections(event.target.checked)} /> Intersections</label>
+            <label><input type="checkbox" checked={lockViewport} onChange={(event) => setLockViewport(event.target.checked)} /> Lock viewport</label>
+            <label>Angles <select aria-label="Geometry angle unit" value={angleUnit} onChange={(event) => setAngleUnit(event.target.value as 'degrees' | 'radians')}><option value="degrees">Degrees</option><option value="radians">Radians</option></select></label>
+          </div>
+        </details>
         <div className="geometry-history-actions">
           <button type="button" disabled={!pendingPointIds.length && !objects.length && !points.length} onClick={() => {
             if (pendingPointIds.length) setPendingPointIds((current) => current.slice(0, -1));
@@ -1312,6 +1772,9 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
         </div>
       </aside>
       <div className="geometry-stage">
+        <div className="geometry-tool-grid geometry-tool-grid--canvas" role="toolbar" aria-label="Geometry tools">
+          {GEOMETRY_TOOLS.map((entry) => <button type="button" key={entry.id} className={tool === entry.id ? 'is-active' : ''} aria-label={entry.label} aria-pressed={tool === entry.id} onClick={() => { setTool(entry.id); setPendingPointIds([]); }}><span>{entry.symbol}</span><span>{entry.label.replace(/ and .*/, '').replace(/Construct /, '').replace(/Add /, '')}</span></button>)}
+        </div>
         <div className="graph-controls" aria-label="Geometry view controls">
           <button type="button" aria-label="Zoom geometry in" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.min(180, view.scale * 1.25) }))}>+</button>
           <button type="button" aria-label="Zoom geometry out" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.max(16, view.scale / 1.25) }))}>−</button>
@@ -1319,8 +1782,8 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
         </div>
         <canvas
           ref={canvasRef}
-          width={900}
-          height={500}
+          width={canvasSize.width}
+          height={canvasSize.height}
           aria-label="Interactive geometry canvas"
           data-tool={tool}
           onPointerDown={(event) => {
@@ -1336,7 +1799,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             const snapped = snap ? { x: Math.round(world.x / snapStep) * snapStep, y: Math.round(world.y / snapStep) * snapStep } : world;
             const hit = points.find((point) => Math.hypot((point.x - world.x) * viewport.scale, (point.y - world.y) * viewport.scale) <= 10);
             if (tool === 'move') {
-              if (hit?.constraint) return;
+              if (hit?.constraint && hit.constraint.type !== 'radius-edge') return;
               if (lockViewport && !hit) return;
               canvas.setPointerCapture(event.pointerId);
               dragRef.current = hit
@@ -1425,7 +1888,18 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
               const snapStep = Math.max(.25, gridStep(viewport.scale) / 4);
               const next = snap ? { x: Math.round(world.x / snapStep) * snapStep, y: Math.round(world.y / snapStep) * snapStep } : world;
               const pointId = dragRef.current.pointId;
-              setPoints((current) => current.map((point) => point.id === pointId ? { ...point, ...next } : point));
+              setPoints((current) => {
+                const dragged = current.find((point) => point.id === pointId);
+                const constraint = dragged?.constraint;
+                if (constraint?.type === 'radius-edge') {
+                  const center = current.find((point) => point.id === constraint.center);
+                  if (!center) return current;
+                  const radius = geometryDistance(center, next);
+                  const angle = Math.atan2(next.y - center.y, next.x - center.x);
+                  return current.map((point) => point.id === pointId ? { ...point, ...next, constraint: { ...constraint, radius, angle } } : point);
+                }
+                return current.map((point) => point.id === pointId ? { ...point, ...next } : point);
+              });
               return;
             }
             if (dragRef.current?.kind === 'pan') {
@@ -1461,31 +1935,118 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   );
 }
 
-function ScientificLab() {
-  const [expression, setExpression] = useState('sin(pi/4)^2 + cos(pi/4)^2');
-  const [result, setResult] = useState('');
+interface ScientificHistoryEntry {
+  id: number;
+  expressionLatex: string;
+  resultLatex: string;
+  exact: string;
+  decimal: string;
+}
+
+function ScientificMath({ latex, label }: { latex: string; label: string }) {
+  return <math-field class="scientific-rendered-math" read-only="true" aria-label={label} ref={(element) => {
+    if (element && (element as MathfieldElement).value !== latex) (element as MathfieldElement).value = latex;
+  }} />;
+}
+
+function ScientificLab({ storagePrefix }: { storagePrefix: string }) {
+  const [expression, setExpression] = usePersistentResearchState(`${storagePrefix}:scientific:expression`, '\\sin\\left(\\frac{\\pi}{4}\\right)^2+\\cos\\left(\\frac{\\pi}{4}\\right)^2');
+  const [history, setHistory] = usePersistentResearchState<ScientificHistoryEntry[]>(`${storagePrefix}:scientific:history`, []);
+  const [angleUnit, setAngleUnit] = usePersistentResearchState<'radians' | 'degrees'>(`${storagePrefix}:scientific:angle-unit`, 'radians');
+  const [keypad, setKeypad] = usePersistentResearchState<'main' | 'letters' | 'functions'>(`${storagePrefix}:scientific:keypad`, 'main');
   const [error, setError] = useState('');
+  const fieldRef = useRef<MathfieldElement | null>(null);
+  const previousAnswer = history.at(-1)?.exact ?? '0';
+
   async function calculate() {
+    if (!expression.trim()) return;
     try {
       const { default: nerdamer } = await import('nerdamer-prime');
-      const exact = nerdamer(expression).evaluate();
-      setResult(`${exact.toString()}  ≈  ${exact.text('decimals')}`);
+      nerdamer.set('SILENCE_WARNINGS', true);
+      const previousAnswerLatex = nerdamer(previousAnswer).toTeX();
+      const expressionWithAnswer = expression.replace(/\\(?:operatorname|mathrm)\{ans\}|\bans\b/gi, `\\left(${previousAnswerLatex}\\right)`);
+      let casExpression = String(nerdamer.convertFromLaTeX(expressionWithAnswer)).replace(/\bans\b/gi, `(${previousAnswer})`);
+      if (angleUnit === 'degrees') {
+        casExpression = casExpression.replace(/\b(sin|cos|tan)\(([^()]*)\)/g, '$1(($2)*pi/180)');
+      }
+      const evaluated = nerdamer(casExpression).evaluate();
+      const exact = evaluated.toString();
+      const decimal = evaluated.text('decimals');
+      const resultLatex = nerdamer(exact).toTeX();
+      setHistory((current) => [...current.slice(-29), {
+        id: Math.max(0, ...current.map((entry) => entry.id)) + 1,
+        expressionLatex: expression,
+        resultLatex,
+        exact,
+        decimal,
+      }]);
+      setExpression('');
+      if (fieldRef.current) fieldRef.current.value = '';
       setError('');
     } catch {
-      setResult('');
-      setError('Check the scientific expression and parentheses.');
+      setError('Check the expression, function arguments, and parentheses. The previous calculations are unchanged.');
     }
   }
-  const insert = (value: string) => setExpression((current) => `${current}${value}`);
+
+  const insert = (value: string) => {
+    const field = fieldRef.current;
+    if (!field) return;
+    field.focus();
+    field.insert(value, { insertionMode: 'replaceSelection', selectionMode: 'placeholder' });
+    setExpression(field.value);
+  };
+
+  const mainKeys: Array<[string, string]> = [
+    ['a²', '#0^2'], ['aᵇ', '#0^{#?}'], ['|a|', '\\left|#0\\right|'], ['7', '7'], ['8', '8'], ['9', '9'], ['÷', '\\div'], ['%', '\\%'],
+    ['a⁄b', '\\frac{#0}{#?}'], ['√', '\\sqrt{#0}'], ['ⁿ√', '\\sqrt[#0]{#?}'], ['π', '\\pi'], ['4', '4'], ['5', '5'], ['6', '6'], ['×', '\\times'],
+    ['sin', '\\sin\\left(#0\\right)'], ['cos', '\\cos\\left(#0\\right)'], ['tan', '\\tan\\left(#0\\right)'], ['1', '1'], ['2', '2'], ['3', '3'], ['−', '-'], ['(', '('],
+    [')', ')'], [',', ','], ['0', '0'], ['.', '.'], ['ans', '\\operatorname{ans}'], ['+', '+'], ['e', 'e'], ['!', '!'],
+  ];
+  const functionKeys: Array<[string, string]> = [
+    ['asin', '\\arcsin\\left(#0\\right)'], ['acos', '\\arccos\\left(#0\\right)'], ['atan', '\\arctan\\left(#0\\right)'], ['ln', '\\ln\\left(#0\\right)'],
+    ['log', '\\log\\left(#0\\right)'], ['logₐ', '\\log_{#0}\\left(#?\\right)'], ['exp', '\\exp\\left(#0\\right)'], ['abs', '\\left|#0\\right|'],
+    ['floor', '\\lfloor#0\\rfloor'], ['ceil', '\\lceil#0\\rceil'], ['min', '\\min\\left(#0,#?\\right)'], ['max', '\\max\\left(#0,#?\\right)'],
+    ['nCr', '\\operatorname{comb}\\left(#0,#?\\right)'], ['nPr', '\\operatorname{permut}\\left(#0,#?\\right)'], ['mean', '\\operatorname{mean}\\left(#0\\right)'], ['stdev', '\\operatorname{stdev}\\left(#0\\right)'],
+  ];
+  const letterKeys: Array<[string, string]> = 'abcdefghijklmnopqrstuvwxyz'.split('').map((letter) => [letter, letter]);
+  const activeKeys = keypad === 'main' ? mainKeys : keypad === 'functions' ? functionKeys : letterKeys;
+
   return (
-    <section className="scientific-lab">
-      <label>Scientific expression<textarea rows={3} value={expression} onChange={(event) => setExpression(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void calculate(); } }} /></label>
-      <div className="scientific-keys">
-        {['sin(', 'cos(', 'tan(', 'log(', 'exp(', 'sqrt(', 'abs(', 'pi', 'e', '^2', '!', '(', ')'].map((key) => <button type="button" key={key} onClick={() => insert(key)}>{key}</button>)}
+    <section className="scientific-workspace">
+      <div className="scientific-calculator" aria-label="Scientific calculation workspace">
+        <div className="scientific-history" aria-label="Scientific calculation history">
+          {!history.length && <p>Enter a calculation below. Each result remains available as <b>ans</b>.</p>}
+          {history.map((entry, index) => <article key={entry.id} className="scientific-history-row">
+            <span>{index + 1}</span>
+            <div><ScientificMath latex={entry.expressionLatex} label={`Scientific expression ${index + 1}`} /><ScientificMath latex={entry.resultLatex} label={`Scientific result ${index + 1}`} /><small>≈ {entry.decimal}</small></div>
+            <button type="button" aria-label={`Reuse scientific expression ${index + 1}`} onClick={() => { setExpression(entry.expressionLatex); if (fieldRef.current) { fieldRef.current.value = entry.expressionLatex; fieldRef.current.focus(); } }}>↺</button>
+          </article>)}
+        </div>
+        <math-field
+          class="scientific-input"
+          aria-label="Scientific expression"
+          ref={(element) => {
+            fieldRef.current = element;
+            if (element && element.value !== expression) element.value = expression;
+            if (element) element.mathVirtualKeyboardPolicy = 'manual';
+          }}
+          onInput={(event) => setExpression((event.currentTarget as MathfieldElement).value)}
+          onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void calculate(); } }}
+        />
+        <div className="scientific-control-bar">
+          <div role="tablist" aria-label="Scientific keypad sections">{(['main', 'letters', 'functions'] as const).map((tab) => <button type="button" role="tab" aria-selected={keypad === tab} key={tab} onClick={() => setKeypad(tab)}>{tab === 'letters' ? 'A B C' : tab}</button>)}</div>
+          <div role="radiogroup" aria-label="Scientific angle unit"><button type="button" role="radio" aria-checked={angleUnit === 'radians'} onClick={() => setAngleUnit('radians')}>RAD</button><button type="button" role="radio" aria-checked={angleUnit === 'degrees'} onClick={() => setAngleUnit('degrees')}>DEG</button></div>
+          <button type="button" disabled={!history.length} onClick={() => setHistory([])}>Clear history</button>
+        </div>
+        <div className={`scientific-keypad scientific-keypad--${keypad}`}>
+          {activeKeys.map(([label, value]) => <button type="button" key={`${label}-${value}`} onClick={() => insert(value)}>{label}</button>)}
+          <button type="button" aria-label="Scientific cursor left" onClick={() => fieldRef.current?.executeCommand('moveToPreviousChar')}>←</button>
+          <button type="button" aria-label="Scientific cursor right" onClick={() => fieldRef.current?.executeCommand('moveToNextChar')}>→</button>
+          <button type="button" aria-label="Scientific backspace" onClick={() => { fieldRef.current?.executeCommand('deleteBackward'); if (fieldRef.current) setExpression(fieldRef.current.value); }}>⌫</button>
+          <button type="button" className="scientific-enter" onClick={() => void calculate()}>Enter ↵</button>
+        </div>
+        {error && <p className="research-tool-error">{error}</p>}
       </div>
-      <button type="button" className="research-primary" onClick={() => void calculate()}>Calculate exactly and numerically</button>
-      {result && <output>{result}</output>}
-      {error && <p className="research-tool-error">{error}</p>}
     </section>
   );
 }
@@ -1496,7 +2057,10 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
   useEffect(() => {
     if (!open) return undefined;
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
+      if (event.key === 'Escape') {
+        if (document.querySelector('.graph-settings-popover')) return;
+        event.preventDefault(); event.stopPropagation(); onClose();
+      }
     };
     window.addEventListener('keydown', onEscape, true);
     return () => window.removeEventListener('keydown', onEscape, true);
@@ -1514,7 +2078,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
         {tool === '2d' && <Graph2D storagePrefix={storagePrefix} />}
         {tool === '3d' && <Graph3D storagePrefix={storagePrefix} />}
         {tool === 'geometry' && <GeometryLab storagePrefix={storagePrefix} />}
-        {tool === 'scientific' && <ScientificLab />}
+        {tool === 'scientific' && <ScientificLab storagePrefix={storagePrefix} />}
       </div>
       <footer>{footer}</footer>
     </aside>

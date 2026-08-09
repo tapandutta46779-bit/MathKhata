@@ -3,6 +3,73 @@ export interface GeometryCoordinate {
   y: number;
 }
 
+export type CircleConstruction =
+  | { kind: 'center-edge'; centerLabel: string; edgeLabel: string }
+  | { kind: 'center-radius'; centerLabel: string; radius: number }
+  | { kind: 'coordinates-radius'; center: GeometryCoordinate; radius: number };
+
+function finiteNumber(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Parse the circle forms accepted by the Geometry expression rail.
+ *
+ * Supported examples:
+ * - circle(A,B)
+ * - circle(A,3.5)
+ * - circle((2,-1),4)
+ * - circle(2,-1,4)
+ * - (x-2)^2+(y+1)^2=16
+ */
+export function parseCircleConstruction(source: string): CircleConstruction | null {
+  const compact = source.trim().replace(/\s+/g, '').replace(/−/g, '-').replace(/²/g, '^2');
+  const coordinateCall = compact.match(/^circle\(\((-?\d*\.?\d+),(-?\d*\.?\d+)\),(-?\d*\.?\d+)\)$/i);
+  if (coordinateCall) {
+    const x = finiteNumber(coordinateCall[1]);
+    const y = finiteNumber(coordinateCall[2]);
+    const radius = finiteNumber(coordinateCall[3]);
+    if (x !== null && y !== null && radius !== null && radius > 0) {
+      return { kind: 'coordinates-radius', center: { x, y }, radius };
+    }
+  }
+
+  const flatCoordinateCall = compact.match(/^circle\((-?\d*\.?\d+),(-?\d*\.?\d+),(-?\d*\.?\d+)\)$/i);
+  if (flatCoordinateCall) {
+    const x = finiteNumber(flatCoordinateCall[1]);
+    const y = finiteNumber(flatCoordinateCall[2]);
+    const radius = finiteNumber(flatCoordinateCall[3]);
+    if (x !== null && y !== null && radius !== null && radius > 0) {
+      return { kind: 'coordinates-radius', center: { x, y }, radius };
+    }
+  }
+
+  const labelCall = compact.match(/^circle\(([a-z][a-z0-9]*),([a-z][a-z0-9]*|-?\d*\.?\d+)\)$/i);
+  if (labelCall) {
+    const radius = finiteNumber(labelCall[2]);
+    if (radius !== null) {
+      return radius > 0 ? { kind: 'center-radius', centerLabel: labelCall[1], radius } : null;
+    }
+    return { kind: 'center-edge', centerLabel: labelCall[1], edgeLabel: labelCall[2] };
+  }
+
+  const equation = compact.match(/^\(?x([+-]\d*\.?\d+)?\)?\^2\+\(?y([+-]\d*\.?\d+)?\)?\^2=(-?\d*\.?\d+)$/i);
+  if (equation) {
+    const xOffset = finiteNumber(equation[1] || '0');
+    const yOffset = finiteNumber(equation[2] || '0');
+    const squaredRadius = finiteNumber(equation[3]);
+    if (xOffset !== null && yOffset !== null && squaredRadius !== null && squaredRadius > 0) {
+      return {
+        kind: 'coordinates-radius',
+        center: { x: -xOffset, y: -yOffset },
+        radius: Math.sqrt(squaredRadius),
+      };
+    }
+  }
+  return null;
+}
+
 export function geometryDistance(left: GeometryCoordinate, right: GeometryCoordinate): number {
   return Math.hypot(right.x - left.x, right.y - left.y);
 }

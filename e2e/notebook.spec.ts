@@ -614,6 +614,7 @@ test('long structured mathematics flows across ruled lines without hiding contro
 });
 
 test('continuous composer writes mixed ruled lines and research tools stay viewport-safe', async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto('/');
   const composer = page.getByLabel('Continuous notebook line');
   await expect(composer).toBeVisible();
@@ -629,11 +630,18 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
   const research = page.getByTestId('research-tools-panel');
   await expect(research).toBeVisible();
-  await expect(research.getByRole('button', { name: '2D Graph' })).toHaveClass(/is-active/);
+  await expect(research.getByRole('button', { name: '2D Graph', exact: true })).toHaveClass(/is-active/);
   await expect(research.getByLabel('Interactive 2D graph')).toBeVisible();
   await research.getByRole('button', { name: 'Zoom in' }).click();
   await research.getByRole('button', { name: '+ Add expression' }).click();
   await expect(research.getByRole('textbox', { name: 'Expression 3', exact: true })).toBeVisible();
+  await research.getByRole('textbox', { name: 'Expression 3', exact: true }).fill('(x-2)^2+(y+1)^2=9');
+  await research.getByRole('button', { name: '2D graph settings' }).click();
+  await expect(research.getByLabel('2D graph settings panel')).toBeVisible();
+  await research.getByLabel('Lock viewport').check();
+  await expect(research.getByRole('button', { name: 'Zoom in' })).toBeDisabled();
+  await research.getByLabel('Lock viewport').uncheck();
+  await research.getByRole('button', { name: 'Close 2D graph settings' }).click();
   await research.getByRole('button', { name: '3D Surface' }).click();
   await expect(research.getByLabel('Interactive 3D graph')).toBeVisible();
   await expect(research.getByLabel('3D surface expression 1')).toHaveValue('a*sin(x)*cos(y)');
@@ -649,11 +657,13 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await research.getByRole('button', { name: '+ Add implicit F(x,y,z)=0' }).click();
   await expect(research.getByLabel('Implicit surface expression 1')).toHaveValue('x^2+y^2+z^2-9');
   await research.getByLabel('3D surface expression 2').fill('x^2-y^2{x>-2}{x<2}');
+  await research.getByRole('button', { name: '3D graph settings' }).click();
   await research.getByLabel('3D rendering style').selectOption('mesh');
   await research.getByRole('button', { name: 'Zoom 3D view in' }).click();
   await research.getByLabel('Lock zoom').check();
   await expect(research.getByRole('button', { name: 'Zoom 3D view in' })).toBeDisabled();
   await research.getByLabel('Lock zoom').uncheck();
+  await research.getByRole('button', { name: 'Close 3D graph settings' }).click();
   await research.getByRole('button', { name: 'Geometry', exact: true }).click();
   const geometryCanvas = research.getByLabel('Interactive geometry canvas');
   await expect(geometryCanvas).toBeVisible();
@@ -669,6 +679,13 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await research.getByLabel('Point A x coordinate').fill('0');
   await research.getByLabel('Point B x coordinate').fill('4');
   await expect(research.getByLabel('Point C x coordinate')).toHaveValue('2');
+  await research.getByLabel('Geometry construction expression').fill('circle(A,3)');
+  await research.getByLabel('Geometry construction expression').press('Enter');
+  await research.getByRole('button', { name: /circle\(A, 3\.000\)/i }).click();
+  const circleRadiusInput = research.getByRole('spinbutton', { name: 'Selected circle radius', exact: true });
+  await expect(circleRadiusInput).toHaveValue('3');
+  await circleRadiusInput.fill('4');
+  await expect(research.getByRole('button', { name: /circle\(A, 4\.000\)/i })).toBeVisible();
   await research.getByRole('button', { name: /Segment AB/ }).click();
   await expect(research.getByLabel('Selected geometry controls')).toBeVisible();
   await research.getByRole('button', { name: 'Translate copy' }).click();
@@ -681,7 +698,20 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await expect(research.getByRole('button', { name: 'Geometry', exact: true })).toHaveClass(/is-active/);
   await expect(research.getByRole('button', { name: /Segment AB/ })).toBeVisible();
   await research.getByRole('button', { name: 'Scientific' }).click();
-  await expect(research.getByText('Scientific expression')).toBeVisible();
+  const scientificField = research.getByLabel('Scientific expression', { exact: true });
+  await expect(scientificField).toBeVisible();
+  await scientificField.evaluate((element: any) => {
+    element.value = '6\\times4';
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: null }));
+  });
+  await scientificField.press('Enter');
+  await expect(research.getByText('≈ 24')).toBeVisible();
+  await scientificField.evaluate((element: any) => {
+    element.value = '\\operatorname{ans}+1';
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: null }));
+  });
+  await scientificField.press('Enter');
+  await expect(research.getByText('≈ 25')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(await page.evaluate(() => innerWidth));
   await research.getByRole('button', { name: 'Close research tools' }).click();
 
@@ -690,6 +720,122 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await calculator.getByLabel('Calculator expression').fill('6*4');
   await calculator.getByLabel('Calculator expression').press('Enter');
   await expect(calculator.getByText(/24/)).toBeVisible();
+});
+
+test('research canvases keep square coordinates and viewport-safe controls at 1280 by 659', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 659 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
+  const research = page.getByTestId('research-tools-panel');
+  const expectCanvasMatchesLayout = async (label: string) => {
+    await expect.poll(async () => research.getByLabel(label).evaluate((canvas: HTMLCanvasElement) => {
+      const bounds = canvas.getBoundingClientRect();
+      return Math.max(Math.abs(canvas.width - bounds.width), Math.abs(canvas.height - bounds.height));
+    })).toBeLessThanOrEqual(2);
+  };
+  const expectInViewport = async (locator: ReturnType<typeof page.locator>) => {
+    const bounds = await locator.boundingBox();
+    if (!bounds) throw new Error('Expected a visible research control');
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(1280.5);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(659.5);
+  };
+
+  await expectCanvasMatchesLayout('Interactive 2D graph');
+  const graph2DSettings = research.getByRole('button', { name: '2D graph settings', exact: true });
+  await graph2DSettings.click();
+  await expectInViewport(research.getByLabel('2D graph settings panel'));
+  await graph2DSettings.click();
+  await expect(research.getByLabel('2D graph settings panel')).toBeHidden();
+  await graph2DSettings.click();
+  await page.keyboard.press('Escape');
+  await expect(research.getByLabel('2D graph settings panel')).toBeHidden();
+  await graph2DSettings.click();
+  await research.getByLabel('Interactive 2D graph').click({ position: { x: 80, y: 80 } });
+  await expect(research.getByLabel('2D graph settings panel')).toBeHidden();
+
+  await research.getByRole('button', { name: '3D Surface', exact: true }).click();
+  await expectCanvasMatchesLayout('Interactive 3D graph');
+  const graph3DSettings = research.getByRole('button', { name: '3D graph settings', exact: true });
+  await graph3DSettings.click();
+  await expectInViewport(research.getByLabel('3D graph settings panel'));
+  await expect(research.getByLabel('3D x minimum')).toHaveValue('-5');
+  await expect(research.getByLabel('3D z maximum')).toHaveValue('5');
+  await research.getByLabel('3D x minimum').fill('-8');
+  await research.getByLabel('3D x maximum').fill('12');
+  await expect(research.getByLabel('3D x minimum')).toHaveValue('-8');
+  await expect(research.getByLabel('3D x maximum')).toHaveValue('12');
+  await expect(research.getByLabel('3D y maximum')).toHaveValue('5');
+  await graph3DSettings.click();
+  await expect(research.getByLabel('3D graph settings panel')).toBeHidden();
+
+  const graph3DCanvas = research.getByLabel('Interactive 3D graph');
+  const cameraState = () => page.evaluate(() => {
+    const key = Object.keys(window.localStorage).find((entry) => entry.endsWith(':3d:camera'));
+    if (!key) return null;
+    return JSON.parse(window.localStorage.getItem(key) ?? 'null') as { yaw: number; pitch: number; zoom: number } | null;
+  });
+  const canvasBounds = await graph3DCanvas.boundingBox();
+  if (!canvasBounds) throw new Error('Expected the 3D canvas to be visible');
+  await graph3DCanvas.evaluate((canvas) => {
+    canvas.addEventListener('pointerdown', (event) => { canvas.dataset.lastPointerId = String((event as PointerEvent).pointerId); });
+  });
+  const cameraBefore = await cameraState();
+  if (!cameraBefore) throw new Error('Expected persisted 3D camera state');
+  const orbitY = canvasBounds.y + canvasBounds.height * .55;
+  const orbitLeft = canvasBounds.x + canvasBounds.width * .42;
+  await page.mouse.move(orbitLeft, orbitY);
+  await page.mouse.down();
+  await page.mouse.move(orbitLeft + 150, orbitY, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await cameraState())?.yaw ?? cameraBefore.yaw).toBeLessThan(cameraBefore.yaw);
+  const cameraAfterRight = await cameraState();
+  if (!cameraAfterRight) throw new Error('Expected 3D camera after rightward orbit');
+  expect(cameraBefore.yaw - cameraAfterRight.yaw).toBeGreaterThan(.45);
+  expect(cameraBefore.yaw - cameraAfterRight.yaw).toBeLessThan(.75);
+  await expect.poll(() => graph3DCanvas.evaluate((canvas) => {
+    const pointerId = Number(canvas.dataset.lastPointerId);
+    return Number.isFinite(pointerId) && !canvas.hasPointerCapture(pointerId);
+  })).toBe(true);
+
+  await page.mouse.move(orbitLeft + 150, orbitY);
+  await page.mouse.down();
+  await page.mouse.move(orbitLeft, orbitY, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await cameraState())?.yaw ?? cameraAfterRight.yaw).toBeGreaterThan(cameraAfterRight.yaw);
+  const cameraAfterLeft = await cameraState();
+  if (!cameraAfterLeft) throw new Error('Expected 3D camera after leftward orbit');
+  expect(Math.abs(cameraAfterLeft.yaw - cameraBefore.yaw)).toBeLessThan(.05);
+
+  const verticalX = canvasBounds.x + canvasBounds.width * .62;
+  const verticalTop = canvasBounds.y + 30;
+  const verticalBottom = canvasBounds.y + canvasBounds.height - 30;
+  await page.mouse.move(verticalX, verticalTop);
+  await page.mouse.down();
+  await page.mouse.move(verticalX, verticalBottom, { steps: 8 });
+  await page.mouse.up();
+  const cameraAfterDown = await cameraState();
+  if (!cameraAfterDown) throw new Error('Expected 3D camera after vertical orbit');
+  expect(cameraAfterDown.pitch).toBeGreaterThan(cameraAfterLeft.pitch);
+  expect(cameraAfterDown.pitch).toBeLessThanOrEqual(1.52);
+  await page.mouse.move(verticalX, verticalBottom);
+  await page.mouse.down();
+  await page.mouse.move(verticalX, verticalTop, { steps: 8 });
+  await page.mouse.up();
+  const cameraAfterUp = await cameraState();
+  if (!cameraAfterUp) throw new Error('Expected 3D camera after repeated vertical orbit');
+  expect(cameraAfterUp.pitch).toBeGreaterThanOrEqual(-1.52);
+  expect(cameraAfterUp.pitch).toBeLessThan(cameraAfterDown.pitch);
+
+  await research.getByRole('button', { name: 'Geometry', exact: true }).click();
+  await expectCanvasMatchesLayout('Interactive geometry canvas');
+  await research.getByRole('button', { name: 'Zoom geometry in' }).click();
+  await expectInViewport(research.getByRole('toolbar', { name: 'Geometry tools' }));
+
+  await research.getByRole('button', { name: 'Scientific', exact: true }).click();
+  await expectInViewport(research.getByRole('button', { name: 'Enter ↵' }));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(await page.evaluate(() => innerWidth));
 });
 
 test('keeps page assistant and notebook menu responsive, dismissible, and closed by preference', async ({ page }) => {

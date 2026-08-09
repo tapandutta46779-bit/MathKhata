@@ -8,6 +8,7 @@ import {
   geometryPointLabel,
   lineCircleIntersections,
   lineIntersection,
+  parseCircleConstruction,
   polygonArea,
   polygonPerimeter,
   reflectCoordinate,
@@ -63,5 +64,14 @@ describe('research geometry calculations', () => {
     expect(intersections).toHaveLength(2);
     expect(intersections[0].x).toBeCloseTo(1);
     expect(Math.abs(intersections[0].y)).toBeCloseTo(Math.sqrt(3));
+  });
+
+  it('parses circles from point tokens, numeric radii, coordinates, and equations', () => {
+    expect(parseCircleConstruction('circle(A,B)')).toEqual({ kind: 'center-edge', centerLabel: 'A', edgeLabel: 'B' });
+    expect(parseCircleConstruction('circle(A, 3.5)')).toEqual({ kind: 'center-radius', centerLabel: 'A', radius: 3.5 });
+    expect(parseCircleConstruction('circle((2,-1),4)')).toEqual({ kind: 'coordinates-radius', center: { x: 2, y: -1 }, radius: 4 });
+    expect(parseCircleConstruction('circle(2,-1,4)')).toEqual({ kind: 'coordinates-radius', center: { x: 2, y: -1 }, radius: 4 });
+    expect(parseCircleConstruction('(x-2)^2 + (y+1)^2 = 16')).toEqual({ kind: 'coordinates-radius', center: { x: 2, y: -1 }, radius: 4 });
+    expect(parseCircleConstruction('circle(A,0)')).toBeNull();
   });
 });
