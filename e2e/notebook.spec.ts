@@ -658,12 +658,12 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await expect(research.getByLabel('Implicit surface expression 1')).toHaveValue('x^2+y^2+z^2-9');
   await research.getByLabel('3D surface expression 2').fill('x^2-y^2{x>-2}{x<2}');
   await research.getByRole('button', { name: '3D graph settings' }).click();
-  await research.getByLabel('3D rendering style').selectOption('mesh');
+  await page.getByLabel('3D rendering style').selectOption('mesh');
   await research.getByRole('button', { name: 'Zoom 3D view in' }).click();
-  await research.getByLabel('Lock zoom').check();
+  await page.getByLabel('Lock zoom').check();
   await expect(research.getByRole('button', { name: 'Zoom 3D view in' })).toBeDisabled();
-  await research.getByLabel('Lock zoom').uncheck();
-  await research.getByRole('button', { name: 'Close 3D graph settings' }).click();
+  await page.getByLabel('Lock zoom').uncheck();
+  await page.getByRole('button', { name: 'Close 3D graph settings' }).click();
   await research.getByRole('button', { name: 'Geometry', exact: true }).click();
   const geometryCanvas = research.getByLabel('Interactive geometry canvas');
   await expect(geometryCanvas).toBeVisible();
@@ -722,7 +722,146 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await expect(calculator.getByText(/24/)).toBeVisible();
 });
 
+test('geometry reopens safely and supports constrained feedback, object dragging, fit, and extended anchored zoom', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
+  const research = page.getByTestId('research-tools-panel');
+  await research.getByRole('button', { name: 'Geometry', exact: true }).click();
+  const canvas = research.getByLabel('Interactive geometry canvas');
+  const moveTool = research.getByRole('button', { name: 'Move points and pan' });
+  await expect(moveTool).toHaveAttribute('aria-pressed', 'true');
+
+  const command = research.getByLabel('Geometry construction expression');
+  const addConstruction = async (value: string) => {
+    await command.fill(value);
+    await command.press('Enter');
+    await expect(command).toHaveValue('');
+  };
+  await addConstruction('point(0,0)');
+  await addConstruction('point(4,0)');
+  await addConstruction('segment(A,B)');
+  await addConstruction('midpoint(A,B)');
+  await addConstruction('circle(A,2.5)');
+  await expect(research.locator('.geometry-expression-row')).toHaveCount(2);
+  await expect(research.locator('.geometry-point-list > div')).toHaveCount(4);
+
+  await research.getByRole('button', { name: 'Delete object or point' }).click();
+  await expect(research.getByText(/Delete mode:/)).toBeVisible();
+  await research.getByRole('button', { name: '2D Graph', exact: true }).click();
+  await research.getByRole('button', { name: 'Geometry', exact: true }).click();
+  await expect(moveTool).toHaveAttribute('aria-pressed', 'true');
+  await expect(research.locator('.geometry-expression-row')).toHaveCount(2);
+  await expect(research.locator('.geometry-point-list > div')).toHaveCount(4);
+
+  await research.getByRole('button', { name: 'Construct circle' }).click();
+  await page.keyboard.press('Escape');
+  await expect(research).toBeVisible();
+  await expect(moveTool).toHaveAttribute('aria-pressed', 'true');
+
+  const viewportState = () => page.evaluate(() => {
+    const key = Object.keys(window.localStorage).find((entry) => entry.endsWith(':geometry:viewport'));
+    return key ? JSON.parse(window.localStorage.getItem(key) ?? 'null') as { centerX: number; centerY: number; scale: number } | null : null;
+  });
+  const screenForWorld = async (x: number, y: number) => {
+    const view = await viewportState();
+    if (!view) throw new Error('Expected persisted Geometry viewport');
+    return canvas.evaluate((element: HTMLCanvasElement, state) => {
+      const bounds = element.getBoundingClientRect();
+      const pixelX = element.width / 2 + (state.x - state.view.centerX) * state.view.scale;
+      const pixelY = element.height / 2 - (state.y - state.view.centerY) * state.view.scale;
+      return {
+        x: bounds.left + pixelX * bounds.width / element.width,
+        y: bounds.top + pixelY * bounds.height / element.height,
+      };
+    }, { x, y, view });
+  };
+  const drag = async (start: { x: number; y: number }, dx: number, dy: number) => {
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + dx, start.y + dy, { steps: 6 });
+    await page.mouse.up();
+  };
+
+  await drag(await screenForWorld(0, 0), 42, 42);
+  await expect(research.getByLabel('Point A x coordinate')).toHaveValue('1');
+  await expect(research.getByLabel('Point A y coordinate')).toHaveValue('-1');
+  await expect(research.locator('.geometry-expression-row')).toHaveCount(2);
+
+  await drag(await screenForWorld(3.7, -.1), 42, 0);
+  await expect(research.getByLabel('Point A x coordinate')).toHaveValue('2');
+  await expect(research.getByLabel('Point B x coordinate')).toHaveValue('5');
+  await expect(research.locator('.geometry-expression-row')).toHaveCount(2);
+
+  await expect(research.getByLabel('Point C x coordinate')).toHaveValue('3.5');
+  const constrainedBefore = await research.getByLabel('Point C x coordinate').inputValue();
+  await drag(await screenForWorld(3.5, -.5), 42, 0);
+  await expect(research.getByLabel('Point C x coordinate')).toHaveValue(constrainedBefore);
+  await expect(research.getByText(/Point C is constrained by midpoint/)).toBeVisible();
+
+  await drag(await screenForWorld(4.5, -1), 42, 0);
+  await research.getByRole('button', { name: /circle\(A, 3\.500\)/i }).click();
+  await expect(research.getByLabel('Selected circle radius', { exact: true })).toHaveValue('3.5');
+
+  const pointsBeforeTemporaryPan = await research.locator('.geometry-point-list > div').count();
+  await research.getByRole('button', { name: 'Construct circle' }).click();
+  const viewBeforeTemporaryPan = await viewportState();
+  const canvasBounds = await canvas.boundingBox();
+  if (!canvasBounds || !viewBeforeTemporaryPan) throw new Error('Expected Geometry canvas and viewport');
+  await page.keyboard.down('Space');
+  await drag({ x: canvasBounds.x + 80, y: canvasBounds.y + canvasBounds.height - 80 }, 65, -35);
+  await page.keyboard.up('Space');
+  const viewAfterTemporaryPan = await viewportState();
+  if (!viewAfterTemporaryPan) throw new Error('Expected Geometry viewport after temporary pan');
+  expect(viewAfterTemporaryPan.centerX).not.toBe(viewBeforeTemporaryPan.centerX);
+  await expect(research.locator('.geometry-point-list > div')).toHaveCount(pointsBeforeTemporaryPan);
+  await page.keyboard.press('Escape');
+  await expect(moveTool).toHaveAttribute('aria-pressed', 'true');
+
+  const offCenter = { x: canvasBounds.x + canvasBounds.width * .73, y: canvasBounds.y + canvasBounds.height * .34 };
+  const pageScrollBefore = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+  const zoomBefore = await viewportState();
+  if (!zoomBefore) throw new Error('Expected Geometry viewport before wheel zoom');
+  const canvasMetrics = await canvas.evaluate((element: HTMLCanvasElement) => {
+    const bounds = element.getBoundingClientRect();
+    return { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, canvasWidth: element.width, canvasHeight: element.height };
+  });
+  const worldAtPointer = (view: { centerX: number; centerY: number; scale: number }) => {
+    const px = (offCenter.x - canvasMetrics.left) * canvasMetrics.canvasWidth / canvasMetrics.width;
+    const py = (offCenter.y - canvasMetrics.top) * canvasMetrics.canvasHeight / canvasMetrics.height;
+    return { x: view.centerX + (px - canvasMetrics.canvasWidth / 2) / view.scale, y: view.centerY - (py - canvasMetrics.canvasHeight / 2) / view.scale };
+  };
+  const anchorBefore = worldAtPointer(zoomBefore);
+  await page.mouse.move(offCenter.x, offCenter.y);
+  await page.mouse.wheel(0, -1200);
+  await expect.poll(async () => (await viewportState())?.scale ?? 0).toBeGreaterThan(zoomBefore.scale);
+  const zoomAfter = await viewportState();
+  if (!zoomAfter) throw new Error('Expected Geometry viewport after wheel zoom');
+  const anchorAfter = worldAtPointer(zoomAfter);
+  expect(Math.abs(anchorAfter.x - anchorBefore.x)).toBeLessThan(.03);
+  expect(Math.abs(anchorAfter.y - anchorBefore.y)).toBeLessThan(.03);
+  expect(await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }))).toEqual(pageScrollBefore);
+
+  for (let index = 0; index < 3; index += 1) await page.mouse.wheel(0, -1200);
+  await expect.poll(async () => (await viewportState())?.scale ?? 0).toBeGreaterThan(180);
+  for (let index = 0; index < 7; index += 1) await page.mouse.wheel(0, 1200);
+  await expect.poll(async () => (await viewportState())?.scale ?? Number.POSITIVE_INFINITY).toBeLessThan(16);
+  await expect(research.locator('.geometry-expression-row')).toHaveCount(2);
+
+  await research.getByRole('button', { name: 'Fit all geometry objects' }).click();
+  await expect.poll(async () => (await viewportState())?.scale ?? 0).toBeGreaterThan(16);
+  await research.getByRole('button', { name: 'Reset geometry view' }).click();
+  await expect.poll(viewportState).toEqual({ centerX: 0, centerY: 0, scale: 42 });
+  await research.getByRole('button', { name: 'Zoom geometry in' }).click();
+  await expect.poll(async () => (await viewportState())?.scale ?? 0).toBeGreaterThan(42);
+  await research.getByRole('button', { name: 'Zoom geometry out' }).click();
+  await expect.poll(async () => (await viewportState())?.scale ?? 0).toBeCloseTo(42, 5);
+  await expect(research.locator('.geometry-expression-row')).toHaveCount(2);
+});
+
 test('research canvases keep square coordinates and viewport-safe controls at 1280 by 659', async ({ page }) => {
+  test.setTimeout(60_000);
   await page.setViewportSize({ width: 1280, height: 659 });
   await page.goto('/');
   await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
@@ -736,10 +875,11 @@ test('research canvases keep square coordinates and viewport-safe controls at 12
   const expectInViewport = async (locator: ReturnType<typeof page.locator>) => {
     const bounds = await locator.boundingBox();
     if (!bounds) throw new Error('Expected a visible research control');
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.y).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(1280.5);
-    expect(bounds.y + bounds.height).toBeLessThanOrEqual(659.5);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width + .5);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height + .5);
   };
 
   await expectCanvasMatchesLayout('Interactive 2D graph');
@@ -758,24 +898,73 @@ test('research canvases keep square coordinates and viewport-safe controls at 12
   await research.getByRole('button', { name: '3D Surface', exact: true }).click();
   await expectCanvasMatchesLayout('Interactive 3D graph');
   const graph3DSettings = research.getByRole('button', { name: '3D graph settings', exact: true });
-  await graph3DSettings.click();
-  await expectInViewport(research.getByLabel('3D graph settings panel'));
-  await expect(research.getByLabel('3D x minimum')).toHaveValue('-5');
-  await expect(research.getByLabel('3D z maximum')).toHaveValue('5');
-  await research.getByLabel('3D x minimum').fill('-8');
-  await research.getByLabel('3D x maximum').fill('12');
-  await expect(research.getByLabel('3D x minimum')).toHaveValue('-8');
-  await expect(research.getByLabel('3D x maximum')).toHaveValue('12');
-  await expect(research.getByLabel('3D y maximum')).toHaveValue('5');
-  await graph3DSettings.click();
-  await expect(research.getByLabel('3D graph settings panel')).toBeHidden();
-
   const graph3DCanvas = research.getByLabel('Interactive 3D graph');
   const cameraState = () => page.evaluate(() => {
     const key = Object.keys(window.localStorage).find((entry) => entry.endsWith(':3d:camera'));
     if (!key) return null;
     return JSON.parse(window.localStorage.getItem(key) ?? 'null') as { yaw: number; pitch: number; zoom: number } | null;
   });
+  await graph3DSettings.click();
+  const graph3DSettingsPanel = page.getByRole('region', { name: '3D graph settings panel' });
+  await expectInViewport(graph3DSettingsPanel);
+  await expect(page.getByLabel('3D x minimum')).toHaveValue('-5');
+  await expect(page.getByLabel('3D z maximum')).toHaveValue('5');
+  await page.getByLabel('3D x minimum').fill('-8');
+  await page.getByLabel('3D x maximum').fill('12');
+  await expect(page.getByLabel('3D x minimum')).toHaveValue('-8');
+  await expect(page.getByLabel('3D x maximum')).toHaveValue('12');
+  await expect(page.getByLabel('3D y maximum')).toHaveValue('5');
+
+  const cameraBeforeSettingsScroll = await cameraState();
+  if (!cameraBeforeSettingsScroll) throw new Error('Expected persisted 3D camera state');
+  const settingsBounds = await graph3DSettingsPanel.boundingBox();
+  if (!settingsBounds) throw new Error('Expected visible 3D settings panel');
+  await page.mouse.move(settingsBounds.x + settingsBounds.width / 2, settingsBounds.y + settingsBounds.height / 2);
+  await page.mouse.wheel(0, 900);
+  await expect.poll(() => graph3DSettingsPanel.evaluate((panel) => panel.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(async () => (await cameraState())?.zoom ?? 0).toBe(cameraBeforeSettingsScroll.zoom);
+
+  const meshValue = page.getByLabel('3D mesh resolution value');
+  await meshValue.scrollIntoViewIfNeeded();
+  await expectInViewport(meshValue);
+  await meshValue.fill('17');
+  await expect(meshValue).toHaveValue('17');
+  await page.getByRole('button', { name: 'Increase 3D mesh resolution' }).click();
+  await expect(meshValue).toHaveValue('19');
+  await meshValue.fill('45');
+  await expect(meshValue).toHaveValue('45');
+  await expect(page.getByRole('button', { name: 'Increase 3D mesh resolution' })).toBeDisabled();
+
+  for (const preset of ['Perspective', 'Top', 'Front', 'Side']) {
+    const button = page.getByRole('button', { name: `3D camera ${preset} preset` });
+    await button.scrollIntoViewIfNeeded();
+    await expectInViewport(button);
+    await button.click();
+    await expect(graph3DSettingsPanel).toBeVisible();
+  }
+  const focusableSettings = graph3DSettingsPanel.locator('button:not([disabled]), input:not([disabled]), select:not([disabled])');
+  const focusableCount = await focusableSettings.count();
+  await focusableSettings.first().focus();
+  for (let index = 1; index < focusableCount; index += 1) {
+    await page.keyboard.press('Tab');
+    await expect.poll(() => graph3DSettingsPanel.evaluate((panel) => panel.contains(document.activeElement))).toBe(true);
+  }
+
+  await graph3DSettings.click();
+  await expect(graph3DSettingsPanel).toHaveCount(0);
+  await graph3DSettings.click();
+  await expect(graph3DSettingsPanel).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(graph3DSettingsPanel).toHaveCount(0);
+  await graph3DSettings.click();
+  await expect(graph3DSettingsPanel).toBeVisible();
+  await graph3DCanvas.click({ position: { x: 80, y: 100 } });
+  await expect(graph3DSettingsPanel).toHaveCount(0);
+  await graph3DSettings.click();
+  await expect(graph3DSettingsPanel).toBeVisible();
+  await page.getByRole('button', { name: 'Close 3D graph settings' }).click();
+  await expect(graph3DSettingsPanel).toHaveCount(0);
+
   const canvasBounds = await graph3DCanvas.boundingBox();
   if (!canvasBounds) throw new Error('Expected the 3D canvas to be visible');
   await graph3DCanvas.evaluate((canvas) => {
@@ -835,6 +1024,21 @@ test('research canvases keep square coordinates and viewport-safe controls at 12
 
   await research.getByRole('button', { name: 'Scientific', exact: true }).click();
   await expectInViewport(research.getByRole('button', { name: 'Enter ↵' }));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(await page.evaluate(() => innerWidth));
+
+  await page.setViewportSize({ width: 720, height: 600 });
+  await research.getByRole('button', { name: '3D Surface', exact: true }).click();
+  await graph3DSettings.click();
+  await expectInViewport(graph3DSettingsPanel);
+  await meshValue.scrollIntoViewIfNeeded();
+  await expectInViewport(meshValue);
+  const sidePreset = page.getByRole('button', { name: '3D camera Side preset' });
+  await sidePreset.scrollIntoViewIfNeeded();
+  await expectInViewport(sidePreset);
+  await sidePreset.click();
+  await expect(graph3DSettingsPanel).toBeVisible();
+  await graph3DSettings.click();
+  await expect(graph3DSettingsPanel).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(await page.evaluate(() => innerWidth));
 });
 

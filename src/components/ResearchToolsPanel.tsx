@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { createPortal } from 'react-dom';
 import type { MathfieldElement } from 'mathlive';
 import {
   angleDegrees,
@@ -637,6 +638,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasSize = useResponsiveCanvasSize(canvasRef);
   const settingsRef = useRef<HTMLDivElement | null>(null);
+  const settingsPopoverRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
   const tracePointsRef = useRef<Array<{ screenX: number; screenY: number; x: number; y: number; z: number; color: string; expression: string }>>([]);
   const orderedBounds = (minimum: number, maximum: number): [number, number] => minimum === maximum
@@ -660,7 +662,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         }
         return;
       }
-      if (!settingsRef.current?.contains(event.target as Node)) setSettingsOpen(false);
+      const target = event.target as Node;
+      if (!settingsRef.current?.contains(target) && !settingsPopoverRef.current?.contains(target)) setSettingsOpen(false);
     };
     window.addEventListener('keydown', dismiss, true);
     window.addEventListener('pointerdown', dismiss, true);
@@ -1127,7 +1130,14 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         <div className="graph-controls" aria-label="3D graph view controls" ref={settingsRef}>
           <div className="graph-settings-anchor">
             <button type="button" aria-label="3D graph settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((current) => !current)}>Settings</button>
-            {settingsOpen && <section className="graph-settings-popover graph-settings-popover--3d" aria-label="3D graph settings panel">
+            {settingsOpen && createPortal(<section
+              ref={settingsPopoverRef}
+              className="graph-settings-popover graph-settings-popover--3d"
+              aria-label="3D graph settings panel"
+              onPointerDown={(event) => event.stopPropagation()}
+              onWheel={(event) => event.stopPropagation()}
+              onFocusCapture={(event) => (event.target as HTMLElement).scrollIntoView({ block: 'nearest' })}
+            >
               <header><strong>3D graph settings</strong><button type="button" aria-label="Close 3D graph settings" onClick={() => setSettingsOpen(false)}>×</button></header>
               <div className="surface-view-options">
                 <label>Rendering<select aria-label="3D rendering style" value={renderMode} onChange={(event) => setRenderMode(event.target.value as SurfaceRenderMode)}><option value="solid">Solid + mesh</option><option value="mesh">Wire mesh</option><option value="contours">Contour mesh</option></select></label>
@@ -1163,9 +1173,20 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
                   <button type="button" onClick={() => setBounds({ xMin: -domain, xMax: domain, yMin: -domain, yMax: domain, zMin: -domain, zMax: domain })}>Equalize ±{Number(domain.toPrecision(3))}</button>
                 </div>
               </section>
-              <label className="graph-slider">Mesh {resolution}×{resolution}<input type="range" min="17" max="45" step="2" value={resolution} onChange={(event) => setResolution(Number(event.target.value))} /></label>
-              <div className="surface-presets" aria-label="3D camera presets"><button type="button" onClick={() => setCameraPreset('iso')}>Perspective</button><button type="button" onClick={() => setCameraPreset('top')}>Top</button><button type="button" onClick={() => setCameraPreset('front')}>Front</button><button type="button" onClick={() => setCameraPreset('side')}>Side</button></div>
-            </section>}
+              <section className="graph-mesh-control" aria-label="3D mesh resolution controls">
+                <header><strong>Mesh resolution</strong><output>{resolution}×{resolution}</output></header>
+                <div>
+                  <button type="button" aria-label="Decrease 3D mesh resolution" disabled={resolution <= 17} onClick={() => setResolution((current) => Math.max(17, current - 2))}>−</button>
+                  <input aria-label="3D mesh resolution" type="range" min="17" max="45" step="2" value={resolution} onChange={(event) => setResolution(Number(event.target.value))} />
+                  <input aria-label="3D mesh resolution value" type="number" min="17" max="45" step="2" value={resolution} onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (Number.isFinite(value)) setResolution(Math.max(17, Math.min(45, 17 + Math.round((value - 17) / 2) * 2)));
+                  }} />
+                  <button type="button" aria-label="Increase 3D mesh resolution" disabled={resolution >= 45} onClick={() => setResolution((current) => Math.min(45, current + 2))}>+</button>
+                </div>
+              </section>
+              <div className="surface-presets" aria-label="3D camera presets"><button type="button" aria-label="3D camera Perspective preset" onClick={() => setCameraPreset('iso')}>Perspective</button><button type="button" aria-label="3D camera Top preset" onClick={() => setCameraPreset('top')}>Top</button><button type="button" aria-label="3D camera Front preset" onClick={() => setCameraPreset('front')}>Front</button><button type="button" aria-label="3D camera Side preset" onClick={() => setCameraPreset('side')}>Side</button></div>
+            </section>, document.body)}
           </div>
           <button type="button" aria-label="Zoom 3D view in" disabled={lockZoom} onClick={() => setCamera((view) => ({ ...view, zoom: Math.min(2.6, view.zoom * 1.2) }))}>+</button>
           <button type="button" aria-label="Zoom 3D view out" disabled={lockZoom} onClick={() => setCamera((view) => ({ ...view, zoom: Math.max(.45, view.zoom / 1.2) }))}>−</button>
@@ -1214,7 +1235,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           onWheel={(event) => {
             event.preventDefault();
             if (lockZoom) return;
-            setCamera((view) => ({ ...view, zoom: Math.max(.45, Math.min(2.6, view.zoom * Math.exp(-event.deltaY * .0015))) }));
+            const deltaY = event.deltaY;
+            setCamera((view) => ({ ...view, zoom: Math.max(.45, Math.min(2.6, view.zoom * Math.exp(-deltaY * .0015))) }));
           }}
         />
         {trace && <output className="graph-trace graph-trace--3d" style={{ '--graph-color': trace.color } as React.CSSProperties}>x = {trace.x.toFixed(3)} · y = {trace.y.toFixed(3)} · z = {trace.z.toFixed(3)}</output>}
@@ -1261,10 +1283,17 @@ const GEOMETRY_TOOLS: Array<{ id: GeometryTool; label: string; symbol: string }>
   { id: 'delete', label: 'Delete object or point', symbol: '⌫' },
 ];
 
+const GEOMETRY_MIN_SCALE = .02;
+const GEOMETRY_MAX_SCALE = 200_000;
+
+function clampGeometryScale(scale: number) {
+  return Math.max(GEOMETRY_MIN_SCALE, Math.min(GEOMETRY_MAX_SCALE, scale));
+}
+
 function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const [points, setPoints] = usePersistentResearchState<GeometryPoint[]>(`${storagePrefix}:geometry:points`, []);
   const [objects, setObjects] = usePersistentResearchState<GeometryObject[]>(`${storagePrefix}:geometry:objects`, []);
-  const [tool, setTool] = usePersistentResearchState<GeometryTool>(`${storagePrefix}:geometry:tool`, 'point');
+  const [tool, setTool] = useState<GeometryTool>('move');
   const [pendingPointIds, setPendingPointIds] = useState<number[]>([]);
   const [viewport, setViewport] = usePersistentResearchState(`${storagePrefix}:geometry:viewport`, { centerX: 0, centerY: 0, scale: 42 });
   const [snap, setSnap] = usePersistentResearchState(`${storagePrefix}:geometry:snap`, true);
@@ -1280,16 +1309,62 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const [commandError, setCommandError] = useState('');
   const [transform, setTransform] = useState({ dx: 2, dy: 1, angle: 90, scale: 2 });
   const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
+  const [interactionNotice, setInteractionNotice] = useState('Move mode: drag a point, an object, or the blank paper.');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasSize = useResponsiveCanvasSize(canvasRef);
   const constructionInputRef = useRef<HTMLInputElement | null>(null);
   const nextPointIdRef = useRef(Math.max(0, ...points.map((point) => point.id)) + 1);
   const nextObjectIdRef = useRef(Math.max(0, ...objects.map((object) => object.id)) + 1);
+  const spacePanRef = useRef(false);
+  const touchPointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{
+    distance: number;
+    scale: number;
+    anchorWorldX: number;
+    anchorWorldY: number;
+  } | null>(null);
   const dragRef = useRef<
     | { kind: 'point'; pointId: number }
+    | { kind: 'object'; objectId: number; startWorld: { x: number; y: number }; points: Array<{ id: number; x: number; y: number }> }
     | { kind: 'pan'; x: number; y: number; centerX: number; centerY: number }
     | null
   >(null);
+
+  useEffect(() => {
+    try { window.localStorage.removeItem(`${storagePrefix}:geometry:tool`); } catch { /* A stale destructive tool preference must never block geometry. */ }
+    const editableTarget = (target: EventTarget | null) => target instanceof HTMLElement && (
+      target.matches('input, textarea, select, math-field') || target.isContentEditable
+    );
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code === 'Space' && !editableTarget(event.target)) {
+        spacePanRef.current = true;
+        setInteractionNotice('Temporary pan: keep Space held while dragging the paper.');
+        event.preventDefault();
+      }
+      if (event.key === 'Escape' && (tool !== 'move' || pendingPointIds.length)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setTool('move');
+        setPendingPointIds([]);
+        setInteractionNotice('Move mode: drag a point, an object, or the blank paper.');
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') {
+        spacePanRef.current = false;
+        if (tool === 'move') setInteractionNotice('Move mode: drag a point, an object, or the blank paper.');
+      }
+    };
+    const resetSpace = () => { spacePanRef.current = false; };
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('blur', resetSpace);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('blur', resetSpace);
+    };
+  }, [pendingPointIds.length, storagePrefix, tool]);
 
   useEffect(() => {
     setPoints((current) => {
@@ -1532,6 +1607,62 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   }, [angleUnit, canvasSize.height, canvasSize.width, hoverPoint, objects, pendingPointIds, points, selectedObjectIds, showAxes, showGrid, showIntersections, showMeasurements, showMinorGrid, viewport]);
 
   const pointById = (id: number) => points.find((point) => point.id === id);
+  const distanceToGeometryPath = (world: { x: number; y: number }, start: GeometryPoint, end: GeometryPoint, mode: 'segment' | 'line' | 'ray') => {
+    const dx = end.x - start.x; const dy = end.y - start.y;
+    const denominator = dx * dx + dy * dy || 1;
+    let parameter = ((world.x - start.x) * dx + (world.y - start.y) * dy) / denominator;
+    if (mode === 'segment') parameter = Math.max(0, Math.min(1, parameter));
+    if (mode === 'ray') parameter = Math.max(0, parameter);
+    return Math.hypot(world.x - (start.x + parameter * dx), world.y - (start.y + parameter * dy));
+  };
+  const geometryObjectAt = (world: { x: number; y: number }, threshold = 10 / viewport.scale) => [...objects].reverse().find((object) => {
+    if (object.visible === false) return false;
+    const vertices = object.points.map(pointById).filter((entry): entry is GeometryPoint => Boolean(entry));
+    if (object.type === 'segment' || object.type === 'vector' || object.type === 'line' || object.type === 'ray') {
+      return vertices.length === 2 && distanceToGeometryPath(world, vertices[0], vertices[1], object.type === 'vector' ? 'segment' : object.type) <= threshold;
+    }
+    if (object.type === 'circle') {
+      return vertices.length === 2 && Math.abs(geometryDistance(vertices[0], world) - geometryDistance(vertices[0], vertices[1])) <= threshold;
+    }
+    if (object.type === 'angle') {
+      return vertices.length === 3 && (
+        distanceToGeometryPath(world, vertices[1], vertices[0], 'segment') <= threshold
+        || distanceToGeometryPath(world, vertices[1], vertices[2], 'segment') <= threshold
+      );
+    }
+    if (vertices.length < 3) return false;
+    const onEdge = vertices.some((vertex, index) => distanceToGeometryPath(world, vertex, vertices[(index + 1) % vertices.length], 'segment') <= threshold);
+    if (onEdge) return true;
+    let inside = false;
+    for (let index = 0, last = vertices.length - 1; index < vertices.length; last = index, index += 1) {
+      const first = vertices[index]; const previous = vertices[last];
+      const crosses = (first.y > world.y) !== (previous.y > world.y)
+        && world.x < (previous.x - first.x) * (world.y - first.y) / ((previous.y - first.y) || Number.EPSILON) + first.x;
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  });
+  const fitGeometryObjects = () => {
+    if (!points.length) {
+      setViewport({ centerX: 0, centerY: 0, scale: 42 });
+      setInteractionNotice('View reset to the origin.');
+      return;
+    }
+    const xValues = points.map((point) => point.x);
+    const yValues = points.map((point) => point.y);
+    const xMin = Math.min(...xValues); const xMax = Math.max(...xValues);
+    const yMin = Math.min(...yValues); const yMax = Math.max(...yValues);
+    const usableWidth = Math.max(120, canvasSize.width - 150);
+    const usableHeight = Math.max(120, canvasSize.height - 150);
+    const xRange = Math.max(xMax - xMin, 2);
+    const yRange = Math.max(yMax - yMin, 2);
+    setViewport({
+      centerX: (xMin + xMax) / 2,
+      centerY: (yMin + yMax) / 2,
+      scale: clampGeometryScale(Math.min(usableWidth / xRange, usableHeight / yRange)),
+    });
+    setInteractionNotice(`Fit ${points.length} point${points.length === 1 ? '' : 's'} in view without changing the construction.`);
+  };
   const objectDescription = (object: GeometryObject) => {
     const labels = object.points.map((id) => pointById(id)?.label ?? '?').join('');
     if (object.type === 'segment' || object.type === 'vector') {
@@ -1773,12 +1904,21 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       </aside>
       <div className="geometry-stage">
         <div className="geometry-tool-grid geometry-tool-grid--canvas" role="toolbar" aria-label="Geometry tools">
-          {GEOMETRY_TOOLS.map((entry) => <button type="button" key={entry.id} className={tool === entry.id ? 'is-active' : ''} aria-label={entry.label} aria-pressed={tool === entry.id} onClick={() => { setTool(entry.id); setPendingPointIds([]); }}><span>{entry.symbol}</span><span>{entry.label.replace(/ and .*/, '').replace(/Construct /, '').replace(/Add /, '')}</span></button>)}
+          {GEOMETRY_TOOLS.map((entry) => <button type="button" key={entry.id} className={tool === entry.id ? 'is-active' : ''} aria-label={entry.label} aria-pressed={tool === entry.id} onClick={() => {
+            setTool(entry.id);
+            setPendingPointIds([]);
+            setInteractionNotice(entry.id === 'move'
+              ? 'Move mode: drag a point, an object, or the blank paper.'
+              : entry.id === 'delete'
+                ? 'Delete mode: click an item to remove it. Press Escape to return safely to Move.'
+                : `${entry.label}. Hold Space while dragging to pan without leaving this tool.`);
+          }}><span>{entry.symbol}</span><span>{entry.label.replace(/ and .*/, '').replace(/Construct /, '').replace(/Add /, '')}</span></button>)}
         </div>
         <div className="graph-controls" aria-label="Geometry view controls">
-          <button type="button" aria-label="Zoom geometry in" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.min(180, view.scale * 1.25) }))}>+</button>
-          <button type="button" aria-label="Zoom geometry out" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.max(16, view.scale / 1.25) }))}>−</button>
-          <button type="button" aria-label="Reset geometry view" onClick={() => setViewport({ centerX: 0, centerY: 0, scale: 42 })}>⌂</button>
+          <button type="button" aria-label="Zoom geometry in" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: clampGeometryScale(view.scale * 1.4) }))}>+</button>
+          <button type="button" aria-label="Zoom geometry out" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: clampGeometryScale(view.scale / 1.4) }))}>−</button>
+          <button type="button" className="geometry-view-action" aria-label="Fit all geometry objects" onClick={fitGeometryObjects}>Fit</button>
+          <button type="button" className="geometry-view-action" aria-label="Reset geometry view" onClick={() => { setViewport({ centerX: 0, centerY: 0, scale: 42 }); setInteractionNotice('View reset to the origin without changing the construction.'); }}>Reset</button>
         </div>
         <canvas
           ref={canvasRef}
@@ -1791,43 +1931,76 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             const bounds = canvas.getBoundingClientRect();
             const pixelX = (event.clientX - bounds.left) * canvas.width / bounds.width;
             const pixelY = (event.clientY - bounds.top) * canvas.height / bounds.height;
+            if (event.pointerType === 'touch') {
+              touchPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+              canvas.setPointerCapture(event.pointerId);
+              if (touchPointersRef.current.size >= 2) {
+                const [first, last] = [...touchPointersRef.current.values()];
+                const midpointX = (first.x + last.x) / 2;
+                const midpointY = (first.y + last.y) / 2;
+                const midpointPixelX = (midpointX - bounds.left) * canvas.width / bounds.width;
+                const midpointPixelY = (midpointY - bounds.top) * canvas.height / bounds.height;
+                pinchRef.current = {
+                  distance: Math.max(1, Math.hypot(last.x - first.x, last.y - first.y)),
+                  scale: viewport.scale,
+                  anchorWorldX: viewport.centerX + (midpointPixelX - canvas.width / 2) / viewport.scale,
+                  anchorWorldY: viewport.centerY - (midpointPixelY - canvas.height / 2) / viewport.scale,
+                };
+                dragRef.current = null;
+                setInteractionNotice('Pinch zoom keeps the construction anchored between your fingers.');
+                return;
+              }
+            }
             const world = {
               x: viewport.centerX + (pixelX - canvas.width / 2) / viewport.scale,
               y: viewport.centerY - (pixelY - canvas.height / 2) / viewport.scale,
             };
-            const snapStep = Math.max(.25, gridStep(viewport.scale) / 4);
+            const snapStep = Math.max(Number.EPSILON, gridStep(viewport.scale) / 4);
             const snapped = snap ? { x: Math.round(world.x / snapStep) * snapStep, y: Math.round(world.y / snapStep) * snapStep } : world;
             const hit = points.find((point) => Math.hypot((point.x - world.x) * viewport.scale, (point.y - world.y) * viewport.scale) <= 10);
-            if (tool === 'move') {
-              if (hit?.constraint && hit.constraint.type !== 'radius-edge') return;
-              if (lockViewport && !hit) return;
+            const temporaryMove = tool === 'move' || spacePanRef.current || event.button === 1 || event.altKey || event.metaKey;
+            if (temporaryMove) {
+              const hitObject = hit ? undefined : geometryObjectAt(world);
+              if (hit?.constraint && hit.constraint.type !== 'radius-edge') {
+                setInteractionNotice(`Point ${hit.label} is constrained by ${hit.constraint.type}. Drag its free source point${hit.constraint.type === 'midpoint' ? 's' : ''} instead.`);
+                if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+                return;
+              }
+              if (lockViewport && !hit && !hitObject) {
+                setInteractionNotice('The viewport is locked. Unlock it in Graph paper settings to pan.');
+                if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+                return;
+              }
               canvas.setPointerCapture(event.pointerId);
-              dragRef.current = hit
-                ? { kind: 'point', pointId: hit.id }
-                : { kind: 'pan', x: event.clientX, y: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY };
+              if (hit) {
+                dragRef.current = { kind: 'point', pointId: hit.id };
+                setInteractionNotice(hit.constraint?.type === 'radius-edge' ? `Drag ${hit.label} to set the circle radius and direction.` : `Dragging free point ${hit.label}.`);
+              } else if (hitObject) {
+                const movablePoints = [...new Set(hitObject.points)]
+                  .map(pointById)
+                  .filter((point): point is GeometryPoint => point !== undefined && !point.constraint)
+                  .map((point) => ({ id: point.id, x: point.x, y: point.y }));
+                if (!movablePoints.length) {
+                  setInteractionNotice(`This ${hitObject.type} is fully constrained. Move its free source construction instead.`);
+                  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+                  return;
+                }
+                setSelectedObjectIds([hitObject.id]);
+                dragRef.current = { kind: 'object', objectId: hitObject.id, startWorld: world, points: movablePoints };
+                setInteractionNotice(`Dragging ${objectDescription(hitObject)} by its free source points.`);
+              } else {
+                dragRef.current = { kind: 'pan', x: event.clientX, y: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY };
+                setInteractionNotice('Panning the paper. The construction stays unchanged.');
+              }
               return;
             }
             if (tool === 'delete') {
               if (hit) { deletePoint(hit.id); return; }
-              const threshold = 10 / viewport.scale;
-              const distanceToPath = (start: GeometryPoint, end: GeometryPoint, mode: 'segment' | 'line' | 'ray') => {
-                const dx = end.x - start.x; const dy = end.y - start.y;
-                const denominator = dx * dx + dy * dy || 1;
-                let parameter = ((world.x - start.x) * dx + (world.y - start.y) * dy) / denominator;
-                if (mode === 'segment') parameter = Math.max(0, Math.min(1, parameter));
-                if (mode === 'ray') parameter = Math.max(0, parameter);
-                return Math.hypot(world.x - (start.x + parameter * dx), world.y - (start.y + parameter * dy));
-              };
-              const hitObject = [...objects].reverse().find((object) => {
-                const vertices = object.points.map(pointById).filter((entry): entry is GeometryPoint => Boolean(entry));
-                if (object.type === 'segment' || object.type === 'vector' || object.type === 'line' || object.type === 'ray') return vertices.length === 2 && distanceToPath(vertices[0], vertices[1], object.type === 'vector' ? 'segment' : object.type) <= threshold;
-                if (object.type === 'circle') return vertices.length === 2 && Math.abs(geometryDistance(vertices[0], world) - geometryDistance(vertices[0], vertices[1])) <= threshold;
-                if (object.type === 'angle') return vertices.length === 3 && (distanceToPath(vertices[1], vertices[0], 'segment') <= threshold || distanceToPath(vertices[1], vertices[2], 'segment') <= threshold);
-                return vertices.some((vertex, index) => distanceToPath(vertex, vertices[(index + 1) % vertices.length], 'segment') <= threshold);
-              });
+              const hitObject = geometryObjectAt(world);
               if (hitObject) {
                 setObjects((current) => current.filter((object) => object.id !== hitObject.id));
                 setSelectedObjectIds((current) => current.filter((id) => id !== hitObject.id));
+                setInteractionNotice(`${objectDescription(hitObject)} deleted. Press Escape to return to Move.`);
               }
               return;
             }
@@ -1880,12 +2053,31 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             const bounds = canvas.getBoundingClientRect();
             const ratioX = canvas.width / bounds.width;
             const ratioY = canvas.height / bounds.height;
+            if (event.pointerType === 'touch' && touchPointersRef.current.has(event.pointerId)) {
+              touchPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            }
+            if (pinchRef.current && touchPointersRef.current.size >= 2) {
+              const pinch = pinchRef.current;
+              const [first, last] = [...touchPointersRef.current.values()];
+              const distance = Math.max(1, Math.hypot(last.x - first.x, last.y - first.y));
+              const midpointX = (first.x + last.x) / 2;
+              const midpointY = (first.y + last.y) / 2;
+              const midpointPixelX = (midpointX - bounds.left) * ratioX;
+              const midpointPixelY = (midpointY - bounds.top) * ratioY;
+              const scale = clampGeometryScale(pinch.scale * distance / pinch.distance);
+              setViewport({
+                centerX: pinch.anchorWorldX - (midpointPixelX - canvas.width / 2) / scale,
+                centerY: pinch.anchorWorldY + (midpointPixelY - canvas.height / 2) / scale,
+                scale,
+              });
+              return;
+            }
             if (dragRef.current?.kind === 'point') {
               const world = {
                 x: viewport.centerX + ((event.clientX - bounds.left) * ratioX - canvas.width / 2) / viewport.scale,
                 y: viewport.centerY - ((event.clientY - bounds.top) * ratioY - canvas.height / 2) / viewport.scale,
               };
-              const snapStep = Math.max(.25, gridStep(viewport.scale) / 4);
+              const snapStep = Math.max(Number.EPSILON, gridStep(viewport.scale) / 4);
               const next = snap ? { x: Math.round(world.x / snapStep) * snapStep, y: Math.round(world.y / snapStep) * snapStep } : world;
               const pointId = dragRef.current.pointId;
               setPoints((current) => {
@@ -1902,6 +2094,24 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
               });
               return;
             }
+            if (dragRef.current?.kind === 'object') {
+              const drag = dragRef.current;
+              const world = {
+                x: viewport.centerX + ((event.clientX - bounds.left) * ratioX - canvas.width / 2) / viewport.scale,
+                y: viewport.centerY - ((event.clientY - bounds.top) * ratioY - canvas.height / 2) / viewport.scale,
+              };
+              const snapStep = Math.max(Number.EPSILON, gridStep(viewport.scale) / 4);
+              const rawDx = world.x - drag.startWorld.x;
+              const rawDy = world.y - drag.startWorld.y;
+              const dx = snap ? Math.round(rawDx / snapStep) * snapStep : rawDx;
+              const dy = snap ? Math.round(rawDy / snapStep) * snapStep : rawDy;
+              const initial = new Map(drag.points.map((point) => [point.id, point]));
+              setPoints((current) => current.map((point) => {
+                const start = initial.get(point.id);
+                return start ? { ...point, x: start.x + dx, y: start.y + dy } : point;
+              }));
+              return;
+            }
             if (dragRef.current?.kind === 'pan') {
               const drag = dragRef.current;
               setViewport((view) => ({ ...view, centerX: drag.centerX - (event.clientX - drag.x) * ratioX / view.scale, centerY: drag.centerY + (event.clientY - drag.y) * ratioY / view.scale }));
@@ -1912,24 +2122,44 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
               y: viewport.centerY - ((event.clientY - bounds.top) * ratioY - canvas.height / 2) / viewport.scale,
             });
           }}
-          onPointerUp={(event) => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
-          onPointerCancel={() => { dragRef.current = null; }}
+          onPointerUp={(event) => {
+            const completedDrag = dragRef.current;
+            dragRef.current = null;
+            touchPointersRef.current.delete(event.pointerId);
+            if (touchPointersRef.current.size < 2) pinchRef.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+            if (tool === 'move' && completedDrag) setInteractionNotice('Move mode: drag a point, an object, or the blank paper.');
+          }}
+          onPointerCancel={(event) => {
+            dragRef.current = null;
+            touchPointersRef.current.delete(event.pointerId);
+            if (touchPointersRef.current.size < 2) pinchRef.current = null;
+          }}
+          onLostPointerCapture={(event) => {
+            touchPointersRef.current.delete(event.pointerId);
+            if (touchPointersRef.current.size < 2) pinchRef.current = null;
+          }}
           onPointerLeave={() => { if (!dragRef.current) setHoverPoint(null); }}
           onWheel={(event) => {
             event.preventDefault();
             if (lockViewport) return;
-            const bounds = event.currentTarget.getBoundingClientRect();
-            const px = (event.clientX - bounds.left) * event.currentTarget.width / bounds.width;
-            const py = (event.clientY - bounds.top) * event.currentTarget.height / bounds.height;
+            const canvas = event.currentTarget;
+            const bounds = canvas.getBoundingClientRect();
+            const canvasWidth = canvas.width;
+            const canvasHeight = canvas.height;
+            const deltaY = event.deltaY;
+            const px = (event.clientX - bounds.left) * canvasWidth / bounds.width;
+            const py = (event.clientY - bounds.top) * canvasHeight / bounds.height;
             setViewport((view) => {
-              const worldX = view.centerX + (px - event.currentTarget.width / 2) / view.scale;
-              const worldY = view.centerY - (py - event.currentTarget.height / 2) / view.scale;
-              const scale = Math.max(16, Math.min(180, view.scale * Math.exp(-event.deltaY * .0015)));
-              return { centerX: worldX - (px - event.currentTarget.width / 2) / scale, centerY: worldY + (py - event.currentTarget.height / 2) / scale, scale };
+              const worldX = view.centerX + (px - canvasWidth / 2) / view.scale;
+              const worldY = view.centerY - (py - canvasHeight / 2) / view.scale;
+              const scale = clampGeometryScale(view.scale * Math.exp(-deltaY * .0015));
+              return { centerX: worldX - (px - canvasWidth / 2) / scale, centerY: worldY + (py - canvasHeight / 2) / scale, scale };
             });
           }}
         />
         {hoverPoint && <output className="geometry-coordinates">x = {hoverPoint.x.toFixed(2)} · y = {hoverPoint.y.toFixed(2)}</output>}
+        <output className="geometry-interaction-notice" aria-live="polite">{interactionNotice}</output>
       </div>
     </section>
   );
@@ -2059,6 +2289,8 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (document.querySelector('.graph-settings-popover')) return;
+        const geometryCanvas = document.querySelector<HTMLCanvasElement>('canvas[aria-label="Interactive geometry canvas"]');
+        if (geometryCanvas?.dataset.tool && geometryCanvas.dataset.tool !== 'move') return;
         event.preventDefault(); event.stopPropagation(); onClose();
       }
     };

@@ -664,7 +664,24 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .graph-axis-settings label { display: grid; gap: 2px; color: var(--muted); font-size: 7px; }
 .graph-axis-settings input { width: 100%; }
 .graph-settings-popover .research-primary { width: 100%; }
-.graph-settings-popover--3d { width: 330px; max-height: min(480px, calc(100vh - 210px)); }
+.graph-settings-popover--3d {
+  position: fixed;
+  z-index: 140;
+  top: max(82px, env(safe-area-inset-top));
+  right: max(98px, env(safe-area-inset-right));
+  bottom: max(78px, env(safe-area-inset-bottom));
+  width: min(360px, calc(100vw - 112px));
+  max-height: none;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  pointer-events: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.graph-settings-popover--3d > header { position: sticky; z-index: 2; top: -11px; margin: -11px -11px 0; padding: 11px; border-bottom: 1px solid rgba(55,51,42,.12); background: rgba(255,254,250,.985); backdrop-filter: blur(12px); }
 .graph-3d-bounds { display: grid; gap: 6px; padding: 8px; border: 1px solid rgba(55,51,42,.12); border-radius: 8px; background: #f7f4ed; }
 .graph-3d-bounds > header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 7px; }
 .graph-3d-bounds > header strong { color: #4f4a42; font-size: 9px; }
@@ -676,6 +693,15 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .graph-3d-bound-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .graph-3d-bound-actions button { width: auto; min-height: 25px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; color: #625e55; background: #fffefa; font-size: 7.5px; }
 .graph-3d-bound-actions button:hover { color: #713c2a; background: #eee9df; }
+.graph-mesh-control { display: grid; gap: 7px; padding: 8px; border: 1px solid rgba(55,51,42,.12); border-radius: 8px; background: #f7f4ed; }
+.graph-mesh-control > header { display: flex; align-items: center; justify-content: space-between; }
+.graph-mesh-control > header strong { color: #4f4a42; font-size: 9px; }
+.graph-mesh-control > header output { color: #713c2a; font: 9px ui-monospace, monospace; }
+.graph-mesh-control > div { display: grid; grid-template-columns: 26px minmax(80px, 1fr) 54px 26px; align-items: center; gap: 5px; }
+.graph-mesh-control button { width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 6px; color: #5c574e; background: #fffefa; font-size: 14px; }
+.graph-mesh-control button:disabled { opacity: .4; }
+.graph-mesh-control input[type="range"] { width: 100%; padding: 0; accent-color: var(--accent); }
+.graph-mesh-control input[type="number"] { width: 100%; }
 .graph-trace { position: absolute; left: 10px; bottom: 10px; padding: 6px 8px; border-left: 3px solid var(--graph-color); border-radius: 6px; color: #4d4941; background: rgba(255,254,250,.93); box-shadow: 0 3px 12px rgba(49,44,36,.1); font: 9px ui-monospace, monospace; }
 .graph-error { position: absolute; right: 10px; bottom: 10px; max-width: min(340px, calc(100% - 20px)); padding: 7px 9px; border-radius: 7px; background: rgba(249,229,225,.96); }
 .research-canvas-tool { display: grid; gap: 9px; justify-items: center; min-width: 0; }
@@ -763,7 +789,9 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry-stage canvas[data-tool="move"] { cursor: grab; }
 .geometry-stage canvas[data-tool="move"]:active { cursor: grabbing; }
 .geometry-stage canvas[data-tool="delete"] { cursor: not-allowed; }
+.geometry-stage .graph-controls .geometry-view-action { width: auto; min-width: 39px; padding-inline: 6px; font-size: 7.5px; font-weight: 750; }
 .geometry-coordinates { position: absolute; left: 10px; bottom: 10px; padding: 5px 7px; border-radius: 6px; color: #4d4941; background: rgba(255,254,250,.92); box-shadow: 0 3px 12px rgba(49,44,36,.1); font: 8px ui-monospace, monospace; }
+.geometry-interaction-notice { position: absolute; right: 10px; bottom: 10px; max-width: min(430px, calc(100% - 20px)); padding: 6px 8px; border: 1px solid rgba(55,51,42,.12); border-radius: 7px; color: #5b554c; background: rgba(255,254,250,.94); box-shadow: 0 3px 12px rgba(49,44,36,.1); font-size: 8px; line-height: 1.35; }
 .scientific-workspace { display: grid; place-items: center; width: 100%; height: 100%; min-height: 0; overflow: auto; background: radial-gradient(circle at 50% 20%, #fffefa 0%, #f1eee7 74%); }
 .scientific-calculator { display: grid; grid-template-rows: minmax(90px, 1fr) auto auto auto auto; width: min(720px, 100%); height: 100%; min-height: 0; max-height: 690px; overflow: hidden; border: 1px solid #c9c5bc; border-radius: 12px; background: #f2f1ed; box-shadow: 0 15px 42px rgba(44,39,33,.16); }
 .scientific-history { overflow-y: auto; background: #fff; }
@@ -939,6 +967,7 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
   .geometry-stage, .geometry-stage canvas { min-height: 320px; }
   .geometry-tool-grid--canvas { left: 8px; width: calc(100% - 58px); transform: none; }
   .graph-settings-popover { position: fixed; top: 128px; right: 12px; width: calc(100vw - 24px); max-height: calc(100vh - 220px); }
+  .graph-settings-popover--3d { top: max(76px, env(safe-area-inset-top)); right: max(92px, env(safe-area-inset-right)); bottom: max(72px, env(safe-area-inset-bottom)); width: min(360px, calc(100vw - 104px)); max-height: none; }
   .scientific-calculator { min-height: 520px; }
   .scientific-keypad, .scientific-keypad--letters, .scientific-keypad--functions { grid-template-columns: repeat(4, minmax(42px, 1fr)); }
   .scientific-control-bar { grid-template-columns: 1fr; }
