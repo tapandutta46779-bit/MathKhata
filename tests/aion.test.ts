@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AION_BASE_MODEL, AION_DISPLAY_NAME, createAIONPagePrompt } from '../src/aion/runtime';
-import { askAIONLocal, checkAIONLocal } from '../src/aion/ollamaProvider';
+import { askAIONAboutPage, askAIONLocal, checkAIONLocal } from '../src/aion/ollamaProvider';
 import { createNotebook, createMathObject, createTextObject, addObject } from '../src/domain/notebook';
 import { createDocumentContext } from '../src/extensions/providers';
 
@@ -56,5 +56,28 @@ describe('AION local-runtime boundary', () => {
     expect(prompt).toContain('You are AION');
     expect(prompt.indexOf('x^2=4')).toBeLessThan(prompt.indexOf('Solve separately'));
     expect(prompt).toContain('Do not claim that you edited the notebook');
+  });
+
+  it('grounds page answers in checked local mathematics before asking AION', async () => {
+    const notebook = createNotebook('Integral notes');
+    const page = notebook.pages[0];
+    const withIntegral = addObject(
+      notebook,
+      page.id,
+      createMathObject({ x: 82, y: 20 }, '\\int_{0}^{1}e^x x\\left(\\sin x^3\\right)\\,dx'),
+    );
+    const context = createDocumentContext(withIntegral, page.id, null)!;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      message: { content: 'The checked value is \\(0.42777611548\\).' },
+    }), { status: 200 }));
+
+    await askAIONAboutPage(context, 'Evaluate the integral.');
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(request.body as string) as { messages: Array<{ content: string }> };
+    const prompt = body.messages[1].content;
+    expect(prompt).toContain('Checked local mathematical results');
+    expect(prompt).toContain('\\approx 0.42777611548');
+    expect(prompt).toContain('Do not invent or repeat a conflicting value');
   });
 });

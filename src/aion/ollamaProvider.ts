@@ -1,4 +1,5 @@
 import type { NotebookContext } from '../extensions/providers';
+import { canOfferLocalSolve, solveLocally } from '../assistant/localMathSolver';
 import { createAIONPagePrompt } from './runtime';
 
 export const AION_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
@@ -132,14 +133,53 @@ export async function askAIONLocal(
   return { text, model: AION_OLLAMA_MODEL, runtime: 'ollama' };
 }
 
-export function askAIONAboutPage(
+async function createCheckedPageResults(context: NotebookContext): Promise<string> {
+  const objects = [...context.currentPage.objects]
+    .sort((left, right) => left.y - right.y || left.x - right.x || left.zIndex - right.zIndex);
+  const checked: string[] = [];
+
+  for (const [index, object] of objects.entries()) {
+    if (object.type !== 'math' || !canOfferLocalSolve(object.latex)) continue;
+    try {
+      const result = await solveLocally(object.latex);
+      const steps = result.steps
+        ?.map((step) => `${step.label}: ${step.latex ?? step.text ?? ''}`)
+        .filter(Boolean)
+        .join('; ');
+      checked.push([
+        `Line ${index + 1} (${object.latex})`,
+        `${result.label}: ${result.resultLatex}`,
+        result.explanation,
+        steps ? `Checked method: ${steps}` : '',
+      ].filter(Boolean).join('. '));
+    } catch {
+      // Unsupported or incomplete lines remain visible in the page context;
+      // AION must describe uncertainty rather than receiving a false result.
+    }
+  }
+
+  return checked.join('\n');
+}
+
+export async function askAIONAboutPage(
   context: NotebookContext,
   question?: string,
   signal?: AbortSignal,
   onUpdate?: (text: string) => void,
 ): Promise<AIONAnswer> {
+  const checkedResults = await createCheckedPageResults(context);
+  const checkedSection = checkedResults
+    ? [
+        '',
+        'Checked local mathematical results:',
+        'These deterministic CAS and numerical results are the computational references for this answer.',
+        'Do not invent or repeat a conflicting value. If notation is ambiguous, explicitly identify the ambiguity before interpreting it.',
+        checkedResults,
+      ].join('\n')
+    : '';
+  const pagePrompt = `${createAIONPagePrompt(context)}${checkedSection}`;
   const prompt = question?.trim()
-    ? `${createAIONPagePrompt(context)}\n\nUser question:\n${question.trim()}\n\nAnswer the question with clear, checkable steps.`
-    : createAIONPagePrompt(context);
+    ? `${pagePrompt}\n\nUser question:\n${question.trim()}\n\nAnswer the question with clear, checkable steps. For approximations, distinguish a coarse estimate from the checked value.`
+    : pagePrompt;
   return askAIONLocal(prompt, { signal, onUpdate });
 }

@@ -5,6 +5,7 @@ import {
 } from '../src/assistant/quickCalculate';
 import {
   canOfferLocalSolve,
+  normalizeLatexForCAS,
   solveLocally,
 } from '../src/assistant/localMathSolver';
 
@@ -95,16 +96,23 @@ describe('opt-in local symbolic solver', () => {
   });
 
   it('uses an honest numerical method when a finite integral has no closed elementary antiderivative', async () => {
-    const result = await solveLocally('\\int_{0}^{1}e^x x(\\sin(x^3))\\,dx');
+    const result = await solveLocally('\\int_{0}^{1}e^x x\\left(\\sin x^3\\right)\\,dx');
 
     expect(result.label).toBe('Numerical integral value');
-    expect(result.resultLatex).toMatch(/^\\approx\s/);
+    expect(result.resultLatex).toBe('\\approx 0.42777611548');
     expect(result.explanation).toMatch(/numerically/i);
     expect(result.steps?.map((step) => step.label)).toEqual([
       'Integral',
       'Adaptive Simpson method',
       'Numerical value',
     ]);
+  });
+
+  it('preserves standard precedence for compact MathLive function arguments', () => {
+    expect(normalizeLatexForCAS('x\\left(\\sin x^3\\right)')).toBe(
+      'x\\left(\\sin\\left(x^3\\right)\\right)',
+    );
+    expect(normalizeLatexForCAS('\\sin^2 x')).toBe('\\sin^2 x');
   });
 
   it('falls back to antiderivative-at-bounds for elementary finite integrals', async () => {

@@ -125,13 +125,30 @@ function adaptiveSimpsonEstimate(
 
 function finiteDecimal(value: number): string {
   if (!Number.isFinite(value)) throw new Error('The numerical integral is not finite on the stated interval.');
-  return Number(value.toPrecision(12)).toString();
+  // Keep one guard digit behind the adaptive Simpson stopping target. Showing
+  // more digits would make the final place look exact even though it is only
+  // a numerical estimate.
+  return Number(value.toPrecision(11)).toString();
 }
 
 function derivativeName(order: number, partial: boolean): string {
   if (order === 1) return partial ? 'Partial derivative' : 'Derivative';
   const ordinal = order === 2 ? 'Second' : order === 3 ? 'Third' : `${order}th`;
   return `${ordinal} ${partial ? 'partial ' : ''}derivative`;
+}
+
+/**
+ * Nerdamer's LaTeX converter treats `\\sin x^3` as `(sin x)^3`, although
+ * standard mathematical precedence reads it as `sin(x^3)`. MathLive emits
+ * this compact form, so make the function argument explicit before handing
+ * it to the CAS. Function powers such as `\\sin^2 x` are intentionally left
+ * unchanged because they mean `(sin x)^2`.
+ */
+export function normalizeLatexForCAS(latex: string): string {
+  return latex.replace(
+    /\\(sin|cos|tan|sec|csc|cot|sinh|cosh|tanh|log|ln|exp)\s+((?:[A-Za-z0-9]|\\[A-Za-z]+)(?:\s*[_^](?:\{[^{}]*\}|[A-Za-z0-9]))*)/g,
+    (_, functionName: string, argument: string) => `\\${functionName}\\left(${argument.trim()}\\right)`,
+  );
 }
 
 function readBraced(source: string, start: number): BracedGroup | null {
@@ -339,7 +356,7 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
     if (nestedIntegral.parts.some((part) => (part.lowerLatex === undefined) !== (part.upperLatex === undefined))) {
       throw new Error('Complete both bounds on every nested integral before solving.');
     }
-    let result = nerdamer.convertFromLaTeX(nestedIntegral.integrandLatex);
+    let result = nerdamer.convertFromLaTeX(normalizeLatexForCAS(nestedIntegral.integrandLatex));
     const nestedSteps: LocalSolveStep[] = [
       {
         label: 'Read the order of integration',
@@ -351,8 +368,8 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
         if (/\\infty/i.test(`${part.lowerLatex} ${part.upperLatex}`)) {
           throw new Error('Nested improper integrals require a separate convergence and order-of-integration check.');
         }
-        const lower = nerdamer.convertFromLaTeX(part.lowerLatex).toString();
-        const upper = nerdamer.convertFromLaTeX(part.upperLatex).toString();
+        const lower = nerdamer.convertFromLaTeX(normalizeLatexForCAS(part.lowerLatex)).toString();
+        const upper = nerdamer.convertFromLaTeX(normalizeLatexForCAS(part.upperLatex)).toString();
         const antiderivative = nerdamer.integrate(result, part.variable);
         result = nerdamer.simplify(`(${antiderivative.evaluate({ [part.variable]: upper }).toString()})-(${antiderivative.evaluate({ [part.variable]: lower }).toString()})`);
       } else result = nerdamer.integrate(result, part.variable);
@@ -389,14 +406,14 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       const determinantResult = numericMatrix
         ? nerdamer(String(determinant(numericMatrix)))
         : nerdamer.simplify(symbolicDeterminantExpression(
-          parsed.cells.map((row) => row.map((cell) => nerdamer.convertFromLaTeX(cell).toString())),
+          parsed.cells.map((row) => row.map((cell) => nerdamer.convertFromLaTeX(normalizeLatexForCAS(cell)).toString())),
         ));
       const determinantLatex = determinantResult.toTeX();
       const equationIndex = latex.indexOf('=', parsed.end);
       if (equationIndex >= 0) {
         const rightLatex = latex.slice(equationIndex + 1).trim();
         if (!rightLatex) throw new Error('Complete the right side of the determinant equation.');
-        const right = nerdamer.convertFromLaTeX(rightLatex).toString();
+        const right = nerdamer.convertFromLaTeX(normalizeLatexForCAS(rightLatex)).toString();
         const equation = nerdamer(`${determinantResult.toString()}=(${right})`);
         const variable = equation.variables()[0];
         if (!variable) {
@@ -480,7 +497,7 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
 
   const multiIntegral = parseMultiIntegral(latex);
   if (multiIntegral) {
-    let result = nerdamer.convertFromLaTeX(multiIntegral.integrandLatex);
+    let result = nerdamer.convertFromLaTeX(normalizeLatexForCAS(multiIntegral.integrandLatex));
     for (const variable of multiIntegral.variables) result = nerdamer.integrate(result, variable);
     const resultLatex = result.toTeX();
     if (/\\int|integrate/i.test(`${result.toString()} ${resultLatex}`)) {
@@ -500,7 +517,7 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
 
   const vectorOperator = parseVectorOperator(latex);
   if (vectorOperator) {
-    const expression = nerdamer.convertFromLaTeX(vectorOperator.expressionLatex);
+    const expression = nerdamer.convertFromLaTeX(normalizeLatexForCAS(vectorOperator.expressionLatex));
     const variables = expression.variables().filter((variable: string) => /^[xyzuvw]$/.test(variable));
     if (variables.length === 0) throw new Error('No spatial variable was found for this vector-calculus operator.');
     if (vectorOperator.kind === 'gradient') {
@@ -540,10 +557,10 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
         ],
       };
     }
-    const integrand = nerdamer.convertFromLaTeX(integral.integrandLatex);
+    const integrand = nerdamer.convertFromLaTeX(normalizeLatexForCAS(integral.integrandLatex));
     const definite = integral.lowerLatex !== undefined && integral.upperLatex !== undefined;
-    const lower = definite ? nerdamer.convertFromLaTeX(integral.lowerLatex!).toString() : undefined;
-    const upper = definite ? nerdamer.convertFromLaTeX(integral.upperLatex!).toString() : undefined;
+    const lower = definite ? nerdamer.convertFromLaTeX(normalizeLatexForCAS(integral.lowerLatex!)).toString() : undefined;
+    const upper = definite ? nerdamer.convertFromLaTeX(normalizeLatexForCAS(integral.upperLatex!)).toString() : undefined;
     if (definite && /\\infty|infinity/i.test(`${integral.lowerLatex} ${integral.upperLatex}`)) {
       throw new Error('This improper integral needs a convergence check before evaluation. Infinite-bound convergence is not yet verified by the local solver.');
     }
@@ -619,7 +636,7 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
 
   const derivative = parseDerivative(latex);
   if (derivative) {
-    const expression = nerdamer.convertFromLaTeX(derivative.expressionLatex);
+    const expression = nerdamer.convertFromLaTeX(normalizeLatexForCAS(derivative.expressionLatex));
     const result = nerdamer.diff(expression, derivative.variable, derivative.order ?? 1);
     const operator = derivative.operator === 'partial' ? '\\partial' : 'd';
     const order = derivative.order ?? 1;
@@ -637,8 +654,8 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
 
   const limit = parseLimit(latex);
   if (limit?.targetLatex) {
-    const expression = nerdamer.convertFromLaTeX(limit.expressionLatex);
-    const target = nerdamer.convertFromLaTeX(limit.targetLatex).toString();
+    const expression = nerdamer.convertFromLaTeX(normalizeLatexForCAS(limit.expressionLatex));
+    const target = nerdamer.convertFromLaTeX(normalizeLatexForCAS(limit.targetLatex)).toString();
     const result = nerdamer.limit(expression, limit.variable, target);
     return {
       kind: 'limit',
@@ -657,9 +674,9 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
     if (/\\infty/.test(series.upperLatex)) {
       throw new Error(`${label} currently requires a finite upper bound.`);
     }
-    const expression = nerdamer.convertFromLaTeX(series.expressionLatex);
-    const lower = nerdamer.convertFromLaTeX(series.lowerLatex).toString();
-    const upper = nerdamer.convertFromLaTeX(series.upperLatex).toString();
+    const expression = nerdamer.convertFromLaTeX(normalizeLatexForCAS(series.expressionLatex));
+    const lower = nerdamer.convertFromLaTeX(normalizeLatexForCAS(series.lowerLatex)).toString();
+    const upper = nerdamer.convertFromLaTeX(normalizeLatexForCAS(series.upperLatex)).toString();
     const result = command === '\\sum'
       ? nerdamer.sum(expression, series.variable, lower, upper)
       : nerdamer.product(expression, series.variable, lower, upper);
@@ -673,7 +690,7 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
 
   const clean = latex.trim();
   if (clean.includes('=') && !clean.endsWith('=')) {
-    const equation = nerdamer.convertFromLaTeX(clean);
+    const equation = nerdamer.convertFromLaTeX(normalizeLatexForCAS(clean));
     const variable = equation.variables()[0];
     if (!variable) throw new Error('No variable was found to solve for.');
     const solutions = nerdamer.solve(equation, variable);
