@@ -184,13 +184,30 @@ export async function askAIONLocal(
   return { text, model: AION_OLLAMA_MODEL, runtime: 'ollama' };
 }
 
+export function canCheckWithoutBlockingAION(latex: string): boolean {
+  if (latex.length > 300) return false;
+  const compact = latex.replace(/\s+/g, '');
+  // Nerdamer's calculus routines are synchronous. Positive quadratic
+  // exponentials and nested/series operators can occupy the renderer for
+  // minutes, preventing the desktop request—and visible streaming—from even
+  // starting. They remain available through the explicit checked solver, but
+  // never run as a prerequisite for an AION conversation.
+  if (/\\(?:iint|iiint|oint|sum|prod|lim)(?![a-zA-Z])/.test(compact)) return false;
+  if (/e\^\{[^{}]*[a-zA-Z]\^\{?2\}?[^{}]*\}|\\exp(?:\\left)?\([^)]*[a-zA-Z]\^\{?2\}?/.test(compact)) return false;
+  return true;
+}
+
 async function createCheckedPageResults(context: NotebookContext): Promise<string> {
   const objects = [...context.currentPage.objects]
     .sort((left, right) => left.y - right.y || left.x - right.x || left.zIndex - right.zIndex);
   const checked: string[] = [];
 
   for (const [index, object] of objects.entries()) {
-    if (object.type !== 'math' || !canOfferLocalSolve(object.latex)) continue;
+    if (
+      object.type !== 'math'
+      || !canOfferLocalSolve(object.latex)
+      || !canCheckWithoutBlockingAION(object.latex)
+    ) continue;
     try {
       const result = await solveLocally(object.latex);
       const steps = result.steps

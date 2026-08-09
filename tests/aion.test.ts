@@ -1,11 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AION_BASE_MODEL, AION_DISPLAY_NAME, createAIONPagePrompt } from '../src/aion/runtime';
-import { askAIONAboutPage, askAIONLocal, checkAIONLocal } from '../src/aion/ollamaProvider';
+import {
+  askAIONAboutPage,
+  askAIONLocal,
+  canCheckWithoutBlockingAION,
+  checkAIONLocal,
+} from '../src/aion/ollamaProvider';
 import { createNotebook, createMathObject, createTextObject, addObject } from '../src/domain/notebook';
 import { createDocumentContext } from '../src/extensions/providers';
 
 describe('AION local-runtime boundary', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('does not block live AION streaming on expensive synchronous calculus preflight', () => {
+    expect(canCheckWithoutBlockingAION('x^2=9')).toBe(true);
+    expect(canCheckWithoutBlockingAION('\\int_0^1 e^x x\\sin(x^3)\\,dx')).toBe(true);
+    expect(canCheckWithoutBlockingAION('\\int_0^2 e^{x^2}(x^3+5)\\,dx')).toBe(false);
+    expect(canCheckWithoutBlockingAION('\\iint_D f(x,y)\\,dx\\,dy')).toBe(false);
+    expect(canCheckWithoutBlockingAION('\\sum_{n=1}^{\\infty}n^{-2}')).toBe(false);
+  });
+
   it('uses the exact AION name and discloses a real base model', () => {
     expect(AION_DISPLAY_NAME).toBe('AION');
     expect(AION_BASE_MODEL).toBe('qwen3:8b');
