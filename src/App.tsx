@@ -164,7 +164,7 @@ export default function App() {
       {tool === 'voice' && <VoicePanel />}
       <PageAssistantRail />
       <NotebookLibrary />
-      {researchOpen && <ResearchToolsPanel onClose={closeResearch} />}
+      <ResearchToolsPanel notebookId={notebook.id} open={researchOpen} onClose={closeResearch} />
       <FloatingCalculator open={calculatorOpen} onToggle={() => setCalculatorOpen((open) => !open)} />
       {errorMessage && (
         <div className="error-toast" role="alert">

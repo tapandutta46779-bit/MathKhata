@@ -565,6 +565,7 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
   box-shadow: 0 22px 70px rgba(39,35,29,.28);
   backdrop-filter: blur(20px);
 }
+.research-tools-panel[hidden] { display: none !important; }
 .research-tools-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 15px; border-bottom: 1px solid var(--border); }
 .research-tools-panel > header > div { display: grid; gap: 2px; }
 .research-tools-panel > header strong { font-size: 14px; }
@@ -591,6 +592,43 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .graph-color { width: 12px; height: 12px; padding: 0; border: 2px solid var(--graph-color); border-radius: 50%; background: transparent; }
 .graph-color.is-visible { background: var(--graph-color); box-shadow: 0 0 0 2px rgba(255,255,255,.9) inset; }
 .graph-expression--surface { grid-template-columns: 15px minmax(0, 1fr); }
+.graph-expression-list--3d { display: flex; flex-direction: column; gap: 7px; padding-bottom: 18px; }
+.graph-expression-list--3d > header { flex: 0 0 auto; }
+.surface-expression-card, .graph-parameter-section, .graph-3d-object-section { display: grid; gap: 6px; padding: 7px; border: 1px solid rgba(55,51,42,.1); border-radius: 9px; background: #fffefa; }
+.surface-expression-main { display: grid; grid-template-columns: 15px minmax(0, 1fr) 22px; align-items: center; gap: 6px; }
+.surface-expression-main > label { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--muted); font: 10px ui-monospace, monospace; }
+.surface-expression-main input { min-width: 0; width: 100%; padding: 3px 1px; border: 0; outline: 0; background: transparent; font: 12px ui-monospace, monospace; }
+.surface-expression-main > button:last-child, .graph-3d-object-title > button:last-child, .graph-parameter > div:first-child button { width: 22px; height: 22px; border-radius: 5px; color: var(--muted); background: transparent; font-size: 15px; }
+.surface-expression-main > button:last-child:hover, .graph-3d-object-title > button:last-child:hover, .graph-parameter > div:first-child button:hover { color: #8b312a; background: #f5e3de; }
+.surface-style-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding-left: 21px; }
+.surface-style-row label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 7.5px; }
+.surface-style-row input[type="color"] { width: 24px; height: 19px; padding: 1px; border: 1px solid var(--border); border-radius: 5px; background: white; }
+.surface-style-row input[type="range"] { min-width: 40px; width: 100%; accent-color: var(--accent); }
+.surface-view-options { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 3px; padding: 7px; border-radius: 8px; background: rgba(234,230,219,.56); }
+.surface-view-options label { display: flex; align-items: center; gap: 4px; min-width: 0; color: #625e55; font-size: 8px; }
+.surface-view-options label:has(select) { display: grid; gap: 3px; }
+.surface-view-options select { min-width: 0; width: 100%; padding: 4px; border: 1px solid var(--border); border-radius: 5px; background: #fffefa; font-size: 8px; }
+.surface-view-options input { accent-color: var(--accent); }
+.surface-presets, .graph-object-adders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.surface-presets button, .graph-object-adders button { padding: 5px; border: 1px solid var(--border); border-radius: 6px; color: #675f54; background: #fffefa; font-size: 8px; }
+.surface-presets button:hover, .graph-object-adders button:hover { color: #713c2a; background: #eee9df; }
+.graph-parameter-section > header, .graph-3d-object-section > header { display: flex; justify-content: space-between; align-items: center; }
+.graph-parameter-section > header strong, .graph-3d-object-section > header strong { font-size: 9px; }
+.graph-parameter-section > header span, .graph-3d-object-section > header span { color: var(--muted); font-size: 7px; }
+.graph-parameter { display: grid; gap: 4px; padding: 5px; border-radius: 6px; background: #f3f0e8; }
+.graph-parameter > div:first-child { display: grid; grid-template-columns: 35px 1fr 22px; align-items: center; gap: 4px; }
+.graph-parameter .parameter-name { width: 35px; padding: 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 11px ui-monospace, monospace; }
+.graph-parameter output { text-align: right; font: 9px ui-monospace, monospace; }
+.graph-parameter > input[type="range"] { width: 100%; accent-color: var(--accent); }
+.parameter-range, .curve-domain { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.parameter-range label, .curve-domain label { display: flex; align-items: center; gap: 3px; color: var(--muted); font-size: 7px; }
+.parameter-range input, .curve-domain input { min-width: 0; width: 100%; padding: 2px 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 8px ui-monospace, monospace; }
+.graph-3d-object-card { display: grid; gap: 5px; padding: 6px; border-radius: 7px; background: #f3f0e8; }
+.graph-3d-object-title { display: grid; grid-template-columns: 15px 1fr 22px; align-items: center; gap: 5px; }
+.graph-3d-object-title strong { font: 9px ui-monospace, monospace; }
+.graph-coordinate-inputs { display: grid; gap: 3px; }
+.graph-coordinate-inputs label { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 4px; color: var(--muted); font: 8px ui-monospace, monospace; }
+.graph-coordinate-inputs input { min-width: 0; width: 100%; padding: 3px 4px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 9px ui-monospace, monospace; }
 .graph-add-expression { width: 100%; padding: 7px 8px; border: 1px dashed rgba(154,72,44,.28); border-radius: 8px; color: #713c2a; background: transparent; font-size: 9px; font-weight: 700; text-align: left; }
 .graph-add-expression:hover { background: #fff8f1; }
 .graph-add-expression:disabled { opacity: .45; }
@@ -617,6 +655,39 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: min(760px, 100%); color: var(--muted); font-size: 9px; }
 .geometry-actions span { margin-right: auto; }
 .geometry-actions button { padding: 5px 7px; border-radius: 6px; color: #713c2a; background: #eee9df; font-size: 9px; }
+.geometry-lab { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 10px; width: 100%; height: 100%; min-height: 350px; }
+.geometry-sidebar { min-width: 0; padding: 10px; overflow-y: auto; border: 1px solid var(--border); border-radius: 11px; background: rgba(244,241,233,.78); }
+.geometry-sidebar > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.geometry-sidebar > header strong { font-size: 11px; }
+.geometry-sidebar > header span { color: var(--muted); font-size: 8px; }
+.geometry-tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.geometry-tool-grid button { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 3px; min-height: 31px; padding: 4px; border: 1px solid var(--border); border-radius: 6px; color: #625e55; background: #fffefa; font-size: 7px; text-align: left; }
+.geometry-tool-grid button > span { font: 15px/1 Georgia, serif; text-align: center; }
+.geometry-tool-grid button.is-active { color: #713c2a; border-color: rgba(154,72,44,.35); background: #f4e4da; }
+.geometry-options { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0; padding: 6px; border-radius: 6px; background: rgba(234,230,219,.64); }
+.geometry-options label { display: flex; align-items: center; gap: 3px; color: #625e55; font-size: 7.5px; }
+.geometry-options input { accent-color: var(--accent); }
+.geometry-finish { width: 100%; padding: 6px; border-radius: 6px; color: #fff; background: var(--accent); font-size: 8px; font-weight: 700; }
+.geometry-finish:disabled { opacity: .45; }
+.geometry-instruction { margin: 6px 0; color: #486b86; font-size: 8px; line-height: 1.4; }
+.geometry-object-list, .geometry-point-list { display: grid; gap: 4px; margin-top: 9px; }
+.geometry-object-list > strong, .geometry-point-list > strong { font-size: 9px; }
+.geometry-object-list > p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
+.geometry-object-list > button { padding: 5px 6px; border-radius: 5px; color: #625e55; background: #fffefa; font-size: 8px; text-align: left; }
+.geometry-object-list > button.is-selected { color: #713c2a; outline: 1px solid rgba(154,72,44,.35); background: #f4e4da; }
+.geometry-point-list > div { display: grid; grid-template-columns: 16px 1fr 1fr; gap: 4px; align-items: center; }
+.geometry-point-list b { color: #3777a5; font: 9px ui-monospace, monospace; }
+.geometry-point-list label { display: flex; align-items: center; gap: 2px; color: var(--muted); font-size: 7px; }
+.geometry-point-list input { min-width: 0; width: 100%; padding: 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 8px ui-monospace, monospace; }
+.geometry-history-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 9px; }
+.geometry-history-actions button { padding: 5px 3px; border-radius: 5px; color: #713c2a; background: #eee9df; font-size: 7px; }
+.geometry-history-actions button:disabled { opacity: .4; }
+.geometry-stage { position: relative; min-width: 0; min-height: 350px; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: #fffefa; }
+.geometry-stage canvas { display: block; width: 100%; height: 100%; min-height: 350px; cursor: crosshair; touch-action: none; }
+.geometry-stage canvas[data-tool="move"] { cursor: grab; }
+.geometry-stage canvas[data-tool="move"]:active { cursor: grabbing; }
+.geometry-stage canvas[data-tool="delete"] { cursor: not-allowed; }
+.geometry-coordinates { position: absolute; left: 10px; bottom: 10px; padding: 5px 7px; border-radius: 6px; color: #4d4941; background: rgba(255,254,250,.92); box-shadow: 0 3px 12px rgba(49,44,36,.1); font: 8px ui-monospace, monospace; }
 .scientific-lab { display: grid; gap: 10px; width: min(680px, 100%); margin: 0 auto; }
 .scientific-lab label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 700; }
 .scientific-lab textarea { padding: 10px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; background: #fffefa; font: 17px/1.5 ui-monospace, monospace; }
@@ -755,6 +826,7 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
   .tool-dock { max-width: calc(100vw - 66px); overflow-x: auto; }
   .tool-dock button { flex: 0 0 auto; }
   .research-graph-lab { grid-template-columns: 190px minmax(0, 1fr); }
+  .geometry-lab { grid-template-columns: 210px minmax(0, 1fr); }
 }
 
 @media (max-width: 680px) {
@@ -764,8 +836,11 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
   .research-tools-panel { inset-inline: 6px; bottom: 70px; }
   .research-tools-panel__body { padding: 7px; }
   .research-graph-lab { grid-template-columns: 1fr; height: auto; }
+  .geometry-lab { grid-template-columns: 1fr; height: auto; }
   .graph-expression-list { max-height: 180px; }
+  .graph-expression-list--3d, .geometry-sidebar { max-height: 250px; }
   .graph-stage, .graph-stage canvas { min-height: 320px; }
+  .geometry-stage, .geometry-stage canvas { min-height: 320px; }
   .voice-panel { right: 7px; width: calc(100vw - 14px); }
   .page-assistant--voice-open { right: 8px; }
 }
