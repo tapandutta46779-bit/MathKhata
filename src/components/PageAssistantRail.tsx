@@ -200,6 +200,7 @@ export function PageAssistantRail() {
   useEffect(() => {
     if (!activeTurnId || !followStreamingAnswerRef.current) return;
     const frame = requestAnimationFrame(() => {
+      if (!followStreamingAnswerRef.current) return;
       const element = conversationRef.current;
       if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
     });
@@ -335,6 +336,21 @@ export function PageAssistantRail() {
           <div
             className="aion-chat__conversation"
             ref={conversationRef}
+            tabIndex={0}
+            onWheelCapture={(event) => {
+              if (event.deltaY < 0) followStreamingAnswerRef.current = false;
+            }}
+            onPointerDownCapture={() => {
+              followStreamingAnswerRef.current = false;
+            }}
+            onTouchMoveCapture={() => {
+              followStreamingAnswerRef.current = false;
+            }}
+            onKeyDownCapture={(event) => {
+              if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) {
+                followStreamingAnswerRef.current = false;
+              }
+            }}
             onScroll={(event) => {
               const element = event.currentTarget;
               const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;

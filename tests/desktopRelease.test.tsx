@@ -162,5 +162,8 @@ describe('desktop public-release boundary', () => {
     const assistant = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
     expect(assistant).toContain('followStreamingAnswerRef.current = distanceFromBottom <= 56');
     expect(assistant).toContain('if (!activeTurnId || !followStreamingAnswerRef.current) return');
+    expect(assistant).toContain('if (!followStreamingAnswerRef.current) return');
+    expect(assistant).toContain('onWheelCapture={(event) =>');
+    expect(assistant).toContain('onPointerDownCapture={() =>');
   });
 });
