@@ -168,6 +168,7 @@ export function PageAssistantRail() {
   const [aionQuestion, setAionQuestion] = useState('');
   const [conversation, setConversation] = useState<AIONConversationTurn[]>([]);
   const conversationRef = useRef<HTMLDivElement | null>(null);
+  const followStreamingAnswerRef = useRef(true);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [assistantView, setAssistantView] = useState<'chat' | 'outline'>('chat');
   const aion = useAIONRuntime();
@@ -197,7 +198,7 @@ export function PageAssistantRail() {
   }, [activeTurnId, aion.result]);
 
   useEffect(() => {
-    if (!activeTurnId) return;
+    if (!activeTurnId || !followStreamingAnswerRef.current) return;
     const frame = requestAnimationFrame(() => {
       const element = conversationRef.current;
       if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
@@ -242,6 +243,7 @@ export function PageAssistantRail() {
       `User: ${turn.question}\nAION: ${turn.answer}`
     )).join('\n\n');
     setConversation((current) => [...current, { id: turnId, question: request, answer: '' }]);
+    followStreamingAnswerRef.current = true;
     setActiveTurnId(turnId);
     setAionQuestion('');
     setAssistantView('chat');
@@ -330,7 +332,15 @@ export function PageAssistantRail() {
       </nav>
       {assistantView === 'chat' && (
         <section className="aion-chat" aria-label="AION mathematical conversation">
-          <div className="aion-chat__conversation" ref={conversationRef}>
+          <div
+            className="aion-chat__conversation"
+            ref={conversationRef}
+            onScroll={(event) => {
+              const element = event.currentTarget;
+              const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+              followStreamingAnswerRef.current = distanceFromBottom <= 56;
+            }}
+          >
             {conversation.length === 0 && aion.status !== 'analyzing' && (
               <div className="aion-welcome">
                 <span className="aion-mark">A</span>
