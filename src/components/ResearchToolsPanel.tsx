@@ -196,10 +196,15 @@ function GeometryLab() {
         height={380}
         aria-label="Interactive geometry canvas"
         onPointerDown={(event) => {
-          const bounds = event.currentTarget.getBoundingClientRect();
+          const canvas = event.currentTarget;
+          const bounds = canvas.getBoundingClientRect();
+          const point = {
+            x: (event.clientX - bounds.left) * canvas.width / bounds.width,
+            y: (event.clientY - bounds.top) * canvas.height / bounds.height,
+          };
           setPoints((current) => [...current, {
-            x: (event.clientX - bounds.left) * event.currentTarget.width / bounds.width,
-            y: (event.clientY - bounds.top) * event.currentTarget.height / bounds.height,
+            x: point.x,
+            y: point.y,
           }]);
         }}
       />
