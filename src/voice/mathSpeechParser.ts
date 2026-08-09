@@ -1,8 +1,22 @@
 import type { MathCandidate } from './types';
+import { MATH_PALETTE_CATEGORIES } from '../domain/mathNotation';
 
 interface ParseResult {
   latex: string;
   unknownTokens: string[];
+}
+
+function normalizeCatalogPhrase(source: string): string {
+  return source.toLowerCase().replace(/[’']/g, '').replace(/\s+/g, ' ').trim();
+}
+
+const VOICE_NOTATION_CATALOG = new Map(
+  MATH_PALETTE_CATEGORIES.flatMap((category) => category.items)
+    .map((item) => [normalizeCatalogPhrase(item.voice.phrase), item.voice.latex] as const),
+);
+
+export function isKnownMathVoicePhrase(source: string): boolean {
+  return VOICE_NOTATION_CATALOG.has(normalizeCatalogPhrase(source));
 }
 
 const SMALL_NUMBERS: Record<string, number> = {
@@ -892,8 +906,10 @@ export function parseMathSpeech(
   isFinal = true,
 ): MathCandidate {
   const parserStartTimestamp = clock();
-  const tokens = tokenize(transcript);
-  const parsed = parseNormalized(tokens);
+  const catalogLatex = VOICE_NOTATION_CATALOG.get(normalizeCatalogPhrase(transcript));
+  const parsed = catalogLatex
+    ? { latex: catalogLatex, unknownTokens: [] }
+    : parseNormalized(tokenize(transcript));
   const parserFinishTimestamp = clock();
   const ambiguities: string[] = [];
   if (/\bsquare root of\b/i.test(transcript) && /\b(?:plus|minus)\b/i.test(transcript)) {

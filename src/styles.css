@@ -227,6 +227,73 @@ button:disabled { cursor: default; opacity: 0.35; }
 }
 .notebook-page.tool-select .insertion-marker { opacity: 0; }
 
+.continuous-line-composer {
+  position: absolute;
+  z-index: 6;
+  width: min(610px, calc(100% - 250px));
+  min-width: 280px;
+  transform: translateY(3px);
+}
+.continuous-line-composer textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  padding: 4px 8px 2px;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font: 17px/1.7 "Bradley Hand", "Segoe Print", Georgia, serif;
+}
+.continuous-line-composer textarea::placeholder { color: #aaa59a; font-style: italic; }
+.continuous-line-composer textarea:focus {
+  outline: none;
+  border-bottom-color: rgba(154,72,44,.18);
+}
+.continuous-line-composer__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 23px;
+  padding-top: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease;
+}
+.continuous-line-composer:focus-within .continuous-line-composer__tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+.continuous-line-composer__tools > span { color: var(--muted); font-size: 8px; }
+.line-mode-switch { display: flex; gap: 2px; }
+.line-mode-switch button {
+  padding: 3px 6px;
+  border-radius: 5px;
+  color: var(--muted);
+  background: rgba(248,246,239,.9);
+  font-size: 8px;
+  text-transform: capitalize;
+}
+.line-mode-switch button[aria-pressed="true"] { color: #743a27; background: var(--accent-soft); }
+math-field.continuous-line-preview {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  width: auto;
+  max-width: 44%;
+  min-height: 32px;
+  overflow: hidden;
+  border: 0;
+  color: rgba(54,50,42,.5);
+  background: transparent;
+  font-size: 17px;
+  pointer-events: none;
+}
+
 .page-object { position: absolute; border: 0; background: transparent; }
 .page-object.is-selected::before {
   position: absolute;
@@ -392,7 +459,25 @@ math-field.assistant-math { display: block; grid-column: 1 / -1; width: 100%; pa
 .aion-progress { display: grid; gap: 4px; color: var(--muted); font-size: 7px; }
 .aion-progress progress { width: 100%; height: 5px; accent-color: var(--accent); }
 .aion-error { display: grid; gap: 5px; color: #8b312a; font-size: 7px; }
-.aion-result { max-height: 140px; padding: 7px; overflow-y: auto; border-radius: 6px; color: #49463f; background: #fffefa; font-size: 7.5px; line-height: 1.5; white-space: pre-wrap; }
+.aion-result { max-height: 190px; padding: 7px; overflow-y: auto; border-radius: 6px; color: #49463f; background: #fffefa; font-size: 8px; line-height: 1.5; }
+.aion-result p { margin: 0 0 5px; color: #49463f; font-size: 8px; white-space: pre-wrap; }
+.aion-result math-field.page-assistant-math { margin: 2px 0; font-size: 15px; }
+.aion-chat-input { display: grid; gap: 5px; }
+.aion-chat-input textarea {
+  width: 100%;
+  padding: 6px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--ink);
+  background: #fffefa;
+  font: 8px/1.4 inherit;
+}
+.aion-chat-input textarea:focus { outline: 1px solid rgba(154,72,44,.35); }
+.aion-chat-input > div { display: flex; gap: 5px; }
+.aion-chat-input button { padding: 5px 7px; border-radius: 6px; color: #713c2a; background: #eadfd6; font-size: 7px; font-weight: 750; }
+.aion-chat-input button.primary-quiet { color: #fff; background: #75402e; }
+.aion-chat-input button:disabled { opacity: .45; }
 .page-assistant__groups { display: grid; gap: 8px; align-content: start; padding: 9px; overflow-y: auto; }
 .page-assistant__empty { margin: 5px; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .page-assistant > footer { padding: 7px 12px 9px; border-top: 1px solid var(--border); color: #928e84; font-size: 7px; line-height: 1.35; }
@@ -447,7 +532,66 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .tool-dock button:hover { color: var(--ink); background: #f1eee6; }
 .tool-dock button.is-active { color: #7c321e; background: var(--accent-soft); }
 .tool-icon { font: 18px/1 Georgia, serif; }
+.tool-icon--calculator { font: 10px/1.1 ui-monospace, monospace; }
 .tool-separator { width: 1px; margin: 5px 2px; background: var(--border); }
+
+.research-tools-panel {
+  position: fixed;
+  z-index: 80;
+  inset: 70px max(12px, env(safe-area-inset-right)) 76px max(12px, env(safe-area-inset-left));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(49,45,37,.17);
+  border-radius: 16px;
+  background: rgba(255,254,249,.98);
+  box-shadow: 0 22px 70px rgba(39,35,29,.28);
+  backdrop-filter: blur(20px);
+}
+.research-tools-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 15px; border-bottom: 1px solid var(--border); }
+.research-tools-panel > header > div { display: grid; gap: 2px; }
+.research-tools-panel > header strong { font-size: 14px; }
+.research-tools-panel > header span { color: var(--muted); font-size: 9px; }
+.research-tools-panel > header button { width: 30px; height: 30px; border-radius: 8px; background: transparent; font-size: 22px; }
+.research-tools-panel > header button:hover { background: #efebe2; }
+.research-tools-panel > nav { display: flex; gap: 4px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--border); background: rgba(240,237,228,.55); }
+.research-tools-panel > nav button { flex: 0 0 auto; padding: 7px 10px; border-radius: 7px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 700; }
+.research-tools-panel > nav button.is-active { color: #713c2a; background: #fffefa; box-shadow: 0 1px 4px rgba(50,44,36,.08); }
+.research-tools-panel__body { min-width: 0; min-height: 0; padding: 12px; overflow: auto; }
+.research-tools-panel > footer { padding: 7px 13px; border-top: 1px solid var(--border); color: var(--muted); font-size: 8px; }
+.research-canvas-tool { display: grid; gap: 9px; justify-items: center; min-width: 0; }
+.research-expression-row { display: flex; flex-wrap: wrap; gap: 10px; width: min(760px, 100%); }
+.research-expression-row label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.research-expression-row label:first-child { flex: 1 1 280px; }
+.research-expression-row input { min-width: 0; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: #fffefa; }
+.research-expression-row input[type="number"] { width: 72px; }
+.research-canvas-tool canvas { display: block; width: min(760px, 100%); height: min(50vh, 420px); border: 1px solid var(--border); border-radius: 10px; background: #fffefa; touch-action: none; }
+.research-tool-error { margin: 0; color: #8b312a; font-size: 10px; }
+.research-tool-hint { margin: 0; color: var(--muted); font-size: 9px; }
+.geometry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: min(760px, 100%); color: var(--muted); font-size: 9px; }
+.geometry-actions span { margin-right: auto; }
+.geometry-actions button { padding: 5px 7px; border-radius: 6px; color: #713c2a; background: #eee9df; font-size: 9px; }
+.scientific-lab { display: grid; gap: 10px; width: min(680px, 100%); margin: 0 auto; }
+.scientific-lab label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.scientific-lab textarea { padding: 10px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; background: #fffefa; font: 17px/1.5 ui-monospace, monospace; }
+.scientific-keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(50px, 1fr)); gap: 5px; }
+.scientific-keys button { min-height: 38px; border: 1px solid var(--border); border-radius: 7px; background: #fffefa; font: 13px ui-monospace, monospace; }
+.research-primary { width: fit-content; padding: 8px 10px; border-radius: 7px; color: white; background: var(--accent); font-size: 10px; font-weight: 750; }
+.scientific-lab output { padding: 11px; border-radius: 8px; color: #426449; background: #edf4ed; font: 14px ui-monospace, monospace; overflow-wrap: anywhere; }
+
+.floating-calculator { position: fixed; z-index: 90; right: 14px; bottom: 15px; }
+.calculator-launcher { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 50%; color: #fff; background: #713c2a; box-shadow: 0 8px 22px rgba(45,39,32,.28); font: 700 10px ui-monospace, monospace; }
+.calculator-popover { position: absolute; right: 0; bottom: 52px; display: grid; gap: 7px; width: min(260px, calc(100vw - 28px)); padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: #fffefa; box-shadow: 0 16px 44px rgba(45,39,32,.25); }
+.calculator-popover header { display: flex; align-items: center; justify-content: space-between; }
+.calculator-popover header button { width: 25px; height: 25px; border-radius: 6px; background: transparent; font-size: 18px; }
+.calculator-popover input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 7px; font: 14px ui-monospace, monospace; }
+.calculator-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.calculator-keys button { min-height: 29px; border-radius: 6px; background: #eee9df; font: 11px ui-monospace, monospace; }
+.calculator-equals { min-height: 31px; border-radius: 6px; color: white; background: var(--accent); font-weight: 800; }
+.calculator-popover output { padding: 7px; border-radius: 6px; color: #426449; background: #edf4ed; font: 10px ui-monospace, monospace; overflow-wrap: anywhere; }
+.calculator-popover p { margin: 0; color: #8b312a; font-size: 9px; }
 
 .math-palette {
   position: fixed;
@@ -504,6 +648,10 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .voice-segment { position: relative; min-height: 35px; padding: 4px 5px 4px 42px; border-left: 2px solid rgba(111,105,94,.16); }
 .voice-segment--math { border-left-color: rgba(154,72,44,.32); }
 .voice-segment__kind { position: absolute; top: 6px; left: 6px; color: var(--muted); font-size: 8px; font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }
+.aion-voice-state { margin: 7px 0 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
+.aion-voice-state--refining { color: #7a5536; }
+.aion-voice-state--refined { color: #426449; }
+.aion-voice-state--fallback { color: #8b572e; }
 math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border: 0; background: transparent; font-size: 21px; pointer-events: none; }
 .candidate-text { margin: 3px 0; color: #49463f; font: 13px/1.45 Georgia, "Times New Roman", serif; }
 .provisional-label { color: #9d6e2b; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -560,6 +708,16 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
   .save-status { width: 31px; padding: 7px 12px; overflow: hidden; color: transparent; }
   .save-status .save-dot { flex: 0 0 auto; }
   .history-buttons button, .overflow-wrap > button { width: 28px; }
+  .tool-dock { max-width: calc(100vw - 66px); overflow-x: auto; }
+  .tool-dock button { flex: 0 0 auto; }
+}
+
+@media (max-width: 680px) {
+  .tool-dock button > span:last-child { display: none; }
+  .tool-dock button { width: 40px; justify-content: center; padding-inline: 7px; }
+  .continuous-line-composer { width: calc(100% - 125px); min-width: 210px; }
+  .research-tools-panel { inset-inline: 6px; bottom: 70px; }
+  .voice-panel { right: 7px; width: calc(100vw - 14px); }
 }
 
 @media (max-width: 1550px) {
@@ -569,7 +727,7 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 @media print {
   html, body, #root { min-width: 0; height: auto; overflow: visible; background: white; }
   .app-shell { display: block; height: auto; background: white; }
-  .top-bar, .page-nav, .tool-dock, .math-palette, .voice-panel, .page-assistant, .page-assistant-launcher, .error-toast, .object-controls, .insertion-marker { display: none !important; }
+  .top-bar, .page-nav, .tool-dock, .math-palette, .voice-panel, .page-assistant, .page-assistant-launcher, .research-tools-panel, .floating-calculator, .continuous-line-composer, .error-toast, .object-controls, .insertion-marker { display: none !important; }
   .workspace, .canvas-scroll { display: block; overflow: visible; padding: 0; background: white; }
   .page-frame { width: 100%; }
   .notebook-page { margin: 0; border: 0; box-shadow: none; transform-origin: top left; }

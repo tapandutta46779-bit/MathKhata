@@ -9,6 +9,7 @@ import {
 import { NotebookVoiceInsertionController } from '../voice/voiceInsertionController';
 import { WebSpeechProvider } from '../voice/webSpeechProvider';
 import type { NotebookVoiceCandidate, VoiceState } from '../voice/types';
+import { refineVoiceCandidateWithAION } from '../voice/aionVoiceInterpreter';
 
 export function VoicePanel() {
   const provider = useMemo(() => new WebSpeechProvider(), []);
@@ -19,12 +20,15 @@ export function VoicePanel() {
   const [voiceState, setVoiceState] = useState<VoiceState>(provider.supported ? 'idle' : 'unsupported');
   const [candidate, setCandidate] = useState<NotebookVoiceCandidate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aionVoiceState, setAionVoiceState] = useState<'idle' | 'refining' | 'refined' | 'fallback'>('idle');
   const mounted = useRef(true);
+  const refinementRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      refinementRef.current?.abort();
       provider.cancel();
     };
   }, [provider]);
@@ -41,6 +45,7 @@ export function VoicePanel() {
 
   function close() {
     provider.cancel();
+    refinementRef.current?.abort();
     controller.cancel();
     setTool('select');
   }
@@ -48,6 +53,7 @@ export function VoicePanel() {
   function start() {
     setError(null);
     setCandidate(null);
+    setAionVoiceState('idle');
     provider.start({
       onState: setVoiceState,
       onTranscript: (transcript) => {
@@ -66,9 +72,28 @@ export function VoicePanel() {
           close();
           return;
         }
-        setCandidate(
-          parseNotebookSpeech(transcript.text, transcript.recognitionTimestamp, transcript.isFinal),
+        const deterministic = parseNotebookSpeech(
+          transcript.text,
+          transcript.recognitionTimestamp,
+          transcript.isFinal,
         );
+        setCandidate(deterministic);
+        if (transcript.isFinal) {
+          refinementRef.current?.abort();
+          const controller = new AbortController();
+          refinementRef.current = controller;
+          setAionVoiceState('refining');
+          void refineVoiceCandidateWithAION(deterministic, controller.signal)
+            .then((refined) => {
+              if (!mounted.current || controller.signal.aborted) return;
+              setCandidate(refined);
+              setAionVoiceState('refined');
+            })
+            .catch(() => {
+              if (!mounted.current || controller.signal.aborted) return;
+              setAionVoiceState('fallback');
+            });
+        }
       },
       onError: setError,
       onEnd: () => {
@@ -131,6 +156,13 @@ export function VoicePanel() {
             ))}
           </div>
           {!candidate.isFinal && <span className="provisional-label">provisional</span>}
+          {candidate.isFinal && (
+            <p className={`aion-voice-state aion-voice-state--${aionVoiceState}`} role="status">
+              {aionVoiceState === 'refining' && 'AION is interpreting this locally; the deterministic draft remains usable.'}
+              {aionVoiceState === 'refined' && 'Interpreted by local AION. Review before inserting.'}
+              {aionVoiceState === 'fallback' && 'AION was unavailable; using the deterministic local parser.'}
+            </p>
+          )}
           {candidate.latency.totalVisibleLatencyMs !== undefined && (
             <p className="latency-readout">
               Recognition → candidate {candidate.latency.recognitionToCandidateMs.toFixed(1)} ms ·

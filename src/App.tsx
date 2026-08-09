@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   blurActiveMathfield,
   dismissActiveMathfieldMenu,
@@ -11,6 +11,8 @@ import { PageAssistantRail } from './components/PageAssistantRail';
 import { ToolDock } from './components/ToolDock';
 import { TopBar } from './components/TopBar';
 import { VoicePanel } from './components/VoicePanel';
+import { FloatingCalculator } from './components/FloatingCalculator';
+import { ResearchToolsPanel } from './components/ResearchToolsPanel';
 import { useNotebookStore } from './store/notebookStore';
 
 function isEditingTarget(target: EventTarget | null): boolean {
@@ -24,6 +26,8 @@ function isEditingTarget(target: EventTarget | null): boolean {
 }
 
 export default function App() {
+  const [researchOpen, setResearchOpen] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   const notebook = useNotebookStore((state) => state.notebook);
   const hydrated = useNotebookStore((state) => state.hydrated);
   const currentPageId = useNotebookStore((state) => state.currentPageId);
@@ -40,6 +44,7 @@ export default function App() {
   const deleteSelectedObject = useNotebookStore((state) => state.deleteSelectedObject);
   const duplicateSelectedObject = useNotebookStore((state) => state.duplicateSelectedObject);
   const clearError = useNotebookStore((state) => state.clearError);
+  const closeResearch = useCallback(() => setResearchOpen(false), []);
 
   useEffect(() => {
     void initialize();
@@ -148,11 +153,19 @@ export default function App() {
           </div>
         </main>
       </div>
-      <ToolDock />
+      <ToolDock
+        onOpenResearch={() => {
+          window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'research-tools' }));
+          setResearchOpen(true);
+        }}
+        onToggleCalculator={() => setCalculatorOpen((open) => !open)}
+      />
       <MathPalette />
       {tool === 'voice' && <VoicePanel />}
       <PageAssistantRail />
       <NotebookLibrary />
+      {researchOpen && <ResearchToolsPanel onClose={closeResearch} />}
+      <FloatingCalculator open={calculatorOpen} onToggle={() => setCalculatorOpen((open) => !open)} />
       {errorMessage && (
         <div className="error-toast" role="alert">
           <span>{errorMessage}</span>

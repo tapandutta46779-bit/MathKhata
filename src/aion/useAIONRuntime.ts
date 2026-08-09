@@ -1,72 +1,75 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NotebookContext } from '../extensions/providers';
 import {
-  createAIONPagePrompt,
   type AIONRuntimeStatus,
-  type AIONWorkerResponse,
 } from './runtime';
+import { askAIONAboutPage, checkAIONLocal } from './ollamaProvider';
 
 export interface AIONRuntimeState {
   status: AIONRuntimeStatus;
   progress?: number;
   message?: string;
-  device?: 'webgpu' | 'wasm';
+  device?: 'ollama';
   result?: string;
   enable: () => void;
-  analyze: (context: NotebookContext) => void;
+  analyze: (context: NotebookContext, question?: string) => void;
 }
 
 export function useAIONRuntime(): AIONRuntimeState {
-  const workerRef = useRef<Worker | null>(null);
-  const [status, setStatus] = useState<AIONRuntimeStatus>('idle');
+  const requestRef = useRef<AbortController | null>(null);
+  const [status, setStatus] = useState<AIONRuntimeStatus>('loading');
   const [progress, setProgress] = useState<number>();
   const [message, setMessage] = useState<string>();
-  const [device, setDevice] = useState<'webgpu' | 'wasm'>();
+  const [device, setDevice] = useState<'ollama'>();
   const [result, setResult] = useState<string>();
 
-  const ensureWorker = useCallback(() => {
-    if (workerRef.current) return workerRef.current;
-    const worker = new Worker(new URL('./aion.worker.ts', import.meta.url), { type: 'module' });
-    worker.addEventListener('message', (event: MessageEvent<AIONWorkerResponse>) => {
-      const response = event.data;
-      if (response.type === 'progress') {
-        setStatus('loading');
-        setProgress(response.progress);
-        setMessage(response.message);
-      } else if (response.type === 'ready') {
-        setStatus('ready');
-        setProgress(100);
-        setMessage('Cached locally and ready');
-        setDevice(response.device);
-      } else if (response.type === 'result') {
-        setStatus('ready');
-        setResult(response.text);
-        setMessage('Analysis completed locally');
-      } else {
-        setStatus('error');
-        setMessage(response.message);
-      }
-    });
-    workerRef.current = worker;
-    return worker;
-  }, []);
-
-  const enable = useCallback(() => {
+  const enable = useCallback(async () => {
     setStatus('loading');
     setResult(undefined);
-    setMessage('Starting the optional download…');
-    ensureWorker().postMessage({ type: 'load' });
-  }, [ensureWorker]);
+    setMessage('Checking the private AION runtime…');
+    setProgress(undefined);
+    const controller = new AbortController();
+    requestRef.current?.abort();
+    requestRef.current = controller;
+    const local = await checkAIONLocal(controller.signal);
+    if (controller.signal.aborted) return;
+    setMessage(local.message);
+    if (local.modelReady) {
+      setStatus('ready');
+      setDevice('ollama');
+      setProgress(100);
+    } else {
+      setStatus(local.reachable ? 'idle' : 'error');
+      setDevice(undefined);
+    }
+  }, []);
 
-  const analyze = useCallback((context: NotebookContext) => {
+  const analyze = useCallback(async (context: NotebookContext, question?: string) => {
     if (status !== 'ready') return;
     setStatus('analyzing');
     setResult(undefined);
-    setMessage('Reading the current page locally…');
-    ensureWorker().postMessage({ type: 'analyze', prompt: createAIONPagePrompt(context) });
-  }, [ensureWorker, status]);
+    setMessage(question ? 'AION is working through your question locally…' : 'AION is reading the current page locally…');
+    const controller = new AbortController();
+    requestRef.current?.abort();
+    requestRef.current = controller;
+    try {
+      const answer = await askAIONAboutPage(context, question, controller.signal);
+      if (controller.signal.aborted) return;
+      setResult(answer.text);
+      setStatus('ready');
+      setMessage('AION completed the local analysis.');
+      setDevice('ollama');
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setStatus('error');
+      setMessage(error instanceof Error ? error.message : 'AION could not complete the request.');
+    }
+  }, [status]);
 
-  useEffect(() => () => workerRef.current?.terminate(), []);
+  useEffect(() => {
+    void enable();
+    return () => requestRef.current?.abort();
+  }, [enable]);
 
   return { status, progress, message, device, result, enable, analyze };
 }

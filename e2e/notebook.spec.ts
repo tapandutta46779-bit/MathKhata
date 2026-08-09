@@ -532,8 +532,7 @@ test('whole-page assistant separates questions, reads notes, reviews voice corru
   await expect(assistant).toContainText('Recognition review');
   await expect(assistant).toContainText('These equations form one system.');
   await expect(assistant).toContainText('Likely voice text');
-  await expect(assistant.getByRole('button', { name: /Enable AION/ })).toBeVisible();
-  await expect(assistant).toContainText('Qwen2.5 0.5B Instruct');
+  await expect(assistant).toContainText('Qwen3 8B');
 
   const system = assistant.locator('.page-problem--system');
   await system.getByRole('button', { name: 'Solve this problem' }).click();
@@ -606,6 +605,39 @@ test('long structured mathematics flows across ruled lines without hiding contro
   await expect(assistantMath).toBeVisible();
   await expect.poll(() => assistantMath.evaluate((element: any) => element.value)).not.toContain('\\begin{multline}');
   await page.screenshot({ path: 'docs/screenshots/12-human-multiline-math.png' });
+});
+
+test('continuous composer writes mixed ruled lines and research tools stay viewport-safe', async ({ page }) => {
+  await page.goto('/');
+  const composer = page.getByLabel('Continuous notebook line');
+  await expect(composer).toBeVisible();
+  await composer.fill('x^2 + 6 = 42');
+  await composer.press('Enter');
+  await expect(page.locator('math-field.math-editor')).toHaveCount(1);
+
+  await composer.fill('The curve $x^2+y^2=1$ is a circle');
+  await composer.press('Enter');
+  await expect(page.locator('math-field.math-editor')).toHaveCount(2);
+  await expect(page.getByLabel('Text note')).toHaveCount(2);
+
+  await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
+  const research = page.getByTestId('research-tools-panel');
+  await expect(research).toBeVisible();
+  await expect(research.getByRole('button', { name: '2D Graph' })).toHaveClass(/is-active/);
+  await research.getByRole('button', { name: '3D Surface' }).click();
+  await expect(research.getByLabel(/3D wireframe surface/)).toBeVisible();
+  await research.getByRole('button', { name: 'Geometry' }).click();
+  await expect(research.getByLabel('Interactive geometry canvas')).toBeVisible();
+  await research.getByRole('button', { name: 'Scientific' }).click();
+  await expect(research.getByText('Scientific expression')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(await page.evaluate(() => innerWidth));
+  await research.getByRole('button', { name: 'Close research tools' }).click();
+
+  await page.getByRole('button', { name: 'Toggle floating calculator' }).click();
+  const calculator = page.getByTestId('floating-calculator');
+  await calculator.getByLabel('Calculator expression').fill('6*4');
+  await calculator.getByLabel('Calculator expression').press('Enter');
+  await expect(calculator.getByText(/24/)).toBeVisible();
 });
 
 test('keeps page assistant and notebook menu responsive, dismissible, and closed by preference', async ({ page }) => {

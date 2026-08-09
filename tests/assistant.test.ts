@@ -49,6 +49,13 @@ describe('opt-in local symbolic solver', () => {
     expect(canOfferLocalSolve('\\lim_{x\\to0}\\frac{\\sin(x)}{x}')).toBe(true);
     expect(canOfferLocalSolve('\\sum_{n=1}^{5}n')).toBe(true);
     expect(canOfferLocalSolve('\\prod_{n=1}^{5}n')).toBe(true);
+    expect(canOfferLocalSolve('\\iint x+y\\,dx\\,dy')).toBe(true);
+    expect(canOfferLocalSolve('\\iiint x+y+z\\,dx\\,dy\\,dz')).toBe(true);
+    expect(canOfferLocalSolve('\\det\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}')).toBe(true);
+    expect(canOfferLocalSolve('\\operatorname{rref}\\begin{bmatrix}1&2\\\\2&4\\end{bmatrix}')).toBe(true);
+    expect(canOfferLocalSolve('\\nabla(x^2+y^2+z^2)')).toBe(true);
+    expect(canOfferLocalSolve('\\int_{0}^{1}\\int_{0}^{1}(x+y)\\,dx\\,dy')).toBe(true);
+    expect(canOfferLocalSolve('\\frac{d^2}{dx^2}x^4')).toBe(true);
     expect(canOfferLocalSolve('x^2=')).toBe(false);
     expect(canOfferLocalSolve('\\int_{0}x^2\\,dx')).toBe(false);
     expect(canOfferLocalSolve('\\int_{\\placeholder{}}^{2}x^2\\,dx')).toBe(false);
@@ -110,5 +117,54 @@ describe('opt-in local symbolic solver', () => {
     await expect(
       solveLocally('\\int_{0}^{\\infty}e^{x^2+3x+5}\\,dx'),
     ).rejects.toThrow(/convergence check/i);
+  });
+
+  it('evaluates the classical Gaussian integral', async () => {
+    const result = await solveLocally('\\int_{-\\infty}^{\\infty}e^{-x^2}\\,dx');
+
+    expect(result.label).toBe('Gaussian integral');
+    expect(result.resultLatex).toBe('\\sqrt{\\pi}');
+  });
+
+  it('supports double and triple indefinite integrals', async () => {
+    const double = await solveLocally('\\iint x+y\\,dx\\,dy');
+    const triple = await solveLocally('\\iiint x+y+z\\,dx\\,dy\\,dz');
+
+    expect(double.label).toBe('Double antiderivative');
+    expect(double.resultLatex).toContain('+C');
+    expect(triple.label).toBe('Triple antiderivative');
+    expect(triple.resultLatex).toContain('+C');
+  });
+
+  it('evaluates explicitly bounded nested integrals in the stated order', async () => {
+    const result = await solveLocally('\\int_{0}^{1}\\int_{0}^{1}(x+y)\\,dx\\,dy');
+
+    expect(result.label).toBe('Double integral value');
+    expect(result.resultLatex).toBe('1');
+  });
+
+  it('supports higher ordinary and partial derivatives', async () => {
+    const ordinary = await solveLocally('\\frac{d^2}{dx^2}x^4');
+    const partial = await solveLocally('\\frac{\\partial^2}{\\partial x^2}(x^3y)');
+
+    expect(compact(ordinary.resultLatex)).toBe('12\\cdotx^{2}');
+    expect(compact(partial.resultLatex)).toBe('6\\cdotx\\cdoty');
+  });
+
+  it('computes numeric determinants and RREF matrices', async () => {
+    const determinant = await solveLocally('\\det\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}');
+    const rref = await solveLocally('\\operatorname{rref}\\begin{bmatrix}1&2\\\\2&4\\end{bmatrix}');
+
+    expect(determinant.resultLatex).toBe('-2');
+    expect(rref.resultLatex).toBe('\\begin{bmatrix}1&2\\\\0&0\\end{bmatrix}');
+  });
+
+  it('computes gradients and Laplacians', async () => {
+    const gradient = await solveLocally('\\nabla(x^2+y^2+z^2)');
+    const laplacian = await solveLocally('\\nabla^2(x^2+y^2+z^2)');
+
+    expect(gradient.kind).toBe('gradient');
+    expect(compact(gradient.resultLatex)).toContain('2\\cdotx');
+    expect(laplacian.resultLatex).toBe('6');
   });
 });

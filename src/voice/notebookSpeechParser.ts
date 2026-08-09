@@ -1,4 +1,4 @@
-import { parseMathSpeech } from './mathSpeechParser';
+import { isKnownMathVoicePhrase, parseMathSpeech } from './mathSpeechParser';
 import type {
   NotebookVoiceCandidate,
   VoiceCandidateSegment,
@@ -22,6 +22,7 @@ export function splitNotebookSpeech(transcript: string): string[] {
 
 function shouldBeMath(sourceText: string, unknownTokens: string[]): boolean {
   const compact = sourceText.trim();
+  if (isKnownMathVoicePhrase(compact)) return true;
   if (/^(?:[a-z]|\d+(?:\.\d+)?)$/i.test(compact)) return true;
   const hasRelation = RELATION_SIGNAL.test(compact);
   const hasMathSignal = hasRelation || OPERATOR_SIGNAL.test(compact) || FUNCTION_OR_SYMBOL_SIGNAL.test(compact);

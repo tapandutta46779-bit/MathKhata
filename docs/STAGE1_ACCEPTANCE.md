@@ -52,7 +52,7 @@ This is the verification ledger for Stage 1. A checked item must be backed by a 
 - [x] Problem grouping is correctable with split/join/confirm controls, solving is per group, and no analysis silently merges or edits notebook content.
 - [x] Assistant visibility is a persisted user preference: analysis refreshes, math edits, page switches, React remounts, and reloads never reopen a panel the writer closed.
 - [x] At 1280×659 and a narrower viewport, the assistant and notebook menu remain inside the viewport, do not overlap close controls, do not widen the document, and dismiss by second click, Escape, outside pointer, or item selection.
-- [x] Stage 1 makes no trained-model claim. Deterministic parsing/segmentation and local CAS remain reliable; optional AION inference discloses its Qwen2.5 ONNX base, downloads only by explicit action, and runs in a worker.
+- [x] The app makes no trained-model claim. Deterministic parsing/segmentation and local CAS remain reliable; AION discloses its Qwen3 8B Q4_K_M base and local Ollama runtime.
 
 ## Evidence and backup
 
@@ -63,7 +63,7 @@ This is the verification ledger for Stage 1. A checked item must be backed by a 
 
 ## Latest automated evidence
 
-- Vitest: 10 files, 147 tests passed.
-- Playwright/Chrome: 8 flows passed.
-- Parser timing (1,000 mixed supported utterances): average 0.014 ms, p95 0.020 ms, maximum 1.683 ms on this development run.
-- Production build: successful; the main JavaScript chunk is 1,246.03 kB minified (356.06 kB gzip). The optional symbolic engine is emitted as a separate 472.45 kB minified chunk (169.71 kB gzip) and is loaded only on demand.
+- Vitest: 13 files, 318 tests passed.
+- Playwright: 11 end-to-end flows are collected, including the new continuous composer/research workspace path; a fresh full live-browser run remains pending for this checkpoint.
+- Production build: successful; the main JavaScript chunk is about 1,291 kB minified (370 kB gzip). The symbolic engine remains a separate 472.45 kB minified chunk (169.71 kB gzip) and is loaded on demand.
+- Local model: Ollama listed `qwen3:8b` at 5.2 GB, and a real smoke inference solved `x^2+6=42` as `x=±6` with two visible checked steps.

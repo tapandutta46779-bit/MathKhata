@@ -31,6 +31,19 @@ function ReadOnlyMath({ latex, label }: { latex: string; label: string }) {
   );
 }
 
+function solverAction(latex: string): string {
+  if (/\\det|\\begin\{[vV]matrix\}/.test(latex)) return 'Evaluate determinant';
+  if (/rref|rowReduce/i.test(latex)) return 'Reduce matrix';
+  if (/\\iiint/.test(latex)) return 'Solve triple integral';
+  if (/\\iint/.test(latex)) return 'Solve double integral';
+  if (/\\int/.test(latex)) return 'Solve integral';
+  if (/\\nabla/.test(latex)) return 'Evaluate vector operator';
+  if (/\\frac\{(?:d|\\partial)/.test(latex)) return 'Differentiate';
+  if (/\\lim/.test(latex)) return 'Evaluate limit';
+  if (/\\sum|\\prod/.test(latex)) return 'Evaluate series';
+  return 'Solve equation';
+}
+
 export function CalculationRail({ page }: CalculationRailProps) {
   const selectedObjectId = useNotebookStore((state) => state.selectedObjectId);
   const editingObjectId = useNotebookStore((state) => state.editingObjectId);
@@ -105,7 +118,7 @@ export function CalculationRail({ page }: CalculationRailProps) {
       )}
       {!quickResult && canSolve && !solveResult && !solveError && (
         <button type="button" className="solve-offer" disabled={solving} onClick={() => void solve()}>
-          <span>{solving ? 'Solving locally…' : expression.latex.includes('\\int') ? 'Solve integral' : 'Solve equation'}</span>
+          <span>{solving ? 'Solving locally…' : solverAction(expression.latex)}</span>
           <small>Optional · no steps added</small>
         </button>
       )}

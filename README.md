@@ -37,7 +37,7 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173) after `npm run dev`.
 
 Pure arithmetic is evaluated instantly and locally. For example, entering `6 × 4` shows `24` in a small right-side suggestion; click it or press Tab to place `=24` on the same line. No steps are added.
 
-Integrals, derivatives, limits, finite sums/products, and variable equations show an optional local solve action. The symbolic engine is downloaded with the app, loaded only after that action, and never sends the expression to a server. A reliable result can be added on the next ruled line; an unsupported form produces an explicit note instead of an invented answer.
+Integrals, higher/partial derivatives, limits, finite sums/products, variable equations, bounded nested integrals, double/triple antiderivatives, the classical Gaussian integral, numeric determinants, RREF matrices, gradients, and Laplacians show an optional local solve action. The symbolic engine is bundled with the app, loaded only after that action, and never sends the expression to a server. A reliable result can be added on the next ruled line; an unsupported form produces an explicit note instead of an invented answer.
 
 Long expressions are kept as one structured MathLive expression but rendered through a genuine multiline environment. They continue onto later ruled lines, grow the page flow, and keep the on-screen keyboard/menu controls in reserved space instead of covering the notation.
 
@@ -45,7 +45,7 @@ Long expressions are kept as one structured MathLive expression but rendered thr
 
 The compact right-side Page assistant reads the complete current page through the read-only document-context boundary. It preserves ruled-line/spatial order, treats notes as context, proposes separate problems or equation systems, flags likely voice corruption, and lets the writer split, join, or confirm groups before solving. It is closed by default, remembers that choice across reloads, and never changes page content without an explicit action.
 
-Deterministic page analysis remains the default. The assistant also offers **AION**, an optional browser-local runtime using the published `onnx-community/Qwen2.5-0.5B-Instruct` ONNX q4 model through Transformers.js. AION downloads about 0.5 GB only after explicit consent, runs in a worker through WebGPU or WASM, and is advisory. MathKhata has not trained this base model or a custom AION model. Details and privacy tradeoffs are documented in [docs/LOCAL_MODEL_PATH.md](docs/LOCAL_MODEL_PATH.md).
+Deterministic page analysis remains the reliable fallback. The assistant also offers **AION**, a private local runtime using the published Qwen3 8B Q4_K_M model through Ollama on this Mac. AION can answer free-form questions about the complete page and present visible solution steps; the deterministic grouping and CAS remain independent verification layers. MathKhata has not trained Qwen3 or a custom AION model. Details and privacy tradeoffs are documented in [docs/LOCAL_MODEL_PATH.md](docs/LOCAL_MODEL_PATH.md).
 
 ## Data and backups
 
@@ -60,8 +60,8 @@ To install the safe post-commit Google Drive backup and create a milestone snaps
 
 ## Voice status
 
-Chrome Web Speech support is used when genuinely available; nothing is simulated. One utterance may contain both mathematics and ordinary language: “x equals six, then y equals eight” becomes two math lines, while an unfamiliar prose phrase remains text. “Then”, “next line”, and “new line” continue on the next ruled line. Every Symbols-palette item has a tested spoken example. Supporting Chrome builds also receive contextual phrase hints for the shared math vocabulary; this is recognition biasing, not a claimed custom-trained voice model. See [docs/VOICE_EXPERIMENT.md](docs/VOICE_EXPERIMENT.md).
+Chrome Web Speech support is used when genuinely available; nothing is simulated. One utterance may contain both mathematics and ordinary language: “x equals six, then y equals eight” becomes two math lines, while an unfamiliar prose phrase remains text. “Then”, “next line”, and “new line” continue on the next ruled line. Every Symbols-palette item has a tested spoken example. A final transcript may receive a private AION second pass; the immediate deterministic candidate remains usable if AION is slow or unavailable. See [docs/VOICE_EXPERIMENT.md](docs/VOICE_EXPERIMENT.md).
 
 ## Scope
 
-Stage 1 builds the hands and paper: structured multiline math entry, line-flowing notes, optional spatial placement, pages, persistence, history, import/export, full on-demand MathLive/symbol controls, mixed math/text voice dictation, quick arithmetic, an opt-in local symbolic solver, deterministic whole-page analysis, and optional advisory AION inference. Autonomous editing, graphing, handwriting, collaboration, accounts, and cloud services remain out of scope.
+The app now includes an always-available ruled-line composer with Auto/Math/Text intent, structured multiline MathLive editing, optional spatial placement, full on-demand keyboard/symbol controls, mixed voice dictation, quick arithmetic, advanced local CAS actions, whole-page deterministic analysis, and AION assistance. A separate research workspace provides local 2D graphs, 3D wireframes, interactive polygon geometry, and scientific calculation, while a floating calculator stays available over every section. These are research-workspace foundations rather than a claim of complete Desmos feature parity.

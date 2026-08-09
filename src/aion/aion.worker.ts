@@ -5,7 +5,7 @@ import {
   pipeline,
 } from '@huggingface/transformers';
 import {
-  AION_BASE_MODEL,
+  AION_BROWSER_FALLBACK_MODEL,
   type AIONWorkerRequest,
   type AIONWorkerResponse,
 } from './runtime';
@@ -39,7 +39,7 @@ async function loadRuntime(): Promise<TextGenerator> {
   env.allowRemoteModels = true;
   env.useBrowserCache = true;
   device = (navigator as Navigator & { gpu?: unknown }).gpu ? 'webgpu' : 'wasm';
-  loading = pipeline('text-generation', AION_BASE_MODEL, {
+  loading = pipeline('text-generation', AION_BROWSER_FALLBACK_MODEL, {
     device,
     dtype: device === 'webgpu' ? 'q4f16' : 'q4',
     progress_callback: (event) => send({ type: 'progress', ...progressMessage(event) }),

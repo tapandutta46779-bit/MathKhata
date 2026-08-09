@@ -1,12 +1,36 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AION_BASE_MODEL, AION_DISPLAY_NAME, createAIONPagePrompt } from '../src/aion/runtime';
+import { askAIONLocal, checkAIONLocal } from '../src/aion/ollamaProvider';
 import { createNotebook, createMathObject, createTextObject, addObject } from '../src/domain/notebook';
 import { createDocumentContext } from '../src/extensions/providers';
 
 describe('AION local-runtime boundary', () => {
+  afterEach(() => vi.restoreAllMocks());
   it('uses the exact AION name and discloses a real base model', () => {
     expect(AION_DISPLAY_NAME).toBe('AION');
-    expect(AION_BASE_MODEL).toBe('onnx-community/Qwen2.5-0.5B-Instruct');
+    expect(AION_BASE_MODEL).toBe('qwen3:8b');
+  });
+
+  it('detects the installed Ollama model without sending page content', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      models: [{ name: 'qwen3:8b' }],
+    }), { status: 200 }));
+
+    const status = await checkAIONLocal();
+
+    expect(status.modelReady).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:11434/api/tags', { signal: undefined });
+  });
+
+  it('uses the private local chat endpoint and hides model thinking from the visible answer', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      message: { content: '<think>private scratch work</think>\nVisible checked steps' },
+    }), { status: 200 }));
+
+    const answer = await askAIONLocal('Solve x^2=4');
+
+    expect(answer.text).toBe('Visible checked steps');
+    expect(answer.model).toBe('qwen3:8b');
   });
 
   it('creates a spatially ordered, read-only page prompt', () => {

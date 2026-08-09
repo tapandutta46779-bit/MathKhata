@@ -6,10 +6,11 @@
 2. **Persistence** — a Dexie adapter stores validated notebooks in IndexedDB. Storage errors leave in-memory work intact and surface a visible status.
 3. **Application state** — a small external store coordinates the current notebook, selected page/object, tools, undo/redo, and debounced persistence.
 4. **Editor UI** — React renders the notebook shell, ruled pages, line-flowing/spatial objects, MathLive editors, palette, dialogs, and accessible controls.
-5. **Voice experiment** — `SpeechProvider → SpeechTranscript → NotebookSpeechParser → NotebookVoiceCandidate → VoiceInsertionController → MathObject | TextObject`. A single candidate may contain several lines of different types.
-6. **Local math assistance** — a small deterministic arithmetic parser supplies immediate numeric suggestions. Nerdamer Prime is dynamically imported only after an explicit integral/equation solve action; results remain advisory until added.
+5. **Voice experiment** — `SpeechProvider → SpeechTranscript → NotebookSpeechParser → optional AION refinement → NotebookVoiceCandidate → VoiceInsertionController → MathObject | TextObject`. A single candidate may contain several lines of different types; the deterministic candidate never waits for AION.
+6. **Local math assistance** — a small deterministic arithmetic parser supplies immediate numeric suggestions. Nerdamer Prime and local linear-algebra routines are loaded only for an explicit symbolic action; results remain advisory until added.
 7. **Whole-page analysis** — `DocumentContextProvider → PageAnalysis → PageProblemGroup → PageProblemSolver`. Deterministic grouping preserves object IDs/order, consumes TextObjects as context, requires confirmation for uncertain systems, and never edits the page implicitly.
-8. **Extension boundaries** — `MathCheckProvider` provides non-destructive suggestions; `DocumentContextProvider` is also the only permitted input boundary for an optional future local model.
+8. **AION provider** — `DocumentContextProvider → AION prompt → Ollama qwen3:8b` is read-only and replaceable. It cannot become notebook storage or mutate documents.
+9. **Research tools** — fixed, responsive overlays provide 2D/3D exploratory plotting, interactive geometry, scientific evaluation, and an everywhere calculator without changing notebook schema.
 
 ## Versioned document model
 
@@ -21,7 +22,7 @@ Import is parsed as unknown data, validated field by field, normalized within sa
 
 Domain commands return new notebook values. The store records meaningful document states for create/delete/move/content/page actions. Rapid content input is coalesced into an edit transaction so MathLive changes participate in history without an entry per keystroke. Undo/redo restores a prior structured notebook and schedules persistence.
 
-Normal creation and accepted voice segments use a ruled-line flow starting at the paper margin. Math/text objects remain structured and movable, but their card chrome is transparent; selection is indicated quietly in the margin. Manual placement snaps vertically to the nearest ruled line, while dragging can still make a deliberate spatial rough-work layout.
+The always-present continuous composer starts at the next free ruled line, classifies a line as Text, Math, or mixed runs, and moves to the next line on Enter. A full page continues onto a new page automatically. Math/text objects remain structured and movable, but their card chrome is transparent; selection is indicated quietly in the margin. Manual placement remains available for deliberate rough-work layouts.
 
 ## MathLive boundary
 
@@ -33,4 +34,4 @@ Dexie stores a full validated notebook record, with autosave after document muta
 
 ## Future reasoning
 
-`DocumentContextProvider` derives current page, selection, nearby objects, prior equations, annotations, spatial relationships, and limited edit context from the domain. The deterministic page assistant consumes this contract without direct storage access. Optional AION inference receives a compact prompt derived from the same read-only context in a dedicated worker; it cannot access persistence or mutate a notebook. See [LOCAL_MODEL_PATH.md](LOCAL_MODEL_PATH.md).
+`DocumentContextProvider` derives current page, selection, nearby objects, prior equations, annotations, spatial relationships, and limited edit context from the domain. The deterministic page assistant consumes this contract without direct storage access. AION receives a compact prompt through the loopback Ollama provider; it cannot access IndexedDB or mutate a notebook. See [LOCAL_MODEL_PATH.md](LOCAL_MODEL_PATH.md).

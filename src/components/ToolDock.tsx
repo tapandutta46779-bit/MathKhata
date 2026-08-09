@@ -8,7 +8,7 @@ const TOOLS: Array<{ id: NotebookTool; label: string; shortcut: string; icon: st
   { id: 'voice', label: 'Voice', shortcut: 'V', icon: '◉' },
 ];
 
-export function ToolDock() {
+export function ToolDock({ onOpenResearch, onToggleCalculator }: { onOpenResearch: () => void; onToggleCalculator: () => void }) {
   const activeTool = useNotebookStore((state) => state.tool);
   const setTool = useNotebookStore((state) => state.setTool);
   const paletteOpen = useNotebookStore((state) => state.paletteOpen);
@@ -42,7 +42,15 @@ export function ToolDock() {
         <span className="tool-icon" aria-hidden="true">Ω</span>
         <span>Symbols</span>
       </button>
+      <span className="tool-separator" />
+      <button type="button" aria-label="Open graph and research workspace" title="Research workspace" onClick={onOpenResearch}>
+        <span className="tool-icon" aria-hidden="true">⌁</span>
+        <span>Research</span>
+      </button>
+      <button type="button" aria-label="Toggle floating calculator" title="Calculator" onClick={onToggleCalculator}>
+        <span className="tool-icon tool-icon--calculator" aria-hidden="true">123</span>
+        <span>Calc</span>
+      </button>
     </nav>
   );
 }
-

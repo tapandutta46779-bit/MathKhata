@@ -61,6 +61,32 @@ function ReadOnlyMath({ latex, label }: { latex: string; label: string }) {
   );
 }
 
+function AIONVisibleAnswer({ text }: { text: string }) {
+  const lines = text.split(/\n+/).filter(Boolean);
+  return (
+    <div className="aion-result" aria-live="polite">
+      {lines.map((line, lineIndex) => {
+        const parts = line.split(/(\$\$[\s\S]*?\$\$|\$[^$]+\$|\\\[[\s\S]*?\\\]|\\\([^)]*\\\))/g).filter(Boolean);
+        return (
+          <p key={`${lineIndex}-${line.slice(0, 20)}`}>
+            {parts.map((part, partIndex) => {
+              const math = part.startsWith('$$')
+                ? part.slice(2, -2)
+                : part.startsWith('$')
+                  ? part.slice(1, -1)
+                  : part.startsWith('\\[') || part.startsWith('\\(')
+                    ? part.slice(2, -2)
+                    : null;
+              if (math === null) return <span key={partIndex}>{part.replace(/\*\*/g, '')}</span>;
+              return <ReadOnlyMath key={partIndex} latex={math} label="AION answer mathematics" />;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function groupMathCount(group: PageProblemGroup): number {
   return group.items.filter((item) => item.object.type === 'math').length;
 }
@@ -89,6 +115,7 @@ export function PageAssistantRail() {
   const [open, setOpen] = useState(storedOpenPreference);
   const [groups, setGroups] = useState<PageProblemGroup[]>([]);
   const [solveStates, setSolveStates] = useState<Record<string, SolveState>>({});
+  const [aionQuestion, setAionQuestion] = useState('');
   const aion = useAIONRuntime();
 
   useEffect(() => {
@@ -98,7 +125,7 @@ export function PageAssistantRail() {
 
   useEffect(() => {
     const closeForOtherOverlay = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === 'notebook-menu') {
+      if ((event as CustomEvent<string>).detail !== 'page-assistant') {
         setOpen(false);
         storeOpenPreference(false);
         requestAnimationFrame(() => window.scrollTo({ left: 0, top: window.scrollY }));
@@ -135,6 +162,19 @@ export function PageAssistantRail() {
 
   function normalizeHorizontalScroll() {
     requestAnimationFrame(() => window.scrollTo({ left: 0, top: window.scrollY }));
+  }
+
+  function explainGroupWithAION(group: PageProblemGroup, groupIndex: number) {
+    if (!context || aion.status !== 'ready') return;
+    const lines = group.items.map((item, index) => {
+      const value = item.object.type === 'math' ? item.object.latex : item.object.text;
+      return `${index + 1}. ${item.object.type}: ${value}`;
+    }).join('\n');
+    aion.analyze(context, [
+      `Solve or analyze only Problem ${groupIndex + 1} below. Do not combine it with other page problems.`,
+      'Show a concise sequence of visible, checkable mathematical steps, state assumptions, and verify the final result where possible.',
+      lines,
+    ].join('\n'));
   }
 
   function closeAssistant() {
@@ -194,21 +234,21 @@ export function PageAssistantRail() {
           Analyze page again
         </button>
       </div>
-      <section className="aion-card" aria-label="Optional AION local model">
+      <section className="aion-card" aria-label="AION local mathematical assistant">
         <div className="aion-card__heading">
           <div>
             <strong>AION</strong>
-            <span>Optional local model</span>
+            <span>Private local research model</span>
           </div>
           <em className={`aion-status aion-status--${aion.status}`}>{aion.status}</em>
         </div>
         <p>
-          {AION_RUNTIME_DESCRIPTION}. The model is not trained by MathKhata and is never required
-          for notebook editing, voice parsing, grouping, or local CAS.
+          {AION_RUNTIME_DESCRIPTION}. AION uses a pretrained model; MathKhata has not claimed to
+          train it. Deterministic page grouping and CAS verification remain independent fallbacks.
         </p>
         {aion.status === 'idle' && (
           <button type="button" onClick={aion.enable}>
-            Enable AION ({AION_APPROXIMATE_DOWNLOAD})
+            Check AION ({AION_APPROXIMATE_DOWNLOAD} local model)
           </button>
         )}
         {(aion.status === 'loading' || aion.status === 'analyzing') && (
@@ -218,9 +258,34 @@ export function PageAssistantRail() {
           </div>
         )}
         {aion.status === 'ready' && (
-          <button type="button" onClick={() => context && aion.analyze(context)}>
-            Analyze current page with AION
-          </button>
+          <div className="aion-chat-input">
+            <textarea
+              rows={2}
+              value={aionQuestion}
+              aria-label="Ask AION about this page"
+              placeholder="Ask about this page, request a proof, or solve with steps…"
+              onChange={(event) => setAionQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && context) {
+                  event.preventDefault();
+                  aion.analyze(context, aionQuestion);
+                }
+              }}
+            />
+            <div>
+              <button type="button" onClick={() => context && aion.analyze(context)}>
+                Analyze page
+              </button>
+              <button
+                type="button"
+                className="primary-quiet"
+                disabled={!aionQuestion.trim()}
+                onClick={() => context && aion.analyze(context, aionQuestion)}
+              >
+                Ask AION
+              </button>
+            </div>
+          </div>
         )}
         {aion.status === 'error' && (
           <div className="aion-error" role="status">
@@ -228,8 +293,8 @@ export function PageAssistantRail() {
             <button type="button" onClick={aion.enable}>Retry AION</button>
           </div>
         )}
-        {aion.result && <div className="aion-result" aria-live="polite">{aion.result}</div>}
-        {aion.device && <small>Runs in this browser via {aion.device.toUpperCase()}; model files stay in the browser cache.</small>}
+        {aion.result && <AIONVisibleAnswer text={aion.result} />}
+        {aion.device && <small>Runs on this Mac through Ollama; page data stays local to the device.</small>}
       </section>
       <div className="page-assistant__groups">
         {groups.length === 0 && (
@@ -290,6 +355,11 @@ export function PageAssistantRail() {
                 {canSolve && (
                   <button type="button" className="primary-quiet" disabled={solveState?.loading} onClick={() => void solve(group)}>
                     {solveState?.loading ? 'Solving locally…' : 'Solve this problem'}
+                  </button>
+                )}
+                {mathCount > 0 && aion.status === 'ready' && (
+                  <button type="button" onClick={() => explainGroupWithAION(group, groupIndex)}>
+                    Explain with AION
                   </button>
                 )}
               </div>

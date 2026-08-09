@@ -4,6 +4,7 @@ import { blurActiveMathfield, focusMathfield } from '../editor/mathfieldRegistry
 import { useNotebookStore } from '../store/notebookStore';
 import { PageObjectView } from './PageObjectView';
 import { CalculationRail } from './CalculationRail';
+import { ContinuousLineComposer } from './ContinuousLineComposer';
 
 interface NotebookPageProps {
   page: Page;
@@ -76,6 +77,7 @@ export function NotebookPage({ page }: NotebookPageProps) {
       {page.objects.map((object) => (
         <PageObjectView key={object.id} object={object} />
       ))}
+      <ContinuousLineComposer page={page} />
       <CalculationRail page={page} />
     </article>
   );

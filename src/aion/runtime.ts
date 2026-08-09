@@ -1,9 +1,10 @@
 import type { NotebookContext } from '../extensions/providers';
 
 export const AION_DISPLAY_NAME = 'AION';
-export const AION_BASE_MODEL = 'onnx-community/Qwen2.5-0.5B-Instruct';
-export const AION_RUNTIME_DESCRIPTION = 'Qwen2.5 0.5B Instruct · ONNX q4 · Transformers.js';
-export const AION_APPROXIMATE_DOWNLOAD = 'about 0.5 GB';
+export const AION_BASE_MODEL = 'qwen3:8b';
+export const AION_BROWSER_FALLBACK_MODEL = 'onnx-community/Qwen2.5-0.5B-Instruct';
+export const AION_RUNTIME_DESCRIPTION = 'Qwen3 8B · Q4_K_M · Ollama · private on-device runtime';
+export const AION_APPROXIMATE_DOWNLOAD = 'about 5.2 GB';
 
 export type AIONRuntimeStatus = 'idle' | 'loading' | 'ready' | 'analyzing' | 'error';
 
@@ -17,7 +18,7 @@ export type AIONWorkerResponse =
   | { type: 'result'; text: string }
   | { type: 'error'; message: string };
 
-function objectText(context: NotebookContext): string {
+export function aionPageObjectText(context: NotebookContext): string {
   return [...context.currentPage.objects]
     .sort((left, right) => left.y - right.y || left.x - right.x || left.zIndex - right.zIndex)
     .map((object, index) => {
@@ -38,6 +39,6 @@ export function createAIONPagePrompt(context: NotebookContext): string {
     `Notebook: ${context.notebook.title}`,
     `Page: ${context.currentPage.order + 1}`,
     'Ordered page objects:',
-    objectText(context) || '(blank page)',
+    aionPageObjectText(context) || '(blank page)',
   ].join('\n');
 }

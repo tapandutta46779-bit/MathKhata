@@ -77,6 +77,7 @@ interface NotebookState {
   clearError: () => void;
   createObject: (type: 'math' | 'text', point?: Point, initialContent?: string) => string | null;
   createFlowObjects: (items: FlowObjectInput[]) => string[];
+  createMixedLine: (items: FlowObjectInput[]) => string[];
   convertMathObjectToText: (objectId: string, text: string) => void;
   updateMath: (objectId: string, latex: string) => void;
   updateText: (objectId: string, text: string) => void;
@@ -406,6 +407,69 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         insertionPoint: {
           x: firstPoint.x,
           y: Math.min(page.height - WRITING_LINE_HEIGHT, nextY),
+        },
+        tool: 'select',
+        lastHistoryGroup: null,
+      });
+      return objects.map((object) => object.id);
+    },
+
+    createMixedLine(items) {
+      const state = get();
+      const notebook = state.notebook;
+      let pageId = state.currentPageId;
+      if (!pageId || !notebook || items.length === 0) return [];
+      let workingNotebook = notebook;
+      let page = getPage(workingNotebook, pageId);
+      if (!page) return [];
+
+      const proposed = nextWritingPoint(page);
+      const lastLine = page.height - WRITING_LINE_HEIGHT;
+      const lastLineOccupied = page.objects.some((object) => {
+        const content = object.type === 'math' ? object.latex : object.text;
+        return object.y + flowObjectHeight(object.type, content) > lastLine;
+      });
+      if (proposed.y >= lastLine && lastLineOccupied) {
+        workingNotebook = addPageToNotebook(workingNotebook);
+        page = workingNotebook.pages.at(-1);
+        pageId = page?.id ?? null;
+        if (!page || !pageId) return [];
+      }
+
+      const start = nextWritingPoint(page);
+      let x = start.x;
+      let y = start.y;
+      const objects = items.map((item) => {
+        const estimatedWidth = item.type === 'math'
+          ? Math.max(92, Math.min(360, item.content.length * 12 + 34))
+          : Math.max(96, Math.min(430, item.content.length * 8.2 + 24));
+        if (x + estimatedWidth > page.width - 42 && x > start.x) {
+          x = start.x;
+          y += WRITING_LINE_HEIGHT;
+        }
+        const point = { x, y };
+        const object = item.type === 'math'
+          ? createMathObject(point, item.content)
+          : createTextObject(point, item.content);
+        object.width = estimatedWidth;
+        object.height = flowObjectHeight(item.type, item.content);
+        const safePoint = clampObjectToPage(object, page, object);
+        x += estimatedWidth + 10;
+        return { ...object, ...safePoint } as PageObject;
+      });
+
+      const nextNotebook = objects.reduce(
+        (next, object) => addObjectToNotebook(next, pageId!, object),
+        workingNotebook,
+      );
+      commit('Write notebook line', () => nextNotebook);
+      set({
+        currentPageId: pageId,
+        selectedObjectId: null,
+        editingObjectId: null,
+        insertionPoint: {
+          x: start.x,
+          y: Math.min(page.height - WRITING_LINE_HEIGHT, y + WRITING_LINE_HEIGHT),
         },
         tool: 'select',
         lastHistoryGroup: null,

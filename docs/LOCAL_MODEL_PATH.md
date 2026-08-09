@@ -1,40 +1,45 @@
-# AION optional local model
+# AION local model architecture
 
 ## Current, honest status
 
-The shipped page assistant is first a deterministic structured-content analyzer backed by `DocumentContextProvider`; mathematical results come from the local arithmetic evaluator or opt-in CAS. This remains the reliable offline fallback if AION is disabled, unavailable, or uncertain.
+**AION** is MathKhata’s private local assistant architecture. Its main inference model is the published **Qwen3 8B** model, quantized as **Q4_K_M** and served on this Mac by **Ollama** under the local model name `qwen3:8b`. The model artifact is about 5.2 GB. MathKhata did not train Qwen3 and does not claim that it did.
 
-**AION** is now an optional runtime exposed inside that assistant. When the writer presses **Enable AION**, a dedicated Web Worker uses `@huggingface/transformers` to download `onnx-community/Qwen2.5-0.5B-Instruct` in q4/q4f16 form, prefer WebGPU, fall back to WASM, and cache the published files in the browser. The files are roughly 0.5 GB, so nothing downloads automatically. See the [Transformers.js-compatible model files](https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/tree/main/onnx) and [base model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct).
+The current machine setup is:
 
-AION is the MathKhata assistant/runtime name. It is **not** a claim that MathKhata trained Qwen2.5 or produced a custom model. The current implementation is an inference integration around that disclosed published base model.
+- Ollama installed as a local macOS service.
+- `qwen3:8b` downloaded into Ollama’s local model store.
+- MathKhata talks only to `http://127.0.0.1:11434/api/chat` and `/api/tags`.
+- AION receives a read-only prompt derived from `DocumentContextProvider`; it has no notebook persistence or mutation capability.
+- Hidden model thinking is never displayed as a solution. AION is prompted to provide concise, pedagogical, checkable steps in its visible answer.
 
-## Implemented boundary
+If Ollama or the model is unavailable, notebook editing, the Symbols palette, MathLive keyboard/menus, deterministic voice parser, page grouping, quick calculator, and local CAS all remain operational. The older Qwen2.5 0.5B browser worker remains only as a dormant emergency implementation boundary; it is not presented as the main AION model.
 
-1. Nothing downloads until the writer opts in; progress, runtime state, and WebGPU/WASM device are visible.
-2. `@huggingface/transformers` runs only in a dedicated worker. Transformers.js documents [browser WebGPU execution](https://huggingface.co/docs/transformers.js/guides/webgpu) and [quantized browser inference](https://huggingface.co/docs/transformers.js/main/index).
-3. AION receives a compact read-only page prompt and returns advisory prose. The worker never receives IndexedDB access and cannot mutate notebook content.
-4. Deterministic segmentation stays authoritative; local arithmetic/CAS verifies mathematical results. Generated prose is never treated as proof.
+## What AION does now
 
-## Next hardening stage
+1. Reads the complete current page through the same ordered document-context boundary used by deterministic grouping.
+2. Answers a writer’s free-form question about the page and can present visible solution steps.
+3. Provides an optional second-pass interpretation of a final voice transcript into mixed Text and Math segments. The deterministic candidate appears immediately and remains the fallback.
+4. Never inserts or changes notebook content automatically. Voice candidates still require explicit acceptance, and page answers remain advisory.
 
-The next release gate is to replace free-form advisory output with a strict proposal:
+Mathematical results should be checked against the deterministic arithmetic evaluator or Nerdamer CAS when the expression is supported. A language-model answer is not silently treated as a proof.
 
-   ```json
-   {
-     "groups": [{ "objectIds": ["..."], "relationship": "system", "confidence": 0.0 }],
-     "corrections": [{ "objectId": "...", "kind": "likely_speech_text", "suggestion": "..." }],
-     "pageSummary": "..."
-   }
-   ```
+## Local setup and verification
 
-That output must be schema-validated: object IDs must exist, groups may not overlap silently, and AION may not merge groups marked explicitly separate. A remove-downloaded-model control and an inspectable cache-size readout are also required before calling AION production-ready.
+```sh
+brew install ollama
+brew services start ollama
+ollama pull qwen3:8b
+ollama list
+```
+
+Ollama’s service must allow the MathKhata localhost origin. The UI checks `/api/tags` before showing AION as ready and reports a clear fallback state rather than pretending a model responded.
+
+## Privacy and storage tradeoffs
+
+The local model consumes several gigabytes of disk and can use a substantial portion of unified memory while answering. It is appropriate for the current 16 GB Apple Silicon machine, but it is slower than a hosted frontier model and does not inherit ChatGPT Plus capacity. Page text is sent to the loopback Ollama service, not to OpenAI or another cloud provider. Model files are stored by Ollama locally; Google Drive is used for source/notebook backup only unless the writer deliberately copies model artifacts there.
 
 ## Adaptation and training path
 
-No in-browser training occurred and none is claimed. A future adaptation should first collect only user-approved corrections in a local, inspectable event log: original transcript, deterministic segmentation, accepted type/group correction, and no notebook text beyond what the writer explicitly chooses to export. The writer must be able to delete or export that log.
+No custom AION training run has occurred. A responsible later adaptation would first collect only writer-approved corrections in a deletable local event log. A consented and de-identified JSONL dataset would then be evaluated against the deterministic baseline, used for a LoRA/QLoRA adaptation of an explicitly disclosed base model, and accepted only after a frozen mixed-math/voice benchmark and regression suite pass. Until the dataset, training run, weights, model card, and evaluation report actually exist, the product must continue to say that AION uses a pretrained model rather than a MathKhata-trained model.
 
-An adapted model would be produced outside the app from a consented, de-identified JSONL dataset, evaluated on a frozen mixed-math benchmark, and versioned with its base-model/license metadata. A signed ONNX export would then go through the same opt-in download path. Until that dataset, training run, evaluation report, and artifact actually exist, the product must continue to say **no custom model has been trained**.
-
-## Release gate
-
-A local model is eligible only if it beats the deterministic baseline on held-out page grouping and speech-corruption classification, stays within a documented download/RAM/latency budget on supported Macs, produces schema-valid output reliably, works entirely in a worker, and never weakens the no-model path. Otherwise the current structured assistant remains the shipped behavior.
+The provider boundary in `src/aion/ollamaProvider.ts` is deliberately replaceable so the user’s future AION architecture can take over without changing the notebook schema or presentation layer.
