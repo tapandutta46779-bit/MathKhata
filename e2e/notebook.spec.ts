@@ -526,13 +526,16 @@ test('whole-page assistant separates questions, reads notes, reviews voice corru
   const assistant = page.getByTestId('page-assistant');
   await page.getByRole('button', { name: /Open page assistant/ }).click();
   await expect(assistant).toBeVisible();
+  await expect(assistant).toContainText('AION');
+  await expect(assistant).not.toContainText('Qwen');
+  await expect(assistant).not.toContainText('Ollama');
+  await assistant.getByRole('button', { name: /Page outline/ }).click();
   await expect(assistant.locator('.page-problem')).toHaveCount(3);
   await expect(assistant).toContainText('Possible equation system');
   await expect(assistant).toContainText('Separate question');
   await expect(assistant).toContainText('Recognition review');
   await expect(assistant).toContainText('These equations form one system.');
   await expect(assistant).toContainText('Likely voice text');
-  await expect(assistant).toContainText('Qwen3 8B');
 
   const system = assistant.locator('.page-problem--system');
   await system.getByRole('button', { name: 'Solve this problem' }).click();
@@ -601,6 +604,7 @@ test('long structured mathematics flows across ruled lines without hiding contro
   await page.getByRole('button', { name: 'Close symbol palette' }).click();
 
   await page.getByRole('button', { name: /Open page assistant/ }).click();
+  await page.getByTestId('page-assistant').getByRole('button', { name: /Page outline/ }).click();
   const assistantMath = page.locator('math-field.page-assistant-math').first();
   await expect(assistantMath).toBeVisible();
   await expect.poll(() => assistantMath.evaluate((element: any) => element.value)).not.toContain('\\begin{multline}');
@@ -624,8 +628,13 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   const research = page.getByTestId('research-tools-panel');
   await expect(research).toBeVisible();
   await expect(research.getByRole('button', { name: '2D Graph' })).toHaveClass(/is-active/);
+  await expect(research.getByLabel('Interactive 2D graph')).toBeVisible();
+  await research.getByRole('button', { name: 'Zoom in' }).click();
+  await research.getByRole('button', { name: '+ Add expression' }).click();
+  await expect(research.getByLabel('Expression 3')).toBeVisible();
   await research.getByRole('button', { name: '3D Surface' }).click();
-  await expect(research.getByLabel(/3D wireframe surface/)).toBeVisible();
+  await expect(research.getByLabel(/Interactive 3D surface/)).toBeVisible();
+  await research.getByRole('button', { name: 'Zoom 3D view in' }).click();
   await research.getByRole('button', { name: 'Geometry' }).click();
   await expect(research.getByLabel('Interactive geometry canvas')).toBeVisible();
   await research.getByRole('button', { name: 'Scientific' }).click();
@@ -691,6 +700,7 @@ test('keeps page assistant and notebook menu responsive, dismissible, and closed
   await expect(assistant).toHaveCount(0);
 
   await launcher.click();
+  await assistant.getByRole('button', { name: /Page outline/ }).click();
   await page.getByRole('button', { name: 'Analyze page again' }).click();
   await page.getByRole('button', { name: 'Collapse page assistant' }).click();
   await expect(launcher).toBeVisible();

@@ -34,6 +34,8 @@ function ReadOnlyMath({ latex, label }: { latex: string; label: string }) {
 function solverAction(latex: string): string {
   if (/\\det|\\begin\{[vV]matrix\}/.test(latex)) return 'Evaluate determinant';
   if (/rref|rowReduce/i.test(latex)) return 'Reduce matrix';
+  if (/\^\{-1\}|\\operatorname\{(?:inv|inverse)\}/i.test(latex)) return 'Invert matrix';
+  if (/\^\{?(?:T|\\mathsf\{T\}|\\top)/i.test(latex)) return 'Transpose matrix';
   if (/\\iiint/.test(latex)) return 'Solve triple integral';
   if (/\\iint/.test(latex)) return 'Solve double integral';
   if (/\\int/.test(latex)) return 'Solve integral';
@@ -119,7 +121,7 @@ export function CalculationRail({ page }: CalculationRailProps) {
       {!quickResult && canSolve && !solveResult && !solveError && (
         <button type="button" className="solve-offer" disabled={solving} onClick={() => void solve()}>
           <span>{solving ? 'Solving locally…' : solverAction(expression.latex)}</span>
-          <small>Optional · no steps added</small>
+          <small>Local CAS · checked steps shown</small>
         </button>
       )}
       {solveResult && (
@@ -127,12 +129,37 @@ export function CalculationRail({ page }: CalculationRailProps) {
           <span>{solveResult.label}</span>
           <ReadOnlyMath latex={solveResult.resultLatex} label={solveResult.label} />
           <p>{solveResult.explanation}</p>
+          {solveResult.steps && solveResult.steps.length > 0 && (
+            <ol className="solve-steps" aria-label="Solution steps">
+              {solveResult.steps.map((step, index) => (
+                <li key={`${step.label}-${index}`}>
+                  <strong>{step.label}</strong>
+                  {step.latex && <ReadOnlyMath latex={step.latex} label={step.label} />}
+                  {step.text && <p>{step.text}</p>}
+                </li>
+              ))}
+            </ol>
+          )}
+          <div className="solve-result__actions">
           <button
             type="button"
             onClick={() => createFlowObjects([{ type: 'math', content: solveResult.resultLatex }])}
           >
-            Add on next line
+            Add result
           </button>
+          {solveResult.steps?.some((step) => step.latex) && (
+            <button
+              type="button"
+              onClick={() => createFlowObjects(
+                solveResult.steps!
+                  .filter((step) => step.latex)
+                  .map((step) => ({ type: 'math' as const, content: step.latex! })),
+              )}
+            >
+              Add steps
+            </button>
+          )}
+          </div>
         </div>
       )}
       {solveError && (

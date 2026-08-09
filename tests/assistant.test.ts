@@ -52,7 +52,10 @@ describe('opt-in local symbolic solver', () => {
     expect(canOfferLocalSolve('\\iint x+y\\,dx\\,dy')).toBe(true);
     expect(canOfferLocalSolve('\\iiint x+y+z\\,dx\\,dy\\,dz')).toBe(true);
     expect(canOfferLocalSolve('\\det\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}')).toBe(true);
+    expect(canOfferLocalSolve('\\begin{vmatrix}4&3&2\\\\1&x^2&0\\\\5&1&2\\end{vmatrix}=0')).toBe(true);
     expect(canOfferLocalSolve('\\operatorname{rref}\\begin{bmatrix}1&2\\\\2&4\\end{bmatrix}')).toBe(true);
+    expect(canOfferLocalSolve('\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}^{-1}')).toBe(true);
+    expect(canOfferLocalSolve('\\begin{pmatrix}1&2&3\\\\4&5&6\\end{pmatrix}^{T}')).toBe(true);
     expect(canOfferLocalSolve('\\nabla(x^2+y^2+z^2)')).toBe(true);
     expect(canOfferLocalSolve('\\int_{0}^{1}\\int_{0}^{1}(x+y)\\,dx\\,dy')).toBe(true);
     expect(canOfferLocalSolve('\\frac{d^2}{dx^2}x^4')).toBe(true);
@@ -76,17 +79,32 @@ describe('opt-in local symbolic solver', () => {
     expect(product.resultLatex).toBe('120');
   });
 
-  it('finds an antiderivative without adding steps', async () => {
+  it('finds an antiderivative and exposes readable steps', async () => {
     const result = await solveLocally('\\int x^2\\,dx');
 
     expect(result.kind).toBe('integral');
     expect(compact(result.resultLatex)).toBe('\\frac{x^{3}}{3}+C');
+    expect(result.steps?.map((step) => step.label)).toEqual(['Integrand', 'Antiderivative']);
   });
 
   it('evaluates a definite integral locally', async () => {
     const result = await solveLocally('\\int_{0}^{2}x^2\\,dx');
 
     expect(compact(result.resultLatex)).toBe('\\frac{8}{3}');
+    expect(result.steps).toHaveLength(3);
+  });
+
+  it('uses an honest numerical method when a finite integral has no closed elementary antiderivative', async () => {
+    const result = await solveLocally('\\int_{0}^{1}e^x x(\\sin(x^3))\\,dx');
+
+    expect(result.label).toBe('Numerical integral value');
+    expect(result.resultLatex).toMatch(/^\\approx\s/);
+    expect(result.explanation).toMatch(/numerically/i);
+    expect(result.steps?.map((step) => step.label)).toEqual([
+      'Integral',
+      'Adaptive Simpson method',
+      'Numerical value',
+    ]);
   });
 
   it('falls back to antiderivative-at-bounds for elementary finite integrals', async () => {
@@ -141,6 +159,7 @@ describe('opt-in local symbolic solver', () => {
 
     expect(result.label).toBe('Double integral value');
     expect(result.resultLatex).toBe('1');
+    expect(result.steps?.length).toBeGreaterThanOrEqual(3);
   });
 
   it('supports higher ordinary and partial derivatives', async () => {
@@ -157,6 +176,26 @@ describe('opt-in local symbolic solver', () => {
 
     expect(determinant.resultLatex).toBe('-2');
     expect(rref.resultLatex).toBe('\\begin{bmatrix}1&2\\\\0&0\\end{bmatrix}');
+  });
+
+  it('computes numeric matrix inverses and transposes', async () => {
+    const inverse = await solveLocally('\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}^{-1}');
+    const transpose = await solveLocally('\\begin{pmatrix}1&2&3\\\\4&5&6\\end{pmatrix}^{T}');
+
+    expect(inverse.label).toBe('Matrix inverse');
+    expect(compact(inverse.resultLatex)).toBe('\\begin{bmatrix}-2&1\\\\1.5&-0.5\\end{bmatrix}');
+    expect(inverse.steps).toHaveLength(3);
+    expect(transpose.resultLatex).toBe('\\begin{bmatrix}1&4\\\\2&5\\\\3&6\\end{bmatrix}');
+  });
+
+  it('expands a symbolic determinant and solves the resulting equation', async () => {
+    const result = await solveLocally('\\begin{vmatrix}4&3&2\\\\1&x^2&0\\\\5&1&2\\end{vmatrix}=0');
+
+    expect(result.kind).toBe('determinant');
+    expect(result.label).toContain('solve for x');
+    expect(result.resultLatex).toContain('x\\in');
+    expect(result.steps?.[0].latex).toContain('\\det(A)=');
+    expect(result.steps).toHaveLength(3);
   });
 
   it('computes gradients and Laplacians', async () => {

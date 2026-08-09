@@ -53,7 +53,9 @@ export function useAIONRuntime(): AIONRuntimeState {
     requestRef.current?.abort();
     requestRef.current = controller;
     try {
-      const answer = await askAIONAboutPage(context, question, controller.signal);
+      const answer = await askAIONAboutPage(context, question, controller.signal, (visible) => {
+        if (!controller.signal.aborted) setResult(visible);
+      });
       if (controller.signal.aborted) return;
       setResult(answer.text);
       setStatus('ready');

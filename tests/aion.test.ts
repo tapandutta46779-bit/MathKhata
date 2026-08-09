@@ -33,6 +33,17 @@ describe('AION local-runtime boundary', () => {
     expect(answer.model).toBe('qwen3:8b');
   });
 
+  it('normalizes fenced mathematics before it reaches the visible AION answer', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      message: { content: '```latex\nx^2+6=42\n```' },
+    }), { status: 200 }));
+
+    const answer = await askAIONLocal('Typeset this equation');
+
+    expect(answer.text).toBe('\\[x^2+6=42\\]');
+    expect(answer.text).not.toContain('```');
+  });
+
   it('creates a spatially ordered, read-only page prompt', () => {
     const notebook = createNotebook('Analysis notes');
     const page = notebook.pages[0];

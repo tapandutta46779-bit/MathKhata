@@ -1,4 +1,4 @@
-import { canOfferLocalSolve, solveLocally } from './localMathSolver';
+import { canOfferLocalSolve, solveLocally, type LocalSolveStep } from './localMathSolver';
 import type { MathObject } from '../domain/model';
 import type { PageAnalysisItem, PageProblemGroup } from './pageAnalysis';
 import { quickCalculate } from './quickCalculate';
@@ -7,6 +7,7 @@ export interface PageProblemSolveResult {
   label: string;
   resultLatex: string;
   explanation: string;
+  steps?: LocalSolveStep[];
 }
 
 export async function solvePageProblem(group: PageProblemGroup): Promise<PageProblemSolveResult> {
@@ -28,7 +29,7 @@ export async function solvePageProblem(group: PageProblemGroup): Promise<PagePro
       throw new Error('This complete expression is not supported by the local solver yet.');
     }
     const result = await solveLocally(expressions[0]);
-    return { label: result.label, resultLatex: result.resultLatex, explanation: result.explanation };
+    return { label: result.label, resultLatex: result.resultLatex, explanation: result.explanation, steps: result.steps };
   }
 
   if (!expressions.every((latex) => latex.includes('=') && !latex.endsWith('='))) {

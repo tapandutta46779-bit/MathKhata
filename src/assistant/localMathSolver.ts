@@ -1,16 +1,27 @@
 import {
   determinant,
+  inverseMatrix,
   matrixToLatex,
+  parseLatexMatrix,
   parseNumericMatrix,
   requestedMatrixOperation,
   rowReduce,
+  symbolicDeterminantExpression,
+  transposeMatrix,
 } from './advancedLinearAlgebra';
+
+export interface LocalSolveStep {
+  label: string;
+  latex?: string;
+  text?: string;
+}
 
 export interface LocalSolveResult {
   kind: 'integral' | 'derivative' | 'limit' | 'summation' | 'product' | 'equation' | 'determinant' | 'matrix' | 'gradient' | 'laplacian';
   label: string;
   resultLatex: string;
   explanation: string;
+  steps?: LocalSolveStep[];
 }
 
 interface MultiIntegralParts {
@@ -70,6 +81,7 @@ interface CalculusExpression {
   variable: string;
   targetLatex?: string;
   order?: number;
+  operator?: 'd' | 'partial';
 }
 
 interface BoundedSeries {
@@ -77,6 +89,49 @@ interface BoundedSeries {
   variable: string;
   lowerLatex: string;
   upperLatex: string;
+}
+
+interface NumericalIntegralEstimate {
+  value: number;
+  error: number;
+  panels: number;
+}
+
+function simpsonEstimate(evaluate: (value: number) => number, lower: number, upper: number, panels: number): number {
+  const step = (upper - lower) / panels;
+  let weighted = evaluate(lower) + evaluate(upper);
+  for (let index = 1; index < panels; index += 1) {
+    weighted += (index % 2 === 0 ? 2 : 4) * evaluate(lower + index * step);
+  }
+  return weighted * step / 3;
+}
+
+function adaptiveSimpsonEstimate(
+  evaluate: (value: number) => number,
+  lower: number,
+  upper: number,
+): NumericalIntegralEstimate {
+  let panels = 16;
+  let previous = simpsonEstimate(evaluate, lower, upper, panels);
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    panels *= 2;
+    const current = simpsonEstimate(evaluate, lower, upper, panels);
+    const error = Math.abs(current - previous) / 15;
+    if (error <= 1e-11 * Math.max(1, Math.abs(current))) return { value: current, error, panels };
+    previous = current;
+  }
+  return { value: previous, error: Number.NaN, panels };
+}
+
+function finiteDecimal(value: number): string {
+  if (!Number.isFinite(value)) throw new Error('The numerical integral is not finite on the stated interval.');
+  return Number(value.toPrecision(12)).toString();
+}
+
+function derivativeName(order: number, partial: boolean): string {
+  if (order === 1) return partial ? 'Partial derivative' : 'Derivative';
+  const ordinal = order === 2 ? 'Second' : order === 3 ? 'Third' : `${order}th`;
+  return `${ordinal} ${partial ? 'partial ' : ''}derivative`;
 }
 
 function readBraced(source: string, start: number): BracedGroup | null {
@@ -149,13 +204,18 @@ function stripOuterParentheses(latex: string): string {
 function parseDerivative(latex: string): CalculusExpression | null {
   const source = latex.trim().replace(/=$/, '').trim();
   const match = source.match(
-    /^\\frac\{(?:d|\\partial)(?:\^\{?(\d+)\}?)?\}\{(?:d|\\partial\s*)?([a-zA-Z])(?:\^\{?(\d+)\}?)?\}(.+)$/s,
+    /^\\frac\{(d|\\partial)(?:\^\{?(\d+)\}?)?\}\{(?:d|\\partial\s*)?([a-zA-Z])(?:\^\{?(\d+)\}?)?\}(.+)$/s,
   );
   if (!match) return null;
-  const numeratorOrder = Number(match[1] ?? 1);
-  const denominatorOrder = Number(match[3] ?? numeratorOrder);
+  const numeratorOrder = Number(match[2] ?? 1);
+  const denominatorOrder = Number(match[4] ?? numeratorOrder);
   if (numeratorOrder !== denominatorOrder || numeratorOrder < 1 || numeratorOrder > 10) return null;
-  return { variable: match[2], expressionLatex: stripOuterParentheses(match[4]), order: numeratorOrder };
+  return {
+    variable: match[3],
+    expressionLatex: stripOuterParentheses(match[5]),
+    order: numeratorOrder,
+    operator: match[1] === '\\partial' ? 'partial' : 'd',
+  };
 }
 
 interface NestedIntegralPart {
@@ -251,7 +311,9 @@ function parseBoundedSeries(latex: string, command: '\\sum' | '\\prod'): Bounded
 
 export function canOfferLocalSolve(latex: string): boolean {
   if (/\\placeholder|#\?|\u25a1/.test(latex)) return false;
-  if (requestedMatrixOperation(latex) && parseNumericMatrix(latex)) return true;
+  const matrixOperation = requestedMatrixOperation(latex);
+  if (matrixOperation === 'determinant' && parseLatexMatrix(latex)) return true;
+  if (matrixOperation && matrixOperation !== 'determinant' && parseNumericMatrix(latex)) return true;
   const nested = parseNestedIntegrals(latex);
   if (nested) {
     return nested.parts.every((part) => (part.lowerLatex === undefined) === (part.upperLatex === undefined));
@@ -278,6 +340,12 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       throw new Error('Complete both bounds on every nested integral before solving.');
     }
     let result = nerdamer.convertFromLaTeX(nestedIntegral.integrandLatex);
+    const nestedSteps: LocalSolveStep[] = [
+      {
+        label: 'Read the order of integration',
+        latex: `${nestedIntegral.integrandLatex}\\,${nestedIntegral.parts.map((part) => `d${part.variable}`).join('\\,')}`,
+      },
+    ];
     for (const part of nestedIntegral.parts) {
       if (part.lowerLatex !== undefined && part.upperLatex !== undefined) {
         if (/\\infty/i.test(`${part.lowerLatex} ${part.upperLatex}`)) {
@@ -288,6 +356,12 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
         const antiderivative = nerdamer.integrate(result, part.variable);
         result = nerdamer.simplify(`(${antiderivative.evaluate({ [part.variable]: upper }).toString()})-(${antiderivative.evaluate({ [part.variable]: lower }).toString()})`);
       } else result = nerdamer.integrate(result, part.variable);
+      nestedSteps.push({
+        label: `Integrate with respect to ${part.variable}`,
+        latex: part.lowerLatex !== undefined && part.upperLatex !== undefined
+          ? `\\left[\\int ${nestedIntegral.integrandLatex}\\,d${part.variable}\\right]_{${part.lowerLatex}}^{${part.upperLatex}}=${result.toTeX()}`
+          : `\\int ${nestedIntegral.integrandLatex}\\,d${part.variable}=${result.toTeX()}`,
+      });
     }
     const resultLatex = result.toTeX();
     if (/\\int|integrate/i.test(`${result.toString()} ${resultLatex}`)) {
@@ -299,27 +373,108 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       label: nestedIntegral.parts.length === 2 ? 'Double integral value' : 'Multiple integral value',
       resultLatex: definite ? resultLatex : `${resultLatex}+C`,
       explanation: `Evaluated in the stated order with respect to ${nestedIntegral.parts.map((part) => part.variable).join(', ')}.`,
+      steps: nestedSteps,
     };
   }
 
   const matrixOperation = requestedMatrixOperation(latex);
   if (matrixOperation) {
-    const matrix = parseNumericMatrix(latex);
-    if (!matrix) throw new Error('Use a complete numeric matrix before asking the local solver.');
     if (matrixOperation === 'determinant') {
-      const value = determinant(matrix);
+      const parsed = parseLatexMatrix(latex);
+      if (!parsed) throw new Error('Complete every determinant cell before solving.');
+      if (!parsed.cells.every((row) => row.length === parsed.cells.length)) {
+        throw new Error('A determinant requires a square matrix.');
+      }
+      const numericMatrix = parseNumericMatrix(latex);
+      const determinantResult = numericMatrix
+        ? nerdamer(String(determinant(numericMatrix)))
+        : nerdamer.simplify(symbolicDeterminantExpression(
+          parsed.cells.map((row) => row.map((cell) => nerdamer.convertFromLaTeX(cell).toString())),
+        ));
+      const determinantLatex = determinantResult.toTeX();
+      const equationIndex = latex.indexOf('=', parsed.end);
+      if (equationIndex >= 0) {
+        const rightLatex = latex.slice(equationIndex + 1).trim();
+        if (!rightLatex) throw new Error('Complete the right side of the determinant equation.');
+        const right = nerdamer.convertFromLaTeX(rightLatex).toString();
+        const equation = nerdamer(`${determinantResult.toString()}=(${right})`);
+        const variable = equation.variables()[0];
+        if (!variable) {
+          const truth = nerdamer.simplify(`(${determinantResult.toString()})-(${right})`).toString() === '0';
+          return {
+            kind: 'determinant',
+            label: 'Determinant equation',
+            resultLatex: truth ? '\\mathrm{true}' : '\\mathrm{false}',
+            explanation: 'Evaluated the determinant and compared both sides.',
+            steps: [
+              { label: 'Expand determinant', latex: `\\det(A)=${determinantLatex}` },
+              { label: 'Compare', latex: `${determinantLatex}=${rightLatex}` },
+            ],
+          };
+        }
+        const solutions = nerdamer.solve(equation, variable);
+        const solutionLatex = solutions.latex();
+        if (!solutionLatex || solutionLatex === '[]') throw new Error(`No solution for ${variable} was found.`);
+        return {
+          kind: 'determinant',
+          label: `Determinant equation · solve for ${variable}`,
+          resultLatex: `${variable}\\in ${solutionLatex}`,
+          explanation: 'Expanded the symbolic determinant first, then solved the resulting equation locally.',
+          steps: [
+            { label: 'Expand determinant', latex: `\\det(A)=${determinantLatex}` },
+            { label: 'Form equation', latex: `${determinantLatex}=${rightLatex}` },
+            { label: 'Solve', latex: `${variable}\\in ${solutionLatex}` },
+          ],
+        };
+      }
       return {
         kind: 'determinant',
         label: 'Determinant',
-        resultLatex: String(value),
-        explanation: 'Evaluated with pivoted Gaussian elimination on this device.',
+        resultLatex: determinantLatex,
+        explanation: numericMatrix
+          ? 'Evaluated with pivoted Gaussian elimination on this device.'
+          : 'Expanded and simplified the symbolic determinant on this device.',
+        steps: [
+          { label: 'Matrix determinant', latex: `\\det(A)=${determinantLatex}` },
+        ],
       };
     }
+    const matrix = parseNumericMatrix(latex);
+    if (!matrix) throw new Error('This matrix operation currently requires a complete numeric matrix. Symbolic determinants are supported.');
+    if (matrixOperation === 'inverse') {
+      const inverse = matrixToLatex(inverseMatrix(matrix));
+      return {
+        kind: 'matrix',
+        label: 'Matrix inverse',
+        resultLatex: inverse,
+        explanation: 'Computed locally by Gauss–Jordan elimination with pivoting.',
+        steps: [
+          { label: 'Augment with the identity', latex: '\\left[A\\mid I\\right]' },
+          { label: 'Apply row operations', latex: '\\left[I\\mid A^{-1}\\right]' },
+          { label: 'Inverse', latex: inverse },
+        ],
+      };
+    }
+    if (matrixOperation === 'transpose') {
+      const transposed = matrixToLatex(transposeMatrix(matrix));
+      return {
+        kind: 'matrix',
+        label: 'Matrix transpose',
+        resultLatex: transposed,
+        explanation: 'Interchanged rows and columns locally.',
+        steps: [{ label: 'Transpose', latex: transposed }],
+      };
+    }
+    const reduced = matrixToLatex(rowReduce(matrix));
     return {
       kind: 'matrix',
       label: 'Reduced row echelon form',
-      resultLatex: matrixToLatex(rowReduce(matrix)),
+      resultLatex: reduced,
       explanation: 'Reduced locally with Gauss–Jordan elimination.',
+      steps: [
+        { label: 'Apply elementary row operations', text: 'Normalize each pivot and eliminate the other entries in its column.' },
+        { label: 'Reduced matrix', latex: reduced },
+      ],
     };
   }
 
@@ -336,6 +491,10 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       label: multiIntegral.count === 2 ? 'Double antiderivative' : 'Triple antiderivative',
       resultLatex: `${resultLatex}+C`,
       explanation: `Integrated successively with respect to ${multiIntegral.variables.join(', ')}. Add bounds or a region for a definite volume integral.`,
+      steps: [
+        { label: 'Order of integration', text: `Integrate successively in ${multiIntegral.variables.join(', ')}.` },
+        { label: 'Antiderivative', latex: `${resultLatex}+C` },
+      ],
     };
   }
 
@@ -374,6 +533,11 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
         label: 'Gaussian integral',
         resultLatex: '\\sqrt{\\pi}',
         explanation: 'Used the classical convergent Gaussian integral over the real line.',
+        steps: [
+          { label: 'Square the integral', latex: 'I^2=\\int_{-\\infty}^{\\infty}\\int_{-\\infty}^{\\infty}e^{-(x^2+y^2)}\\,dx\\,dy' },
+          { label: 'Use polar coordinates', latex: 'I^2=\\int_0^{2\\pi}\\int_0^{\\infty}e^{-r^2}r\\,dr\\,d\\theta=\\pi' },
+          { label: 'Take the positive root', latex: 'I=\\sqrt{\\pi}' },
+        ],
       };
     }
     const integrand = nerdamer.convertFromLaTeX(integral.integrandLatex);
@@ -383,15 +547,45 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
     if (definite && /\\infty|infinity/i.test(`${integral.lowerLatex} ${integral.upperLatex}`)) {
       throw new Error('This improper integral needs a convergence check before evaluation. Infinite-bound convergence is not yet verified by the local solver.');
     }
+    const antiderivative = nerdamer.integrate(integrand, integral.variable);
+    const antiderivativeUnresolved = /\\int|integrate/i.test(`${antiderivative.toString()} ${antiderivative.toTeX()}`);
+    if (definite && antiderivativeUnresolved) {
+      const lowerNumber = Number(nerdamer(lower!).evaluate().text('decimals'));
+      const upperNumber = Number(nerdamer(upper!).evaluate().text('decimals'));
+      if (!Number.isFinite(lowerNumber) || !Number.isFinite(upperNumber)) {
+        throw new Error('The local solver found no symbolic antiderivative and could not convert the finite bounds to numbers.');
+      }
+      const estimate = adaptiveSimpsonEstimate((value) => {
+        const evaluated = Number(integrand.evaluate({ [integral.variable]: value }).text('decimals'));
+        if (!Number.isFinite(evaluated)) {
+          throw new Error('The integrand is not finite throughout the stated interval. Check for a singularity.');
+        }
+        return evaluated;
+      }, lowerNumber, upperNumber);
+      const numericalLatex = finiteDecimal(estimate.value);
+      const errorText = Number.isFinite(estimate.error)
+        ? `The last Simpson refinement changed the estimate by about ${estimate.error.toExponential(2)} after error scaling.`
+        : 'The panel limit was reached; use AION or another high-precision integrator for a tighter error target.';
+      return {
+        kind: 'integral',
+        label: 'Numerical integral value',
+        resultLatex: `\\approx ${numericalLatex}`,
+        explanation: 'No reliable elementary antiderivative was found, so the finite integral was evaluated numerically instead of presenting an incomplete symbolic derivation.',
+        steps: [
+          { label: 'Integral', latex: `\\int_{${integral.lowerLatex}}^{${integral.upperLatex}}${integral.integrandLatex}\\,d${integral.variable}` },
+          { label: 'Adaptive Simpson method', latex: 'S_n=\\frac{h}{3}\\left(f(x_0)+4\\sum f(x_{2k-1})+2\\sum f(x_{2k})+f(x_n)\\right)', text: `Refined an even partition to ${estimate.panels} panels. ${errorText}` },
+          { label: 'Numerical value', latex: `\\int_{${integral.lowerLatex}}^{${integral.upperLatex}}${integral.integrandLatex}\\,d${integral.variable}\\approx ${numericalLatex}` },
+        ],
+      };
+    }
     let result = definite
       ? nerdamer.defint(integrand, lower!, upper!, integral.variable)
-      : nerdamer.integrate(integrand, integral.variable);
+      : antiderivative;
     if (definite && /\\int|defint|integrate/i.test(`${result.toString()} ${result.toTeX()}`)) {
       // Nerdamer leaves several elementary finite definite integrals (for
       // example ∫₀^π cos(x)dx) unevaluated. Compute an antiderivative and
       // apply the fundamental theorem before declaring failure.
-      const antiderivative = nerdamer.integrate(integrand, integral.variable);
-      if (!/\\int|integrate/i.test(`${antiderivative.toString()} ${antiderivative.toTeX()}`)) {
+      if (!antiderivativeUnresolved) {
         const atUpper = antiderivative.evaluate({ [integral.variable]: upper! });
         const atLower = antiderivative.evaluate({ [integral.variable]: lower! });
         result = nerdamer.simplify(`(${atUpper.toString()})-(${atLower.toString()})`);
@@ -402,6 +596,7 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       throw new Error('The local solver could not find a reliable closed form for this integral.');
     }
     const indefinite = integral.lowerLatex === undefined || integral.upperLatex === undefined;
+    const antiderivativeLatex = antiderivative.toTeX();
     return {
       kind: 'integral',
       label: indefinite ? 'Antiderivative' : 'Integral value',
@@ -409,6 +604,16 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       explanation: indefinite
         ? `Integrated with respect to ${integral.variable}.`
         : `Evaluated from ${integral.lowerLatex} to ${integral.upperLatex}.`,
+      steps: indefinite
+        ? [
+          { label: 'Integrand', latex: `\\int ${integral.integrandLatex}\\,d${integral.variable}` },
+          { label: 'Antiderivative', latex: `${antiderivativeLatex}+C` },
+        ]
+        : [
+          { label: 'Find an antiderivative', latex: `F(${integral.variable})=${antiderivativeLatex}` },
+          { label: 'Apply the bounds', latex: `\\left[${antiderivativeLatex}\\right]_{${integral.lowerLatex}}^{${integral.upperLatex}}` },
+          { label: 'Simplify', latex: resultLatex },
+        ],
     };
   }
 
@@ -416,11 +621,17 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
   if (derivative) {
     const expression = nerdamer.convertFromLaTeX(derivative.expressionLatex);
     const result = nerdamer.diff(expression, derivative.variable, derivative.order ?? 1);
+    const operator = derivative.operator === 'partial' ? '\\partial' : 'd';
+    const order = derivative.order ?? 1;
     return {
       kind: 'derivative',
-      label: `${(derivative.order ?? 1) > 1 ? `${derivative.order}th derivative` : 'Derivative'} with respect to ${derivative.variable}`,
+      label: `${derivativeName(order, derivative.operator === 'partial')} with respect to ${derivative.variable}`,
       resultLatex: result.toTeX(),
       explanation: 'Differentiated symbolically in the local CAS.',
+      steps: [
+        { label: 'Differentiate', latex: `\\frac{${operator}${order > 1 ? `^{${order}}` : ''}}{${operator}${derivative.variable}${order > 1 ? `^{${order}}` : ''}}\\left(${derivative.expressionLatex}\\right)` },
+        { label: 'Simplify', latex: result.toTeX() },
+      ],
     };
   }
 
