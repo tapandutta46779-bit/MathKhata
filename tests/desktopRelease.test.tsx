@@ -160,10 +160,8 @@ describe('desktop public-release boundary', () => {
     expect(readFileSync(path.resolve('src/components/VoicePanel.tsx'), 'utf8')).toContain('new DesktopSpeechProvider()');
     expect(readFileSync(path.resolve('src/voice/desktopSpeech.worker.ts'), 'utf8')).toContain("dtype: 'q4'");
     const assistant = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
-    expect(assistant).toContain('followStreamingAnswerRef.current = distanceFromBottom <= 56');
-    expect(assistant).toContain('if (!activeTurnId || !followStreamingAnswerRef.current) return');
-    expect(assistant).toContain('if (!followStreamingAnswerRef.current) return');
-    expect(assistant).toContain('onWheelCapture={(event) =>');
-    expect(assistant).toContain('onPointerDownCapture={() =>');
+    expect(assistant).toContain('}, [activeTurnId]);');
+    expect(assistant).not.toContain('aion.result, aion.status]);');
+    expect(assistant).not.toContain('followStreamingAnswerRef');
   });
 });

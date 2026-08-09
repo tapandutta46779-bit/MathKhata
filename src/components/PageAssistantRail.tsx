@@ -168,7 +168,6 @@ export function PageAssistantRail() {
   const [aionQuestion, setAionQuestion] = useState('');
   const [conversation, setConversation] = useState<AIONConversationTurn[]>([]);
   const conversationRef = useRef<HTMLDivElement | null>(null);
-  const followStreamingAnswerRef = useRef(true);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [assistantView, setAssistantView] = useState<'chat' | 'outline'>('chat');
   const aion = useAIONRuntime();
@@ -198,14 +197,13 @@ export function PageAssistantRail() {
   }, [activeTurnId, aion.result]);
 
   useEffect(() => {
-    if (!activeTurnId || !followStreamingAnswerRef.current) return;
+    if (!activeTurnId) return;
     const frame = requestAnimationFrame(() => {
-      if (!followStreamingAnswerRef.current) return;
       const element = conversationRef.current;
       if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeTurnId, aion.result, aion.status]);
+  }, [activeTurnId]);
 
   if (!analysis) return null;
 
@@ -244,7 +242,6 @@ export function PageAssistantRail() {
       `User: ${turn.question}\nAION: ${turn.answer}`
     )).join('\n\n');
     setConversation((current) => [...current, { id: turnId, question: request, answer: '' }]);
-    followStreamingAnswerRef.current = true;
     setActiveTurnId(turnId);
     setAionQuestion('');
     setAssistantView('chat');
@@ -336,26 +333,6 @@ export function PageAssistantRail() {
           <div
             className="aion-chat__conversation"
             ref={conversationRef}
-            tabIndex={0}
-            onWheelCapture={(event) => {
-              if (event.deltaY < 0) followStreamingAnswerRef.current = false;
-            }}
-            onPointerDownCapture={() => {
-              followStreamingAnswerRef.current = false;
-            }}
-            onTouchMoveCapture={() => {
-              followStreamingAnswerRef.current = false;
-            }}
-            onKeyDownCapture={(event) => {
-              if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) {
-                followStreamingAnswerRef.current = false;
-              }
-            }}
-            onScroll={(event) => {
-              const element = event.currentTarget;
-              const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-              followStreamingAnswerRef.current = distanceFromBottom <= 56;
-            }}
           >
             {conversation.length === 0 && aion.status !== 'analyzing' && (
               <div className="aion-welcome">
