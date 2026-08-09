@@ -68,20 +68,21 @@ export default function App() {
       const editingTarget = isEditingTarget(event.target);
       const key = event.key.toLowerCase();
       const liveState = useNotebookStore.getState();
-      if (event.metaKey && key === 's') {
+      const commandModifier = event.metaKey || event.ctrlKey;
+      if (commandModifier && key === 's') {
         event.preventDefault();
         event.stopPropagation();
         void saveNow();
         return;
       }
-      if (event.metaKey && key === 'z') {
+      if (commandModifier && key === 'z') {
         event.preventDefault();
         event.stopPropagation();
         if (event.shiftKey) redo();
         else undo();
         return;
       }
-      if (event.metaKey && key === 'd' && !editingTarget) {
+      if (commandModifier && key === 'd' && !editingTarget) {
         event.preventDefault();
         duplicateSelectedObject();
         return;
@@ -128,6 +129,13 @@ export default function App() {
     setTool,
     undo,
   ]);
+
+  useEffect(() => window.mathKhataDesktop?.onCommand((command) => {
+    if (command === 'save') void saveNow();
+    if (command === 'undo') undo();
+    if (command === 'redo') redo();
+    if (command === 'print') window.print();
+  }), [redo, saveNow, undo]);
 
   if (!hydrated || !notebook) {
     return (

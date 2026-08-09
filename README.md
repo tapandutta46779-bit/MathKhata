@@ -1,10 +1,22 @@
 # MathKhata
 
-MathKhata is a local-first, desktop-first mathematical notebook. Its page is the interface: write structured mathematics and ordinary notes directly on ruled lines, then return later without losing layout or mathematical editability.
+MathKhata is a local-first mathematical notebook and research workspace for laptops. Its page is the interface: write structured mathematics and ordinary notes directly on ruled lines, then return later without losing layout or mathematical editability.
 
-Stage 1 targets macOS and Chrome with a physical keyboard, trackpad or mouse, and optional microphone access. It has no backend, account, cloud database, required AI dependency, or API-key requirement.
+Version 1.0 runs as an installable macOS, Windows, or Linux desktop application and as a browser/PWA build. It supports a physical keyboard, trackpad or mouse, and optional microphone access. It has no backend, account, cloud database, required AI dependency, telemetry, or API-key requirement.
 
-## Development
+## Desktop application
+
+The desktop build packages the complete notebook, MathLive keyboard and menus, Symbols, Voice, AION connection, 2D/3D graphing, Geometry, Scientific workspace, and floating calculator for offline use. The renderer is sandboxed and has no Node.js or unrestricted filesystem access.
+
+```sh
+npm install
+npm run desktop:dev
+npm run desktop:make:mac
+```
+
+Use `npm run desktop:make:win` on Windows and `npm run desktop:make:linux` on Linux. Native installers must be built and signed on their target operating systems before public publication. Complete release, signing, privacy, and verification guidance is in [docs/DESKTOP_RELEASE.md](docs/DESKTOP_RELEASE.md).
+
+## Web development
 
 Requires Node.js 20.19+ (verified with Node 24.18.0). From the repository root:
 
@@ -22,15 +34,15 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173) after `npm run dev`.
 
 ## Keyboard shortcuts
 
-- `Command-Z`: undo the last notebook action.
-- `Command-Shift-Z`: redo.
-- `Command-S`: save immediately.
+- `Command-Z` / `Ctrl-Z`: undo the last notebook action.
+- `Command-Shift-Z` / `Ctrl-Shift-Z`: redo.
+- `Command-S` / `Ctrl-S`: save immediately.
 - `Escape`: stop editing, leave the active tool, or clear selection.
 - `Delete` / `Backspace`: delete the selected object when its content editor is not active.
 - `M`: activate Math insertion when focus is not in an editor.
 - `T`: activate Text insertion when focus is not in an editor.
 - `V`: open voice insertion when focus is not in an editor.
-- `Command-D`: duplicate the selected page object when content editing is inactive.
+- `Command-D` / `Ctrl-D`: duplicate the selected page object when content editing is inactive.
 - `Tab`: accept the quiet arithmetic result shown beside a complete numeric expression. Inside an incomplete fraction/root/template, Tab keeps its normal MathLive navigation behavior.
 
 ## Local calculation
@@ -62,6 +74,6 @@ To install the safe post-commit Google Drive backup and create a milestone snaps
 
 Chrome Web Speech support is used when genuinely available; nothing is simulated. One utterance may contain both mathematics and ordinary language: “x equals six, then y equals eight” becomes two math lines, while an unfamiliar prose phrase remains text. “Then”, “next line”, and “new line” continue on the next ruled line. Every Symbols-palette item has a tested spoken example. A final transcript may receive a private AION second pass; the immediate deterministic candidate remains usable if AION is slow or unavailable. See [docs/VOICE_EXPERIMENT.md](docs/VOICE_EXPERIMENT.md).
 
-## Scope
+## Product scope
 
-The app now includes an always-available ruled-line composer with Auto/Math/Text intent, structured multiline MathLive editing, optional spatial placement, full on-demand keyboard/symbol controls, mixed voice dictation, quick arithmetic, advanced local CAS actions, whole-page deterministic analysis, and AION assistance. A separate research workspace provides local 2D graphs, 3D wireframes, interactive polygon geometry, and scientific calculation, while a floating calculator stays available over every section. These are research-workspace foundations rather than a claim of complete Desmos feature parity.
+The app includes an always-available ruled-line composer with Auto/Math/Text intent, structured multiline MathLive editing, optional spatial placement, full on-demand keyboard/symbol controls, mixed voice dictation, quick arithmetic, advanced local CAS actions, whole-page deterministic analysis, and AION assistance. A separate research workspace provides local interactive 2D graphs, 3D surfaces, dynamic geometry, and scientific calculation, while a floating calculator stays available over every section. MathKhata follows the familiar expression-list and direct-manipulation workflow, but it does not claim proprietary Desmos code or complete one-for-one Desmos feature parity; the verified remaining gaps are recorded in [docs/audits/desmos-workspace-2026-08-09/README.md](docs/audits/desmos-workspace-2026-08-09/README.md).

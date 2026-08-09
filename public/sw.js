@@ -1,0 +1,83 @@
+const CACHE_NAME = 'mathkhata-shell-v1';
+const CORE_ASSETS = [
+  './manifest.webmanifest',
+  './icons/mathkhata.svg',
+  './icons/mathkhata-192.png',
+  './icons/mathkhata-512.png',
+  ...[
+    'KaTeX_AMS-Regular.woff2',
+    'KaTeX_Caligraphic-Bold.woff2',
+    'KaTeX_Caligraphic-Regular.woff2',
+    'KaTeX_Fraktur-Bold.woff2',
+    'KaTeX_Fraktur-Regular.woff2',
+    'KaTeX_Main-Bold.woff2',
+    'KaTeX_Main-BoldItalic.woff2',
+    'KaTeX_Main-Italic.woff2',
+    'KaTeX_Main-Regular.woff2',
+    'KaTeX_Math-BoldItalic.woff2',
+    'KaTeX_Math-Italic.woff2',
+    'KaTeX_SansSerif-Bold.woff2',
+    'KaTeX_SansSerif-Italic.woff2',
+    'KaTeX_SansSerif-Regular.woff2',
+    'KaTeX_Script-Regular.woff2',
+    'KaTeX_Size1-Regular.woff2',
+    'KaTeX_Size2-Regular.woff2',
+    'KaTeX_Size3-Regular.woff2',
+    'KaTeX_Size4-Regular.woff2',
+    'KaTeX_Typewriter-Regular.woff2',
+  ].map((name) => `./fonts/${name}`),
+];
+
+async function precacheBuild() {
+  const cache = await caches.open(CACHE_NAME);
+  const indexUrl = new URL('./index.html', self.registration.scope);
+  const response = await fetch(indexUrl, { cache: 'reload' });
+  if (!response.ok) throw new Error(`Cannot cache MathKhata shell: ${response.status}`);
+  const html = await response.text();
+  await cache.put(indexUrl, new Response(html, { headers: response.headers }));
+  const assetUrls = [...html.matchAll(/(?:src|href)="([^"#]+)"/g)]
+    .map((match) => new URL(match[1], indexUrl).href)
+    .filter((url) => new URL(url).origin === indexUrl.origin);
+  await cache.addAll([...new Set([...CORE_ASSETS.map((asset) => new URL(asset, indexUrl).href), ...assetUrls])]);
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(precacheBuild().then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const requestUrl = new URL(event.request.url);
+  if (event.request.method !== 'GET' || requestUrl.origin !== self.location.origin) return;
+  event.respondWith((async () => {
+    if (event.request.mode === 'navigate') {
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(new URL('./index.html', self.registration.scope), response.clone());
+        }
+        return response;
+      } catch (error) {
+        const fallback = await caches.match(new URL('./index.html', self.registration.scope));
+        if (fallback) return fallback;
+        throw error;
+      }
+    }
+    const cached = await caches.match(event.request);
+    if (cached) return cached;
+    const response = await fetch(event.request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(event.request, response.clone());
+    }
+    return response;
+  })());
+});

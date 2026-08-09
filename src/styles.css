@@ -58,10 +58,20 @@ button:disabled { cursor: default; opacity: 0.35; }
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 0 18px;
+  padding: 0 18px 0 var(--desktop-titlebar-left, 18px);
   background: var(--chrome);
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(18px);
+}
+
+html[data-desktop-platform="darwin"] .top-bar {
+  -webkit-app-region: drag;
+}
+
+html[data-desktop-platform="darwin"] .top-bar button,
+html[data-desktop-platform="darwin"] .top-bar input,
+html[data-desktop-platform="darwin"] .top-bar [role="menu"] {
+  -webkit-app-region: no-drag;
 }
 
 .brand-mark {
@@ -930,6 +940,22 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 .loading-screen { display: grid; place-content: center; height: 100%; color: var(--muted); background: #ece9e1; text-align: center; }
 .loading-mark { color: var(--accent); font: 52px/1 Georgia, serif; animation: pulse 1.4s infinite; }
 .loading-screen p { font: italic 14px Georgia, serif; }
+
+.recovery-screen {
+  display: grid;
+  place-content: center;
+  justify-items: start;
+  width: 100%;
+  min-height: 100%;
+  padding: 32px;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, transparent 68px, rgba(180,82,65,.16) 69px, transparent 70px),
+    repeating-linear-gradient(#fffef9 0 39px, rgba(90,137,168,.12) 40px);
+}
+.recovery-screen__mark { color: var(--accent); font: 62px/1 Georgia, serif; }
+.recovery-screen h1 { margin: 4px 0 10px; font: 34px/1.2 Georgia, serif; }
+.recovery-screen > p:not(.eyebrow) { max-width: 580px; margin: 0 0 20px; color: var(--muted); line-height: 1.65; }
 
 @keyframes pulse { 50% { opacity: .45; } }
 

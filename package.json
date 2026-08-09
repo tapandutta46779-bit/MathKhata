@@ -1,8 +1,11 @@
 {
   "name": "mathkhata",
+  "productName": "MathKhata",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "A local-first mathematical notebook and research workspace.",
   "type": "module",
+  "main": "desktop/main.mjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
@@ -11,7 +14,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "desktop:dev": "concurrently -k -s first \"npm run dev\" \"wait-on http://127.0.0.1:4173 && cross-env MATHKHATA_DEV_URL=http://127.0.0.1:4173 electron .\"",
+    "desktop:package": "npm run build && electron-forge package && node scripts/finalize-macos-package.mjs",
+    "desktop:make": "npm run desktop:package && electron-forge make --skip-package",
+    "desktop:make:mac": "npm run build && electron-forge package --platform=darwin --arch=arm64 && node scripts/finalize-macos-package.mjs && electron-forge make --skip-package --platform=darwin --arch=arm64",
+    "desktop:make:win": "npm run build && electron-forge make --platform=win32 --arch=x64",
+    "desktop:make:linux": "npm run build && electron-forge make --platform=linux --arch=x64"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -25,9 +34,20 @@
   },
   "overrides": {
     "adm-zip": "0.6.0",
-    "sharp": "0.35.0"
+    "sharp": "0.35.0",
+    "tar": "7.5.22",
+    "tmp": "0.2.7",
+    "image-size": "0.7.5"
   },
   "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-deb": "7.11.2",
+    "@electron-forge/maker-dmg": "7.11.2",
+    "@electron-forge/maker-rpm": "7.11.2",
+    "@electron-forge/maker-squirrel": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@electron-forge/plugin-fuses": "7.11.2",
+    "@electron/fuses": "1.8.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.62.1",
     "@testing-library/jest-dom": "7.0.0",
@@ -36,14 +56,19 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "6.0.5",
+    "concurrently": "9.2.4",
+    "cross-env": "10.1.0",
+    "electron": "43.3.0",
     "eslint": "10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "fake-indexeddb": "latest",
+    "globals": "17.9.0",
     "jsdom": "30.0.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.66.0",
     "vite": "8.2.1",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "wait-on": "9.0.4"
   }
 }

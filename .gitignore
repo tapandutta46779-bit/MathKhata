@@ -1,6 +1,11 @@
 node_modules/
 dist/
-build/
+/out/
+build/*
+!build/icon.svg
+!build/icon.png
+!build/icon.icns
+!build/icon.ico
 coverage/
 playwright-report/
 test-results/
