@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   angleDegrees,
+  circleCircleIntersections,
+  dilateCoordinate,
   geometryDistance,
+  geometryMidpoint,
   geometryPointLabel,
   lineIntersection,
+  lineCircleIntersections,
   polygonArea,
   polygonPerimeter,
+  reflectCoordinate,
+  rotateCoordinate,
+  translateCoordinate,
 } from '../research/geometry';
 
 export type ResearchTool = '2d' | '3d' | 'geometry' | 'scientific';
@@ -25,6 +32,42 @@ async function numericEvaluator(expression: string) {
     const value = Number(parsed.evaluate(substitutions).text('decimals'));
     return Number.isFinite(value) ? value : Number.NaN;
   };
+}
+
+async function numericEvaluatorWithRestrictions(expression: string) {
+  const restrictions: string[] = [];
+  const baseExpression = expression.replace(/\{([^{}]+)\}/g, (_match, restriction: string) => {
+    restrictions.push(restriction.trim());
+    return '';
+  }).trim();
+  const evaluate = await numericEvaluator(baseExpression);
+  const compileComparison = async (source: string) => {
+    const chained = source.match(/^(.+?)(<=|>=|<|>)(.+?)(<=|>=|<|>)(.+)$/);
+    const pairs = chained
+      ? [[chained[1], chained[2], chained[3]], [chained[3], chained[4], chained[5]]]
+      : (() => {
+        const match = source.match(/^(.+?)(<=|>=|=|<|>)(.+)$/);
+        return match ? [[match[1], match[2], match[3]]] : [];
+      })();
+    if (!pairs.length) {
+      const condition = await numericEvaluator(source);
+      return (values: Record<string, number>) => Boolean(condition(values));
+    }
+    const evaluators = await Promise.all(pairs.map(async ([left, operator, right]) => ({
+      left: await numericEvaluator(left.trim()), operator, right: await numericEvaluator(right.trim()),
+    })));
+    return (values: Record<string, number>) => evaluators.every((entry) => {
+      const left = entry.left(values); const right = entry.right(values);
+      if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+      if (entry.operator === '<') return left < right;
+      if (entry.operator === '<=') return left <= right;
+      if (entry.operator === '>') return left > right;
+      if (entry.operator === '>=') return left >= right;
+      return Math.abs(left - right) < 1e-9;
+    });
+  };
+  const conditions = await Promise.all(restrictions.map(compileComparison));
+  return (values: Record<string, number>) => conditions.every((condition) => condition(values)) ? evaluate(values) : Number.NaN;
 }
 
 function gridStep(scale: number): number {
@@ -120,7 +163,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         const active = expressions.filter((entry) => entry.visible && entry.expression.trim());
         const evaluators = await Promise.all(active.map(async (entry) => ({
           color: entry.color,
-          evaluate: await numericEvaluator(entry.expression),
+          evaluate: await numericEvaluatorWithRestrictions(entry.expression),
         })));
         if (cancelled) return;
         evaluatorsRef.current = evaluators;
@@ -287,6 +330,14 @@ interface Graph3DCurveExpression extends Graph3DPointExpression {
   tMax: number;
 }
 
+interface Graph3DParametricSurface extends Graph3DPointExpression {
+  uMin: number;
+  uMax: number;
+  vMin: number;
+  vMax: number;
+  opacity: number;
+}
+
 type SurfaceRenderMode = 'solid' | 'mesh' | 'contours';
 type SurfaceProjection = 'perspective' | 'orthographic';
 
@@ -299,6 +350,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   ]);
   const [points3D, setPoints3D] = usePersistentResearchState<Graph3DPointExpression[]>(`${storagePrefix}:3d:points`, []);
   const [curves3D, setCurves3D] = usePersistentResearchState<Graph3DCurveExpression[]>(`${storagePrefix}:3d:curves`, []);
+  const [parametricSurfaces, setParametricSurfaces] = usePersistentResearchState<Graph3DParametricSurface[]>(`${storagePrefix}:3d:parametric-surfaces`, []);
+  const [implicitSurfaces, setImplicitSurfaces] = usePersistentResearchState<SurfaceExpression[]>(`${storagePrefix}:3d:implicit-surfaces`, []);
   const [domain, setDomain] = usePersistentResearchState(`${storagePrefix}:3d:domain`, 5);
   const [resolution, setResolution] = usePersistentResearchState(`${storagePrefix}:3d:resolution`, 29);
   const [camera, setCamera] = usePersistentResearchState(`${storagePrefix}:3d:camera`, { yaw: -.72, pitch: -.58, zoom: 1 });
@@ -307,6 +360,9 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   const [showAxes, setShowAxes] = usePersistentResearchState(`${storagePrefix}:3d:axes`, true);
   const [showGrid, setShowGrid] = usePersistentResearchState(`${storagePrefix}:3d:grid`, true);
   const [showSurfaceIntersections, setShowSurfaceIntersections] = usePersistentResearchState(`${storagePrefix}:3d:intersections`, true);
+  const [perspectiveStrength, setPerspectiveStrength] = usePersistentResearchState(`${storagePrefix}:3d:perspective-strength`, .65);
+  const [lockRotation, setLockRotation] = usePersistentResearchState(`${storagePrefix}:3d:lock-rotation`, false);
+  const [lockZoom, setLockZoom] = usePersistentResearchState(`${storagePrefix}:3d:lock-zoom`, false);
   const [error, setError] = useState('');
   const [trace, setTrace] = useState<{ x: number; y: number; z: number; color: string; expression: string } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -333,7 +389,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           const yawY = x * sinYaw + y * cosYaw;
           const pitchY = yawY * cosPitch - z * sinPitch;
           const depth = yawY * sinPitch + z * cosPitch;
-          const cameraDistance = domain * 5.5;
+          const cameraDistance = domain * (8.5 - perspectiveStrength * 5);
           const perspectiveScale = projection === 'perspective'
             ? cameraDistance / Math.max(domain * 1.4, cameraDistance + depth)
             : 1;
@@ -364,7 +420,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           context.restore();
         }
 
-        const reservedParameters = new Set(['x', 'y', 'z', 't']);
+        const reservedParameters = new Set(['x', 'y', 'z', 't', 'u', 'v']);
         const invalidParameters = parameters.filter((parameter) => (
           !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(parameter.name.trim()) || reservedParameters.has(parameter.name.trim())
         ));
@@ -378,8 +434,9 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           color: string;
           opacity: number;
         }> = [];
+        const implicitPoints: Array<{ x: number; y: number; depth: number; worldX: number; worldY: number; worldZ: number; color: string; opacity: number; expression: string }> = [];
         const tracePoints: typeof tracePointsRef.current = [];
-        const issues: string[] = invalidParameters.length ? ['Slider names cannot be x, y, z, or t.'] : [];
+        const issues: string[] = invalidParameters.length ? ['Slider names cannot be x, y, z, t, u, or v.'] : [];
         const surfaceSamples: Array<{
           surface: SurfaceExpression;
           grid: Array<Array<{ x: number; y: number; z: number; depth: number; worldX: number; worldY: number; rawZ: number }>>;
@@ -387,7 +444,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         const active = surfaces.filter((surface) => surface.visible && surface.expression.trim());
         for (const [surfaceIndex, surface] of active.entries()) {
           try {
-            const evaluate = await numericEvaluator(surface.expression);
+            const evaluate = await numericEvaluatorWithRestrictions(surface.expression);
             const surfaceGrid: Array<Array<{ x: number; y: number; z: number; depth: number; worldX: number; worldY: number; rawZ: number }>> = [];
             for (let row = 0; row < resolution; row += 1) {
               const points = [];
@@ -421,6 +478,93 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             }
           } catch {
             issues.push(`Surface ${surfaceIndex + 1}: check ${surface.expression}.`);
+          }
+        }
+        for (const [surfaceIndex, surface] of parametricSurfaces.filter((entry) => entry.visible).entries()) {
+          try {
+            const evaluateX = await numericEvaluator(surface.x);
+            const evaluateY = await numericEvaluator(surface.y);
+            const evaluateZ = await numericEvaluator(surface.z);
+            const sampleCount = Math.max(13, Math.min(35, resolution));
+            const surfaceGrid: Array<Array<{ x: number; y: number; z: number; depth: number }>> = [];
+            for (let row = 0; row < sampleCount; row += 1) {
+              const v = surface.vMin + (surface.vMax - surface.vMin) * row / (sampleCount - 1);
+              const rowPoints = [];
+              for (let column = 0; column < sampleCount; column += 1) {
+                const u = surface.uMin + (surface.uMax - surface.uMin) * column / (sampleCount - 1);
+                const substitutions = { u, v, ...parameterValues };
+                const x = evaluateX(substitutions);
+                const y = evaluateY(substitutions);
+                const z = evaluateZ(substitutions);
+                const projected = project(x, y, z);
+                rowPoints.push({ ...projected, z });
+                if ([x, y, z, projected.x, projected.y].every(Number.isFinite) && (row + column) % 3 === 0) {
+                  tracePoints.push({ screenX: projected.x, screenY: projected.y, x, y, z, color: surface.color, expression: `parametric surface ${surfaceIndex + 1}` });
+                }
+              }
+              surfaceGrid.push(rowPoints);
+            }
+            for (let row = 0; row < sampleCount - 1; row += 1) {
+              for (let column = 0; column < sampleCount - 1; column += 1) {
+                const points = [surfaceGrid[row][column], surfaceGrid[row][column + 1], surfaceGrid[row + 1][column + 1], surfaceGrid[row + 1][column]];
+                if (points.some((point) => ![point.x, point.y, point.z].every(Number.isFinite))) continue;
+                cells.push({
+                  points,
+                  depth: points.reduce((sum, point) => sum + point.depth, 0) / 4,
+                  height: points.reduce((sum, point) => sum + point.z, 0) / 4,
+                  color: surface.color,
+                  opacity: surface.opacity,
+                });
+              }
+            }
+          } catch {
+            issues.push(`Parametric surface ${surfaceIndex + 1}: check x(u,v), y(u,v), z(u,v), and bounds.`);
+          }
+        }
+        for (const [surfaceIndex, surface] of implicitSurfaces.filter((entry) => entry.visible && entry.expression.trim()).entries()) {
+          try {
+            const evaluate = await numericEvaluatorWithRestrictions(surface.expression);
+            const sampleCount = Math.max(11, Math.min(17, Math.round(resolution / 2)));
+            const step = domain * 2 / (sampleCount - 1);
+            const values: number[][][] = [];
+            for (let zIndex = 0; zIndex < sampleCount; zIndex += 1) {
+              const z = -domain + zIndex * step;
+              const plane: number[][] = [];
+              for (let yIndex = 0; yIndex < sampleCount; yIndex += 1) {
+                const y = -domain + yIndex * step;
+                const row = [];
+                for (let xIndex = 0; xIndex < sampleCount; xIndex += 1) {
+                  const x = -domain + xIndex * step;
+                  row.push(evaluate({ x, y, z, ...parameterValues }));
+                }
+                plane.push(row);
+              }
+              values.push(plane);
+            }
+            const addCrossing = (first: { x: number; y: number; z: number; value: number }, last: { x: number; y: number; z: number; value: number }) => {
+              if (!Number.isFinite(first.value) || !Number.isFinite(last.value) || first.value * last.value > 0 || Math.abs(first.value - last.value) < 1e-12) return;
+              const ratio = first.value / (first.value - last.value);
+              const worldX = first.x + (last.x - first.x) * ratio;
+              const worldY = first.y + (last.y - first.y) * ratio;
+              const worldZ = first.z + (last.z - first.z) * ratio;
+              const projected = project(worldX, worldY, worldZ);
+              implicitPoints.push({ ...projected, worldX, worldY, worldZ, color: surface.color, opacity: surface.opacity, expression: surface.expression });
+            };
+            for (let zIndex = 0; zIndex < sampleCount; zIndex += 1) {
+              const z = -domain + zIndex * step;
+              for (let yIndex = 0; yIndex < sampleCount; yIndex += 1) {
+                const y = -domain + yIndex * step;
+                for (let xIndex = 0; xIndex < sampleCount; xIndex += 1) {
+                  const x = -domain + xIndex * step;
+                  const first = { x, y, z, value: values[zIndex][yIndex][xIndex] };
+                  if (xIndex + 1 < sampleCount) addCrossing(first, { x: x + step, y, z, value: values[zIndex][yIndex][xIndex + 1] });
+                  if (yIndex + 1 < sampleCount) addCrossing(first, { x, y: y + step, z, value: values[zIndex][yIndex + 1][xIndex] });
+                  if (zIndex + 1 < sampleCount) addCrossing(first, { x, y, z: z + step, value: values[zIndex + 1][yIndex][xIndex] });
+                }
+              }
+            }
+          } catch {
+            issues.push(`Implicit surface ${surfaceIndex + 1}: enter F(x,y,z), interpreted as F = 0.`);
           }
         }
         cells.sort((left, right) => left.depth - right.depth);
@@ -463,6 +607,12 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           if (renderMode !== 'solid' || cell.opacity > .2) context.stroke();
           context.restore();
         }
+        implicitPoints.sort((left, right) => left.depth - right.depth);
+        implicitPoints.forEach((point, index) => {
+          context.save(); context.globalAlpha = Math.max(.2, point.opacity); context.fillStyle = point.color;
+          context.beginPath(); context.arc(point.x, point.y, renderMode === 'mesh' ? 1.25 : 2.1, 0, Math.PI * 2); context.fill(); context.restore();
+          if (index % 7 === 0) tracePoints.push({ screenX: point.x, screenY: point.y, x: point.worldX, y: point.worldY, z: point.worldZ, color: point.color, expression: `${point.expression} = 0` });
+        });
         if (showSurfaceIntersections && surfaceSamples.length > 1) {
           const threshold = domain * 1.7 / Math.max(1, resolution - 1);
           context.save();
@@ -542,7 +692,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
     };
     void draw();
     return () => { cancelled = true; };
-  }, [camera, curves3D, domain, parameters, points3D, projection, renderMode, resolution, showAxes, showGrid, showSurfaceIntersections, surfaces]);
+  }, [camera, curves3D, domain, implicitSurfaces, parameters, parametricSurfaces, perspectiveStrength, points3D, projection, renderMode, resolution, showAxes, showGrid, showSurfaceIntersections, surfaces]);
 
   const updateSurface = (id: number, patch: Partial<SurfaceExpression>) => {
     setSurfaces((current) => current.map((surface) => surface.id === id ? { ...surface, ...patch } : surface));
@@ -561,7 +711,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   return (
     <section className="research-graph-lab research-graph-lab--3d">
       <aside className="graph-expression-list graph-expression-list--3d" aria-label="3D graph expressions">
-        <header><strong>3D expressions</strong><span>{surfaces.length}/4</span></header>
+        <header><strong>3D expressions</strong><span>{surfaces.length + implicitSurfaces.length + parametricSurfaces.length}</span></header>
         {surfaces.map((surface, index) => (
           <div className="surface-expression-card" key={surface.id}>
             <div className="surface-expression-main">
@@ -593,6 +743,15 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             opacity: .58,
           }])}
         >+ Add surface</button>
+        {implicitSurfaces.map((surface, index) => <div className="surface-expression-card implicit-surface-card" key={`implicit-${surface.id}`}>
+          <div className="surface-expression-main">
+            <button type="button" className={`graph-color${surface.visible ? ' is-visible' : ''}`} style={{ '--graph-color': surface.color } as React.CSSProperties} aria-label={`${surface.visible ? 'Hide' : 'Show'} implicit surface ${index + 1}`} onClick={() => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, visible: !entry.visible } : entry))} />
+            <label><span>0 =</span><input aria-label={`Implicit surface expression ${index + 1}`} value={surface.expression} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, expression: event.target.value } : entry))} /></label>
+            <button type="button" aria-label={`Remove implicit surface ${index + 1}`} onClick={() => setImplicitSurfaces((current) => current.filter((entry) => entry.id !== surface.id))}>×</button>
+          </div>
+          <div className="surface-style-row"><label>Color <input type="color" aria-label={`Implicit surface ${index + 1} color`} value={surface.color} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, color: event.target.value } : entry))} /></label><label>Opacity <input type="range" aria-label={`Implicit surface ${index + 1} opacity`} min="0.18" max="1" step="0.05" value={surface.opacity} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, opacity: Number(event.target.value) } : entry))} /></label></div>
+        </div>)}
+        <button type="button" className="graph-add-expression" disabled={implicitSurfaces.length >= 2} onClick={() => setImplicitSurfaces((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, expression: 'x^2+y^2+z^2-9', color: GRAPH_COLORS[(surfaces.length + current.length) % GRAPH_COLORS.length], visible: true, opacity: .72 }])}>+ Add implicit F(x,y,z)=0</button>
         <section className="graph-parameter-section" aria-label="3D graph parameters">
           <header><strong>Parameters</strong><span>Use names in any expression</span></header>
           {parameters.map((parameter, index) => <div className="graph-parameter" key={parameter.id}>
@@ -602,8 +761,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           </div>)}
           <button type="button" className="graph-add-expression" disabled={parameters.length >= 4} onClick={() => setParameters((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, name: ['a', 'b', 'c', 'd'].find((name) => !current.some((entry) => entry.name === name)) ?? `p${current.length + 1}`, value: 1, min: -5, max: 5, step: .1 }])}>+ Add slider</button>
         </section>
-        <section className="graph-3d-object-section" aria-label="3D points and curves">
-          <header><strong>Points & curves</strong><span>{points3D.length + curves3D.length}</span></header>
+        <section className="graph-3d-object-section" aria-label="3D points curves and parametric surfaces">
+          <header><strong>Points · curves · parametric surfaces</strong><span>{points3D.length + curves3D.length + parametricSurfaces.length}</span></header>
           {points3D.map((point, index) => <div className="graph-3d-object-card" key={`point-${point.id}`}>
             <div className="graph-3d-object-title"><button type="button" className={`graph-color${point.visible ? ' is-visible' : ''}`} style={{ '--graph-color': point.color } as React.CSSProperties} aria-label={`${point.visible ? 'Hide' : 'Show'} 3D point ${index + 1}`} onClick={() => setPoints3D((current) => current.map((entry) => entry.id === point.id ? { ...entry, visible: !entry.visible } : entry))} /><strong>P{index + 1}</strong><button type="button" aria-label={`Remove 3D point ${index + 1}`} onClick={() => setPoints3D((current) => current.filter((entry) => entry.id !== point.id))}>×</button></div>
             <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis} = <input aria-label={`3D point ${index + 1} ${axis} coordinate`} value={point[axis]} onChange={(event) => setPoints3D((current) => current.map((entry) => entry.id === point.id ? { ...entry, [axis]: event.target.value } : entry))} /></label>)}</div>
@@ -613,7 +772,18 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}(t) = <input aria-label={`3D curve ${index + 1} ${axis} expression`} value={curve[axis]} onChange={(event) => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, [axis]: event.target.value } : entry))} /></label>)}</div>
             <div className="curve-domain"><label>t min <input type="number" step="0.1" value={curve.tMin} onChange={(event) => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, tMin: Number(event.target.value) } : entry))} /></label><label>t max <input type="number" step="0.1" value={curve.tMax} onChange={(event) => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, tMax: Number(event.target.value) } : entry))} /></label></div>
           </div>)}
-          <div className="graph-object-adders"><button type="button" onClick={() => setPoints3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: '1', y: '1', z: '1', color: GRAPH_COLORS[(surfaces.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Point</button><button type="button" onClick={() => setCurves3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: 'cos(t)', y: 'sin(t)', z: 't/3', tMin: -6.28, tMax: 6.28, color: GRAPH_COLORS[(surfaces.length + points3D.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Parametric curve</button></div>
+          {parametricSurfaces.map((surface, index) => <div className="graph-3d-object-card" key={`parametric-surface-${surface.id}`}>
+            <div className="graph-3d-object-title"><button type="button" className={`graph-color${surface.visible ? ' is-visible' : ''}`} style={{ '--graph-color': surface.color } as React.CSSProperties} aria-label={`${surface.visible ? 'Hide' : 'Show'} parametric surface ${index + 1}`} onClick={() => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, visible: !entry.visible } : entry))} /><strong>S{index + 1}(u,v)</strong><button type="button" aria-label={`Remove parametric surface ${index + 1}`} onClick={() => setParametricSurfaces((current) => current.filter((entry) => entry.id !== surface.id))}>×</button></div>
+            <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}(u,v) = <input aria-label={`Parametric surface ${index + 1} ${axis} expression`} value={surface[axis]} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, [axis]: event.target.value } : entry))} /></label>)}</div>
+            <div className="parametric-surface-domain">
+              <label>u min <input type="number" step="0.1" value={surface.uMin} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, uMin: Number(event.target.value) } : entry))} /></label>
+              <label>u max <input type="number" step="0.1" value={surface.uMax} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, uMax: Number(event.target.value) } : entry))} /></label>
+              <label>v min <input type="number" step="0.1" value={surface.vMin} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, vMin: Number(event.target.value) } : entry))} /></label>
+              <label>v max <input type="number" step="0.1" value={surface.vMax} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, vMax: Number(event.target.value) } : entry))} /></label>
+            </div>
+            <div className="surface-style-row"><label>Color <input type="color" aria-label={`Parametric surface ${index + 1} color`} value={surface.color} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, color: event.target.value } : entry))} /></label><label>Opacity <input type="range" aria-label={`Parametric surface ${index + 1} opacity`} min="0.18" max="1" step="0.05" value={surface.opacity} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, opacity: Number(event.target.value) } : entry))} /></label></div>
+          </div>)}
+          <div className="graph-object-adders"><button type="button" onClick={() => setPoints3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: '1', y: '1', z: '1', color: GRAPH_COLORS[(surfaces.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Point</button><button type="button" onClick={() => setCurves3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: 'cos(t)', y: 'sin(t)', z: 't/3', tMin: -6.28, tMax: 6.28, color: GRAPH_COLORS[(surfaces.length + points3D.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Parametric curve</button><button type="button" onClick={() => setParametricSurfaces((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: '(2+cos(v))*cos(u)', y: '(2+cos(v))*sin(u)', z: 'sin(v)', uMin: 0, uMax: 6.28, vMin: 0, vMax: 6.28, color: GRAPH_COLORS[(surfaces.length + points3D.length + curves3D.length + current.length) % GRAPH_COLORS.length], visible: true, opacity: .62 }])}>+ Parametric surface</button></div>
         </section>
         <div className="surface-view-options">
           <label>Rendering<select aria-label="3D rendering style" value={renderMode} onChange={(event) => setRenderMode(event.target.value as SurfaceRenderMode)}><option value="solid">Solid + mesh</option><option value="mesh">Wire mesh</option><option value="contours">Contour mesh</option></select></label>
@@ -621,7 +791,10 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           <label><input type="checkbox" checked={showAxes} onChange={(event) => setShowAxes(event.target.checked)} /> Axes</label>
           <label><input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} /> Ground grid</label>
           <label><input type="checkbox" checked={showSurfaceIntersections} onChange={(event) => setShowSurfaceIntersections(event.target.checked)} /> Surface intersections</label>
+          <label><input type="checkbox" checked={lockRotation} onChange={(event) => setLockRotation(event.target.checked)} /> Lock rotation</label>
+          <label><input type="checkbox" checked={lockZoom} onChange={(event) => setLockZoom(event.target.checked)} /> Lock zoom</label>
         </div>
+        <label className="graph-slider">Perspective {Math.round(perspectiveStrength * 100)}%<input type="range" min="0" max="1" step="0.05" disabled={projection === 'orthographic'} value={perspectiveStrength} onChange={(event) => setPerspectiveStrength(Number(event.target.value))} /></label>
         <label className="graph-slider">Domain ±{domain}<input type="range" min="2" max="12" step="1" value={domain} onChange={(event) => setDomain(Number(event.target.value))} /></label>
         <label className="graph-slider">Mesh {resolution}×{resolution}<input type="range" min="17" max="45" step="2" value={resolution} onChange={(event) => setResolution(Number(event.target.value))} /></label>
         <div className="surface-presets" aria-label="3D camera presets">
@@ -630,12 +803,12 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           <button type="button" onClick={() => setCameraPreset('front')}>Front</button>
           <button type="button" onClick={() => setCameraPreset('side')}>Side</button>
         </div>
-        <p>Drag to orbit · wheel to zoom · hover to inspect coordinates</p>
+        <p>Drag to orbit · wheel to zoom · hover to inspect · restrict explicit/implicit expressions with {'{x>-2}{x<2}'}</p>
       </aside>
       <div className="graph-stage">
         <div className="graph-controls" aria-label="3D graph view controls">
-          <button type="button" aria-label="Zoom 3D view in" onClick={() => setCamera((view) => ({ ...view, zoom: Math.min(2.6, view.zoom * 1.2) }))}>+</button>
-          <button type="button" aria-label="Zoom 3D view out" onClick={() => setCamera((view) => ({ ...view, zoom: Math.max(.45, view.zoom / 1.2) }))}>−</button>
+          <button type="button" aria-label="Zoom 3D view in" disabled={lockZoom} onClick={() => setCamera((view) => ({ ...view, zoom: Math.min(2.6, view.zoom * 1.2) }))}>+</button>
+          <button type="button" aria-label="Zoom 3D view out" disabled={lockZoom} onClick={() => setCamera((view) => ({ ...view, zoom: Math.max(.45, view.zoom / 1.2) }))}>−</button>
           <button type="button" aria-label="Reset 3D view" onClick={() => setCameraPreset('iso')}>⌂</button>
         </div>
         <canvas
@@ -644,6 +817,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           height={500}
           aria-label="Interactive 3D graph"
           onPointerDown={(event) => {
+            if (lockRotation) return;
             event.currentTarget.setPointerCapture(event.pointerId);
             dragRef.current = { x: event.clientX, y: event.clientY, yaw: camera.yaw, pitch: camera.pitch };
           }}
@@ -675,6 +849,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           onDoubleClick={() => setCameraPreset('iso')}
           onWheel={(event) => {
             event.preventDefault();
+            if (lockZoom) return;
             setCamera((view) => ({ ...view, zoom: Math.max(.45, Math.min(2.6, view.zoom * Math.exp(-event.deltaY * .0015))) }));
           }}
         />
@@ -685,24 +860,39 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   );
 }
 
-interface GeometryPoint { id: number; x: number; y: number; label: string }
-type GeometryTool = 'move' | 'point' | 'segment' | 'line' | 'ray' | 'circle' | 'polygon' | 'angle' | 'delete';
-type LinearGeometryObject = { id: number; type: 'segment' | 'line' | 'ray'; points: [number, number] };
+type GeometryConstraint =
+  | { type: 'midpoint'; sources: [number, number] }
+  | { type: 'parallel-guide'; sources: [number, number]; through: number; length: number }
+  | { type: 'perpendicular-guide'; sources: [number, number]; through: number; length: number }
+  | { type: 'compass-edge'; sources: [number, number]; center: number }
+  | { type: 'translate'; source: number; dx: number; dy: number }
+  | { type: 'rotate'; source: number; angle: number }
+  | { type: 'dilate'; source: number; scale: number }
+  | { type: 'reflect'; source: number; axis: 'x' | 'y' };
+interface GeometryPoint { id: number; x: number; y: number; label: string; constraint?: GeometryConstraint }
+type GeometryTool = 'move' | 'point' | 'segment' | 'vector' | 'line' | 'ray' | 'circle' | 'polygon' | 'angle' | 'midpoint' | 'parallel' | 'perpendicular' | 'compass' | 'delete';
+interface GeometryObjectStyle { visible?: boolean; color?: string; label?: string }
+type LinearGeometryObject = GeometryObjectStyle & { id: number; type: 'segment' | 'vector' | 'line' | 'ray'; points: [number, number] };
 type GeometryObject =
   | LinearGeometryObject
-  | { id: number; type: 'circle'; points: [number, number] }
-  | { id: number; type: 'polygon'; points: number[] }
-  | { id: number; type: 'angle'; points: [number, number, number] };
+  | (GeometryObjectStyle & { id: number; type: 'circle'; points: [number, number] })
+  | (GeometryObjectStyle & { id: number; type: 'polygon'; points: number[] })
+  | (GeometryObjectStyle & { id: number; type: 'angle'; points: [number, number, number] });
 
 const GEOMETRY_TOOLS: Array<{ id: GeometryTool; label: string; symbol: string }> = [
   { id: 'move', label: 'Move points and pan', symbol: '↖' },
   { id: 'point', label: 'Add point', symbol: '•' },
   { id: 'segment', label: 'Construct segment', symbol: '╱' },
+  { id: 'vector', label: 'Construct vector', symbol: '↗' },
   { id: 'line', label: 'Construct line', symbol: '↔' },
   { id: 'ray', label: 'Construct ray', symbol: '→' },
   { id: 'circle', label: 'Construct circle', symbol: '○' },
   { id: 'polygon', label: 'Construct polygon', symbol: '△' },
   { id: 'angle', label: 'Measure angle', symbol: '∠' },
+  { id: 'midpoint', label: 'Construct midpoint', symbol: '⊙' },
+  { id: 'parallel', label: 'Construct parallel line', symbol: '∥' },
+  { id: 'perpendicular', label: 'Construct perpendicular line', symbol: '⊥' },
+  { id: 'compass', label: 'Copy radius with compass', symbol: '◉' },
   { id: 'delete', label: 'Delete object or point', symbol: '⌫' },
 ];
 
@@ -715,7 +905,14 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const [snap, setSnap] = usePersistentResearchState(`${storagePrefix}:geometry:snap`, true);
   const [showMeasurements, setShowMeasurements] = usePersistentResearchState(`${storagePrefix}:geometry:measurements`, true);
   const [showIntersections, setShowIntersections] = usePersistentResearchState(`${storagePrefix}:geometry:intersections`, true);
-  const [selectedObjectId, setSelectedObjectId] = useState<number | null>(null);
+  const [showGrid, setShowGrid] = usePersistentResearchState(`${storagePrefix}:geometry:grid`, true);
+  const [showAxes, setShowAxes] = usePersistentResearchState(`${storagePrefix}:geometry:axes`, true);
+  const [lockViewport, setLockViewport] = usePersistentResearchState(`${storagePrefix}:geometry:lock-viewport`, false);
+  const [angleUnit, setAngleUnit] = usePersistentResearchState<'degrees' | 'radians'>(`${storagePrefix}:geometry:angle-unit`, 'degrees');
+  const [selectedObjectIds, setSelectedObjectIds] = useState<number[]>([]);
+  const [constructionCommand, setConstructionCommand] = useState('');
+  const [commandError, setCommandError] = useState('');
+  const [transform, setTransform] = useState({ dx: 2, dy: 1, angle: 90, scale: 2 });
   const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const nextPointIdRef = useRef(Math.max(0, ...points.map((point) => point.id)) + 1);
@@ -725,6 +922,49 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     | { kind: 'pan'; x: number; y: number; centerX: number; centerY: number }
     | null
   >(null);
+
+  useEffect(() => {
+    setPoints((current) => {
+      let next = current.map((point) => ({ ...point }));
+      let changed = false;
+      for (let pass = 0; pass < Math.max(1, current.length); pass += 1) {
+        let passChanged = false;
+        const byId = new Map(next.map((point) => [point.id, point]));
+        next = next.map((point) => {
+          const constraint = point.constraint;
+          if (!constraint) return point;
+          let coordinate: { x: number; y: number } | null = null;
+          if (constraint.type === 'midpoint') {
+            const first = byId.get(constraint.sources[0]); const last = byId.get(constraint.sources[1]);
+            if (first && last) coordinate = geometryMidpoint(first, last);
+          } else if (constraint.type === 'parallel-guide' || constraint.type === 'perpendicular-guide') {
+            const first = byId.get(constraint.sources[0]); const last = byId.get(constraint.sources[1]); const through = byId.get(constraint.through);
+            if (first && last && through) {
+              const dx = last.x - first.x; const dy = last.y - first.y; const length = Math.hypot(dx, dy) || 1;
+              const direction = constraint.type === 'parallel-guide' ? { x: dx / length, y: dy / length } : { x: -dy / length, y: dx / length };
+              coordinate = { x: through.x + direction.x * constraint.length, y: through.y + direction.y * constraint.length };
+            }
+          } else if (constraint.type === 'compass-edge') {
+            const first = byId.get(constraint.sources[0]); const last = byId.get(constraint.sources[1]); const center = byId.get(constraint.center);
+            if (first && last && center) coordinate = { x: center.x + geometryDistance(first, last), y: center.y };
+          } else {
+            const source = byId.get(constraint.source);
+            if (source) {
+              if (constraint.type === 'translate') coordinate = translateCoordinate(source, constraint.dx, constraint.dy);
+              else if (constraint.type === 'rotate') coordinate = rotateCoordinate(source, { x: 0, y: 0 }, constraint.angle);
+              else if (constraint.type === 'dilate') coordinate = dilateCoordinate(source, { x: 0, y: 0 }, constraint.scale);
+              else coordinate = reflectCoordinate(source, constraint.axis);
+            }
+          }
+          if (!coordinate || (Math.abs(coordinate.x - point.x) < 1e-9 && Math.abs(coordinate.y - point.y) < 1e-9)) return point;
+          passChanged = true; changed = true;
+          return { ...point, ...coordinate };
+        });
+        if (!passChanged) break;
+      }
+      return changed ? next : current;
+    });
+  }, [points, setPoints]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -745,19 +985,23 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     context.textBaseline = 'top';
     for (let x = Math.ceil(worldLeft / step) * step; x <= worldRight; x += step) {
       const px = screenX(x);
-      context.strokeStyle = Math.abs(x) < step / 100 ? '#8a857b' : '#dedad1';
-      context.lineWidth = Math.abs(x) < step / 100 ? 1.5 : 1;
+      const axis = Math.abs(x) < step / 100;
+      if (!showGrid && !(showAxes && axis)) continue;
+      context.strokeStyle = axis ? '#8a857b' : '#dedad1';
+      context.lineWidth = axis ? 1.5 : 1;
       context.beginPath(); context.moveTo(px, 0); context.lineTo(px, canvas.height); context.stroke();
-      if (Math.abs(x) > step / 100) { context.fillStyle = '#8a857b'; context.fillText(Number(x.toPrecision(4)).toString(), px, Math.max(3, Math.min(canvas.height - 15, screenY(0) + 4))); }
+      if (showAxes && !axis) { context.fillStyle = '#8a857b'; context.fillText(Number(x.toPrecision(4)).toString(), px, Math.max(3, Math.min(canvas.height - 15, screenY(0) + 4))); }
     }
     context.textAlign = 'left';
     context.textBaseline = 'middle';
     for (let y = Math.ceil(worldBottom / step) * step; y <= worldTop; y += step) {
       const py = screenY(y);
-      context.strokeStyle = Math.abs(y) < step / 100 ? '#8a857b' : '#dedad1';
-      context.lineWidth = Math.abs(y) < step / 100 ? 1.5 : 1;
+      const axis = Math.abs(y) < step / 100;
+      if (!showGrid && !(showAxes && axis)) continue;
+      context.strokeStyle = axis ? '#8a857b' : '#dedad1';
+      context.lineWidth = axis ? 1.5 : 1;
       context.beginPath(); context.moveTo(0, py); context.lineTo(canvas.width, py); context.stroke();
-      if (Math.abs(y) > step / 100) { context.fillStyle = '#8a857b'; context.fillText(Number(y.toPrecision(4)).toString(), Math.max(4, Math.min(canvas.width - 35, screenX(0) + 5)), py); }
+      if (showAxes && !axis) { context.fillStyle = '#8a857b'; context.fillText(Number(y.toPrecision(4)).toString(), Math.max(4, Math.min(canvas.width - 35, screenX(0) + 5)), py); }
     }
     const pointsById = new Map(points.map((point) => [point.id, point]));
     const getPoint = (id: number) => pointsById.get(id);
@@ -781,12 +1025,13 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       context.fillText(text, x, y);
     };
     for (const object of objects) {
-      const selected = object.id === selectedObjectId;
-      context.strokeStyle = selected ? '#c05c32' : '#9a482c';
+      if (object.visible === false) continue;
+      const selected = selectedObjectIds.includes(object.id);
+      context.strokeStyle = selected ? '#c05c32' : (object.color ?? '#9a482c');
       context.fillStyle = selected ? 'rgba(192,92,50,.13)' : 'rgba(154,72,44,.09)';
       context.lineWidth = selected ? 3 : 2;
       context.setLineDash([]);
-      if (object.type === 'segment' || object.type === 'line' || object.type === 'ray') {
+      if (object.type === 'segment' || object.type === 'vector' || object.type === 'line' || object.type === 'ray') {
         const first = getPoint(object.points[0]);
         const last = getPoint(object.points[1]);
         if (!first || !last) continue;
@@ -796,10 +1041,14 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
         context.beginPath();
         if (object.type === 'line') context.moveTo(ax - dx / length * 1400, ay - dy / length * 1400);
         else context.moveTo(ax, ay);
-        if (object.type === 'segment') context.lineTo(bx, by);
+        if (object.type === 'segment' || object.type === 'vector') context.lineTo(bx, by);
         else context.lineTo(bx + dx / length * 1400, by + dy / length * 1400);
         context.stroke();
-        if (object.type === 'segment') drawMeasurement(geometryDistance(first, last).toFixed(2), (ax + bx) / 2, (ay + by) / 2 - 11);
+        if (object.type === 'vector') {
+          const ux = dx / length; const uy = dy / length;
+          context.beginPath(); context.moveTo(bx, by); context.lineTo(bx - ux * 12 - uy * 6, by - uy * 12 + ux * 6); context.moveTo(bx, by); context.lineTo(bx - ux * 12 + uy * 6, by - uy * 12 - ux * 6); context.stroke();
+        }
+        if (object.type === 'segment' || object.type === 'vector') drawMeasurement(geometryDistance(first, last).toFixed(2), (ax + bx) / 2, (ay + by) / 2 - 11);
       } else if (object.type === 'circle') {
         const center = getPoint(object.points[0]);
         const edge = getPoint(object.points[1]);
@@ -820,12 +1069,13 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
         if (!first || !vertex || !last) continue;
         const vx = screenX(vertex.x); const vy = screenY(vertex.y);
         context.beginPath(); context.moveTo(vx, vy); context.lineTo(screenX(first.x), screenY(first.y)); context.moveTo(vx, vy); context.lineTo(screenX(last.x), screenY(last.y)); context.stroke();
-        drawMeasurement(`${angleDegrees(first, vertex, last).toFixed(1)}°`, vx + 27, vy - 20);
+        const angle = angleDegrees(first, vertex, last);
+        drawMeasurement(angleUnit === 'degrees' ? `${angle.toFixed(1)}°` : `${(angle * Math.PI / 180).toFixed(3)} rad`, vx + 27, vy - 20);
       }
     }
     if (showIntersections) {
       const linearObjects = objects.filter((object): object is LinearGeometryObject => (
-        object.type === 'segment' || object.type === 'line' || object.type === 'ray'
+        object.visible !== false && (object.type === 'segment' || object.type === 'vector' || object.type === 'line' || object.type === 'ray')
       ));
       const parameterOn = (point: { x: number; y: number }, start: GeometryPoint, end: GeometryPoint) => {
         const dx = end.x - start.x;
@@ -835,6 +1085,12 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       const accepts = (object: typeof linearObjects[number], parameter: number) => (
         object.type === 'line' || (object.type === 'ray' ? parameter >= -1e-7 : parameter >= -1e-7 && parameter <= 1 + 1e-7)
       );
+      const drawIntersection = (intersection: { x: number; y: number }) => {
+        const x = screenX(intersection.x); const y = screenY(intersection.y);
+        context.fillStyle = '#8e5aa4'; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
+        context.beginPath(); context.arc(x, y, 5, 0, Math.PI * 2); context.fill(); context.stroke();
+        drawMeasurement(`(${intersection.x.toFixed(2)}, ${intersection.y.toFixed(2)})`, x, y + 15);
+      };
       for (let firstIndex = 0; firstIndex < linearObjects.length; firstIndex += 1) {
         for (let lastIndex = firstIndex + 1; lastIndex < linearObjects.length; lastIndex += 1) {
           const firstObject = linearObjects[firstIndex];
@@ -844,10 +1100,28 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           if (!firstStart || !firstEnd || !lastStart || !lastEnd) continue;
           const intersection = lineIntersection(firstStart, firstEnd, lastStart, lastEnd);
           if (!intersection || !accepts(firstObject, parameterOn(intersection, firstStart, firstEnd)) || !accepts(lastObject, parameterOn(intersection, lastStart, lastEnd))) continue;
-          const x = screenX(intersection.x); const y = screenY(intersection.y);
-          context.fillStyle = '#8e5aa4'; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
-          context.beginPath(); context.arc(x, y, 5, 0, Math.PI * 2); context.fill(); context.stroke();
-          drawMeasurement(`(${intersection.x.toFixed(2)}, ${intersection.y.toFixed(2)})`, x, y + 15);
+          drawIntersection(intersection);
+        }
+      }
+      const circleObjects = objects.filter((object): object is Extract<GeometryObject, { type: 'circle' }> => object.type === 'circle' && object.visible !== false);
+      for (const line of linearObjects) {
+        const start = getPoint(line.points[0]); const end = getPoint(line.points[1]);
+        if (!start || !end) continue;
+        for (const circle of circleObjects) {
+          const center = getPoint(circle.points[0]); const edge = getPoint(circle.points[1]);
+          if (!center || !edge) continue;
+          lineCircleIntersections(start, end, center, geometryDistance(center, edge))
+            .filter((intersection) => accepts(line, parameterOn(intersection, start, end)))
+            .forEach(drawIntersection);
+        }
+      }
+      for (let firstIndex = 0; firstIndex < circleObjects.length; firstIndex += 1) {
+        for (let lastIndex = firstIndex + 1; lastIndex < circleObjects.length; lastIndex += 1) {
+          const first = circleObjects[firstIndex]; const last = circleObjects[lastIndex];
+          const firstCenter = getPoint(first.points[0]); const firstEdge = getPoint(first.points[1]);
+          const lastCenter = getPoint(last.points[0]); const lastEdge = getPoint(last.points[1]);
+          if (!firstCenter || !firstEdge || !lastCenter || !lastEdge) continue;
+          circleCircleIntersections(firstCenter, geometryDistance(firstCenter, firstEdge), lastCenter, geometryDistance(lastCenter, lastEdge)).forEach(drawIntersection);
         }
       }
     }
@@ -867,14 +1141,14 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       context.fillStyle = '#292821'; context.font = 'bold 11px ui-monospace, monospace'; context.textAlign = 'left'; context.textBaseline = 'bottom';
       context.fillText(point.label, screenX(point.x) + 7, screenY(point.y) - 6);
     });
-  }, [hoverPoint, objects, pendingPointIds, points, selectedObjectId, showIntersections, showMeasurements, viewport]);
+  }, [angleUnit, hoverPoint, objects, pendingPointIds, points, selectedObjectIds, showAxes, showGrid, showIntersections, showMeasurements, viewport]);
 
   const pointById = (id: number) => points.find((point) => point.id === id);
   const objectDescription = (object: GeometryObject) => {
     const labels = object.points.map((id) => pointById(id)?.label ?? '?').join('');
-    if (object.type === 'segment') {
+    if (object.type === 'segment' || object.type === 'vector') {
       const first = pointById(object.points[0]); const last = pointById(object.points[1]);
-      return `Segment ${labels}${first && last ? ` · ${geometryDistance(first, last).toFixed(2)}` : ''}`;
+      return `${object.type === 'vector' ? 'Vector' : 'Segment'} ${labels}${first && last ? ` · ${geometryDistance(first, last).toFixed(2)}` : ''}`;
     }
     if (object.type === 'circle') {
       const center = pointById(object.points[0]); const edge = pointById(object.points[1]);
@@ -898,9 +1172,83 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   };
 
   const deletePoint = (pointId: number) => {
-    setPoints((current) => current.filter((point) => point.id !== pointId));
-    setObjects((current) => current.filter((object) => !object.points.includes(pointId)));
-    setPendingPointIds((current) => current.filter((id) => id !== pointId));
+    const removed = new Set([pointId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      points.forEach((point) => {
+        const constraint = point.constraint;
+        if (!constraint || removed.has(point.id)) return;
+        const dependencies = constraint.type === 'midpoint'
+          ? constraint.sources
+          : constraint.type === 'parallel-guide' || constraint.type === 'perpendicular-guide'
+            ? [...constraint.sources, constraint.through]
+            : constraint.type === 'compass-edge'
+              ? [...constraint.sources, constraint.center]
+              : [constraint.source];
+        if (dependencies.some((id) => removed.has(id))) { removed.add(point.id); changed = true; }
+      });
+    }
+    setPoints((current) => current.filter((point) => !removed.has(point.id)));
+    setObjects((current) => current.filter((object) => !object.points.some((id) => removed.has(id))));
+    setPendingPointIds((current) => current.filter((id) => !removed.has(id)));
+  };
+
+  const addPointAt = (coordinate: { x: number; y: number }, constraint?: GeometryConstraint) => {
+    const id = nextPointIdRef.current++;
+    const point = { id, ...coordinate, label: geometryPointLabel(id - 1), constraint };
+    setPoints((current) => [...current, point]);
+    return point;
+  };
+
+  const transformSelected = (
+    transformPoint: (point: GeometryPoint) => { x: number; y: number },
+    constraintFor: (sourceId: number) => GeometryConstraint,
+  ) => {
+    const selectedObjects = objects.filter((object) => selectedObjectIds.includes(object.id));
+    if (!selectedObjects.length) return;
+    const sourcePointIds = [...new Set(selectedObjects.flatMap((object) => object.points))];
+    const pointMap = new Map<number, number>();
+    const createdPoints: GeometryPoint[] = [];
+    sourcePointIds.forEach((pointId) => {
+      const source = pointById(pointId);
+      if (!source) return;
+      const id = nextPointIdRef.current++;
+      pointMap.set(pointId, id);
+      createdPoints.push({ id, ...transformPoint(source), label: geometryPointLabel(id - 1), constraint: constraintFor(source.id) });
+    });
+    const createdObjects = selectedObjects.map((object) => ({
+      ...object,
+      id: nextObjectIdRef.current++,
+      points: object.points.map((pointId) => pointMap.get(pointId) ?? pointId),
+      label: object.label ? `${object.label}′` : undefined,
+    } as GeometryObject));
+    setPoints((current) => [...current, ...createdPoints]);
+    setObjects((current) => [...current, ...createdObjects]);
+    setSelectedObjectIds(createdObjects.map((object) => object.id));
+  };
+
+  const executeConstructionCommand = () => {
+    const command = constructionCommand.trim();
+    const pointForLabel = (label: string) => points.find((point) => point.label.toLowerCase() === label.trim().toLowerCase());
+    const match = command.match(/^([a-z]+)\s*\((.*)\)$/i);
+    if (!match) { setCommandError('Use point(2,3), segment(A,B), midpoint(A,B), line(A,B), circle(A,B), or polygon(A,B,C).'); return; }
+    const operation = match[1].toLowerCase();
+    const args = match[2].split(',').map((part) => part.trim()).filter(Boolean);
+    if (operation === 'point' && args.length === 2 && args.every((value) => Number.isFinite(Number(value)))) {
+      addPointAt({ x: Number(args[0]), y: Number(args[1]) }); setCommandError(''); setConstructionCommand(''); return;
+    }
+    const resolved = args.map(pointForLabel);
+    if (resolved.some((point) => !point)) { setCommandError('One or more point labels do not exist. Create the points first.'); return; }
+    const ids = resolved.map((point) => point!.id);
+    if (operation === 'midpoint' && resolved.length === 2) {
+      addPointAt(geometryMidpoint(resolved[0]!, resolved[1]!), { type: 'midpoint', sources: [resolved[0]!.id, resolved[1]!.id] }); setCommandError(''); setConstructionCommand(''); return;
+    }
+    const validType = ['segment', 'vector', 'line', 'ray', 'circle', 'polygon', 'angle'].includes(operation);
+    const validCount = operation === 'polygon' ? ids.length >= 3 : operation === 'angle' ? ids.length === 3 : ids.length === 2;
+    if (!validType || !validCount) { setCommandError('That construction or number of point labels is not supported.'); return; }
+    setObjects((current) => [...current, { id: nextObjectIdRef.current++, type: operation, points: ids } as GeometryObject]);
+    setCommandError(''); setConstructionCommand('');
   };
 
   return (
@@ -912,19 +1260,46 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
         </div>
         <div className="geometry-options">
           <label><input type="checkbox" checked={snap} onChange={(event) => setSnap(event.target.checked)} /> Snap to grid</label>
+          <label><input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} /> Grid</label>
+          <label><input type="checkbox" checked={showAxes} onChange={(event) => setShowAxes(event.target.checked)} /> Axes & numbers</label>
           <label><input type="checkbox" checked={showMeasurements} onChange={(event) => setShowMeasurements(event.target.checked)} /> Measurements</label>
           <label><input type="checkbox" checked={showIntersections} onChange={(event) => setShowIntersections(event.target.checked)} /> Intersections</label>
+          <label><input type="checkbox" checked={lockViewport} onChange={(event) => setLockViewport(event.target.checked)} /> Lock viewport</label>
+          <label>Angles <select aria-label="Geometry angle unit" value={angleUnit} onChange={(event) => setAngleUnit(event.target.value as 'degrees' | 'radians')}><option value="degrees">Degrees</option><option value="radians">Radians</option></select></label>
+        </div>
+        <div className="geometry-command">
+          <label>Construction expression<input aria-label="Geometry construction expression" placeholder="segment(A,B)" value={constructionCommand} onChange={(event) => setConstructionCommand(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') executeConstructionCommand(); }} /></label>
+          <button type="button" onClick={executeConstructionCommand}>Add</button>
+          {commandError && <p>{commandError}</p>}
         </div>
         {tool === 'polygon' && pendingPointIds.length > 0 && <button type="button" className="geometry-finish" disabled={pendingPointIds.length < 3} onClick={finishPolygon}>Finish polygon ({pendingPointIds.length})</button>}
         {pendingPointIds.length > 0 && <p className="geometry-instruction">Selected {pendingPointIds.map((id) => pointById(id)?.label).join(' → ')}. Choose the next point.</p>}
         <div className="geometry-object-list" aria-label="Geometry objects">
           <strong>Objects</strong>
           {!objects.length && <p>Choose a tool, then construct directly on the coordinate plane.</p>}
-          {objects.map((object) => <button type="button" key={object.id} className={selectedObjectId === object.id ? 'is-selected' : ''} onClick={() => setSelectedObjectId(object.id)}>{objectDescription(object)}</button>)}
+          {objects.map((object) => <button type="button" key={object.id} className={selectedObjectIds.includes(object.id) ? 'is-selected' : ''} aria-pressed={selectedObjectIds.includes(object.id)} onClick={(event) => setSelectedObjectIds((current) => event.shiftKey ? (current.includes(object.id) ? current.filter((id) => id !== object.id) : [...current, object.id]) : [object.id])}>{object.visible === false ? 'Hidden · ' : ''}{objectDescription(object)}</button>)}
         </div>
+        {selectedObjectIds.length > 0 && <section className="geometry-selection-panel" aria-label="Selected geometry controls">
+          <header><strong>{selectedObjectIds.length} selected</strong><button type="button" onClick={() => setSelectedObjectIds([])}>Clear</button></header>
+          <div className="geometry-selection-style">
+            <label>Color <input type="color" aria-label="Selected geometry color" value={objects.find((object) => selectedObjectIds.includes(object.id))?.color ?? '#9a482c'} onChange={(event) => setObjects((current) => current.map((object) => selectedObjectIds.includes(object.id) ? { ...object, color: event.target.value } : object))} /></label>
+            <button type="button" onClick={() => setObjects((current) => current.map((object) => selectedObjectIds.includes(object.id) ? { ...object, visible: object.visible === false } : object))}>{objects.filter((object) => selectedObjectIds.includes(object.id)).every((object) => object.visible === false) ? 'Show' : 'Hide'}</button>
+          </div>
+          <div className="geometry-transform-grid">
+            <label>dx <input type="number" step="0.25" value={transform.dx} onChange={(event) => setTransform((current) => ({ ...current, dx: Number(event.target.value) }))} /></label>
+            <label>dy <input type="number" step="0.25" value={transform.dy} onChange={(event) => setTransform((current) => ({ ...current, dy: Number(event.target.value) }))} /></label>
+            <button type="button" onClick={() => transformSelected((point) => translateCoordinate(point, transform.dx, transform.dy), (source) => ({ type: 'translate', source, dx: transform.dx, dy: transform.dy }))}>Translate copy</button>
+            <label>angle <input type="number" step="1" value={transform.angle} onChange={(event) => setTransform((current) => ({ ...current, angle: Number(event.target.value) }))} /></label>
+            <button type="button" onClick={() => transformSelected((point) => rotateCoordinate(point, { x: 0, y: 0 }, transform.angle), (source) => ({ type: 'rotate', source, angle: transform.angle }))}>Rotate copy</button>
+            <label>scale <input type="number" step="0.1" value={transform.scale} onChange={(event) => setTransform((current) => ({ ...current, scale: Number(event.target.value) }))} /></label>
+            <button type="button" onClick={() => transformSelected((point) => dilateCoordinate(point, { x: 0, y: 0 }, transform.scale), (source) => ({ type: 'dilate', source, scale: transform.scale }))}>Dilate copy</button>
+            <button type="button" onClick={() => transformSelected((point) => reflectCoordinate(point, 'x'), (source) => ({ type: 'reflect', source, axis: 'x' }))}>Reflect x</button>
+            <button type="button" onClick={() => transformSelected((point) => reflectCoordinate(point, 'y'), (source) => ({ type: 'reflect', source, axis: 'y' }))}>Reflect y</button>
+          </div>
+        </section>}
         <div className="geometry-point-list" aria-label="Editable geometry points">
           <strong>Points</strong>
-          {points.map((point) => <div key={point.id}><b>{point.label}</b><label>x <input type="number" step="0.25" aria-label={`Point ${point.label} x coordinate`} value={Number(point.x.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, x: Number(event.target.value) } : entry))} /></label><label>y <input type="number" step="0.25" aria-label={`Point ${point.label} y coordinate`} value={Number(point.y.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, y: Number(event.target.value) } : entry))} /></label></div>)}
+          {points.map((point) => <div key={point.id} title={point.constraint ? `Constrained: ${point.constraint.type}` : 'Free point'}><b>{point.label}{point.constraint ? '◇' : ''}</b><label>x <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} x coordinate`} value={Number(point.x.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, x: Number(event.target.value) } : entry))} /></label><label>y <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} y coordinate`} value={Number(point.y.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, y: Number(event.target.value) } : entry))} /></label></div>)}
         </div>
         <div className="geometry-history-actions">
           <button type="button" disabled={!pendingPointIds.length && !objects.length && !points.length} onClick={() => {
@@ -932,14 +1307,14 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             else if (objects.length) setObjects((current) => current.slice(0, -1));
             else setPoints((current) => current.slice(0, -1));
           }}>Undo</button>
-          <button type="button" disabled={selectedObjectId === null} onClick={() => { setObjects((current) => current.filter((object) => object.id !== selectedObjectId)); setSelectedObjectId(null); }}>Delete selected</button>
-          <button type="button" disabled={!points.length && !objects.length} onClick={() => { setPoints([]); setObjects([]); setPendingPointIds([]); setSelectedObjectId(null); nextPointIdRef.current = 1; nextObjectIdRef.current = 1; }}>Clear all</button>
+          <button type="button" disabled={!selectedObjectIds.length} onClick={() => { setObjects((current) => current.filter((object) => !selectedObjectIds.includes(object.id))); setSelectedObjectIds([]); }}>Delete selected</button>
+          <button type="button" disabled={!points.length && !objects.length} onClick={() => { setPoints([]); setObjects([]); setPendingPointIds([]); setSelectedObjectIds([]); nextPointIdRef.current = 1; nextObjectIdRef.current = 1; }}>Clear all</button>
         </div>
       </aside>
       <div className="geometry-stage">
         <div className="graph-controls" aria-label="Geometry view controls">
-          <button type="button" aria-label="Zoom geometry in" onClick={() => setViewport((view) => ({ ...view, scale: Math.min(180, view.scale * 1.25) }))}>+</button>
-          <button type="button" aria-label="Zoom geometry out" onClick={() => setViewport((view) => ({ ...view, scale: Math.max(16, view.scale / 1.25) }))}>−</button>
+          <button type="button" aria-label="Zoom geometry in" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.min(180, view.scale * 1.25) }))}>+</button>
+          <button type="button" aria-label="Zoom geometry out" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.max(16, view.scale / 1.25) }))}>−</button>
           <button type="button" aria-label="Reset geometry view" onClick={() => setViewport({ centerX: 0, centerY: 0, scale: 42 })}>⌂</button>
         </div>
         <canvas
@@ -961,6 +1336,8 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             const snapped = snap ? { x: Math.round(world.x / snapStep) * snapStep, y: Math.round(world.y / snapStep) * snapStep } : world;
             const hit = points.find((point) => Math.hypot((point.x - world.x) * viewport.scale, (point.y - world.y) * viewport.scale) <= 10);
             if (tool === 'move') {
+              if (hit?.constraint) return;
+              if (lockViewport && !hit) return;
               canvas.setPointerCapture(event.pointerId);
               dragRef.current = hit
                 ? { kind: 'point', pointId: hit.id }
@@ -980,14 +1357,14 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
               };
               const hitObject = [...objects].reverse().find((object) => {
                 const vertices = object.points.map(pointById).filter((entry): entry is GeometryPoint => Boolean(entry));
-                if (object.type === 'segment' || object.type === 'line' || object.type === 'ray') return vertices.length === 2 && distanceToPath(vertices[0], vertices[1], object.type) <= threshold;
+                if (object.type === 'segment' || object.type === 'vector' || object.type === 'line' || object.type === 'ray') return vertices.length === 2 && distanceToPath(vertices[0], vertices[1], object.type === 'vector' ? 'segment' : object.type) <= threshold;
                 if (object.type === 'circle') return vertices.length === 2 && Math.abs(geometryDistance(vertices[0], world) - geometryDistance(vertices[0], vertices[1])) <= threshold;
                 if (object.type === 'angle') return vertices.length === 3 && (distanceToPath(vertices[1], vertices[0], 'segment') <= threshold || distanceToPath(vertices[1], vertices[2], 'segment') <= threshold);
                 return vertices.some((vertex, index) => distanceToPath(vertex, vertices[(index + 1) % vertices.length], 'segment') <= threshold);
               });
               if (hitObject) {
                 setObjects((current) => current.filter((object) => object.id !== hitObject.id));
-                if (selectedObjectId === hitObject.id) setSelectedObjectId(null);
+                setSelectedObjectIds((current) => current.filter((id) => id !== hitObject.id));
               }
               return;
             }
@@ -1000,10 +1377,34 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             if (tool === 'point') return;
             if (tool === 'polygon' && pendingPointIds.length >= 3 && point.id === pendingPointIds[0]) { finishPolygon(); return; }
             if (pendingPointIds.includes(point.id)) return;
-            const needed = tool === 'angle' ? 3 : 2;
+            const needed = tool === 'angle' || tool === 'parallel' || tool === 'perpendicular' || tool === 'compass' ? 3 : 2;
             const nextPending = [...pendingPointIds, point.id];
             if (tool === 'polygon') { if (!pendingPointIds.includes(point.id)) setPendingPointIds(nextPending); return; }
             if (nextPending.length < needed) { setPendingPointIds(nextPending); return; }
+            const selectedPoints = nextPending.map((id) => id === point!.id ? point! : pointById(id)).filter((entry): entry is GeometryPoint => Boolean(entry));
+            if (tool === 'midpoint' && selectedPoints.length === 2) {
+              addPointAt(geometryMidpoint(selectedPoints[0], selectedPoints[1]), { type: 'midpoint', sources: [selectedPoints[0].id, selectedPoints[1].id] });
+              setPendingPointIds([]);
+              return;
+            }
+            if ((tool === 'parallel' || tool === 'perpendicular') && selectedPoints.length === 3) {
+              const [start, end, through] = selectedPoints;
+              const dx = end.x - start.x; const dy = end.y - start.y;
+              const length = Math.hypot(dx, dy) || 1;
+              const direction = tool === 'parallel' ? { x: dx / length, y: dy / length } : { x: -dy / length, y: dx / length };
+              const guide = addPointAt({ x: through.x + direction.x * 3, y: through.y + direction.y * 3 }, { type: tool === 'parallel' ? 'parallel-guide' : 'perpendicular-guide', sources: [start.id, end.id], through: through.id, length: 3 });
+              setObjects((current) => [...current, { id: nextObjectIdRef.current++, type: 'line', points: [through.id, guide.id] }]);
+              setPendingPointIds([]);
+              return;
+            }
+            if (tool === 'compass' && selectedPoints.length === 3) {
+              const radius = geometryDistance(selectedPoints[0], selectedPoints[1]);
+              const center = selectedPoints[2];
+              const edge = addPointAt({ x: center.x + radius, y: center.y }, { type: 'compass-edge', sources: [selectedPoints[0].id, selectedPoints[1].id], center: center.id });
+              setObjects((current) => [...current, { id: nextObjectIdRef.current++, type: 'circle', points: [center.id, edge.id] }]);
+              setPendingPointIds([]);
+              return;
+            }
             setObjects((current) => [...current, {
               id: nextObjectIdRef.current++,
               type: tool,
@@ -1042,6 +1443,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           onPointerLeave={() => { if (!dragRef.current) setHoverPoint(null); }}
           onWheel={(event) => {
             event.preventDefault();
+            if (lockViewport) return;
             const bounds = event.currentTarget.getBoundingClientRect();
             const px = (event.clientX - bounds.left) * event.currentTarget.width / bounds.width;
             const py = (event.clientY - bounds.top) * event.currentTarget.height / bounds.height;
@@ -1100,9 +1502,9 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     return () => window.removeEventListener('keydown', onEscape, true);
   }, [onClose, open]);
   const footer = tool === '3d'
-    ? 'Local interactive 3D: explicit surfaces, sliders, points, parametric curves, and sampled surface intersections. Implicit solids and symbolic intersection curves remain future work.'
+    ? 'Local interactive 3D: explicit, parametric, and sampled implicit surfaces; sliders, points, curves, traces, viewport locks, and sampled intersections.'
     : tool === 'geometry'
-      ? 'Local dynamic geometry: constructions, dragging, coordinates, measurements, and line intersections. Advanced loci and transformation tools remain future work.'
+      ? 'Local dynamic geometry: constructions, expressions, multi-select styling, transformations, dragging, measurements, and line/circle intersections.'
       : 'All calculations run locally. Verify research-critical results with the checked solver or AION.';
   return (
     <aside className="research-tools-panel" aria-label="Research mathematics tools" data-testid="research-tools-panel" hidden={!open}>

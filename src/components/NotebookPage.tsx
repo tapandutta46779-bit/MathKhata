@@ -61,11 +61,22 @@ export function NotebookPage({ page }: NotebookPageProps) {
       data-testid="notebook-page"
       style={{ width: page.width, height: page.height }}
       onPointerDown={(event) => {
-        if (event.target !== event.currentTarget) return;
+        if (event.target !== event.currentTarget) {
+          const target = event.target as HTMLElement;
+          const composer = target.closest('.continuous-line-composer');
+          const quietComposerSurface = composer && !target.closest('textarea, button, input, math-field');
+          const explicitToolInsertion = composer && (tool === 'math' || tool === 'text') && !target.closest('button, input, math-field');
+          if (!quietComposerSurface && !explicitToolInsertion) return;
+          if (explicitToolInsertion) event.preventDefault();
+        }
         activateAt(eventPoint(event));
       }}
       onDoubleClick={(event) => {
-        if (event.target !== event.currentTarget) return;
+        if (event.target !== event.currentTarget) {
+          const target = event.target as HTMLElement;
+          const quietComposerSurface = target.closest('.continuous-line-composer') && !target.closest('textarea, button, input, math-field');
+          if (!quietComposerSurface) return;
+        }
         activateAt(eventPoint(event), 'math');
       }}
     >

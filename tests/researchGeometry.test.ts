@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   angleDegrees,
+  circleCircleIntersections,
+  dilateCoordinate,
   geometryDistance,
+  geometryMidpoint,
   geometryPointLabel,
+  lineCircleIntersections,
   lineIntersection,
   polygonArea,
   polygonPerimeter,
+  reflectCoordinate,
+  rotateCoordinate,
+  translateCoordinate,
 } from '../src/research/geometry';
 
 describe('research geometry calculations', () => {
@@ -36,5 +43,25 @@ describe('research geometry calculations', () => {
     expect(geometryPointLabel(0)).toBe('A');
     expect(geometryPointLabel(25)).toBe('Z');
     expect(geometryPointLabel(26)).toBe('A1');
+  });
+
+  it('applies the construction transformations used by the geometry workspace', () => {
+    expect(geometryMidpoint({ x: -2, y: 4 }, { x: 4, y: 0 })).toEqual({ x: 1, y: 2 });
+    expect(translateCoordinate({ x: 1, y: 2 }, 3, -5)).toEqual({ x: 4, y: -3 });
+    const rotated = rotateCoordinate({ x: 2, y: 0 }, { x: 0, y: 0 }, 90);
+    expect(rotated.x).toBeCloseTo(0);
+    expect(rotated.y).toBeCloseTo(2);
+    expect(dilateCoordinate({ x: 2, y: 3 }, { x: 1, y: 1 }, 2)).toEqual({ x: 3, y: 5 });
+    expect(reflectCoordinate({ x: 2, y: -3 }, 'x')).toEqual({ x: 2, y: 3 });
+  });
+
+  it('finds line-circle and circle-circle intersections', () => {
+    expect(lineCircleIntersections(
+      { x: -3, y: 0 }, { x: 3, y: 0 }, { x: 0, y: 0 }, 2,
+    )).toEqual([{ x: -2, y: 0 }, { x: 2, y: 0 }]);
+    const intersections = circleCircleIntersections({ x: 0, y: 0 }, 2, { x: 2, y: 0 }, 2);
+    expect(intersections).toHaveLength(2);
+    expect(intersections[0].x).toBeCloseTo(1);
+    expect(Math.abs(intersections[0].y)).toBeCloseTo(Math.sqrt(3));
   });
 });

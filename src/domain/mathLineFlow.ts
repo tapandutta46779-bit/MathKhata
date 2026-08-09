@@ -1,7 +1,10 @@
 const AUTO_MULTILINE_START = '\\begin{multline}';
 const AUTO_MULTILINE_END = '\\end{multline}';
 
-export const DEFAULT_MATH_LINE_UNITS = 42;
+// The calculation rail occupies the right notebook margin when an expression
+// is eligible for evaluation. Wrap before that quiet rail so MathLive's menu
+// and keyboard toggles never cover the final terms of a handwritten line.
+export const DEFAULT_MATH_LINE_UNITS = 38;
 export const MAX_AUTOMATIC_MATH_LINES = 8;
 
 export interface MathLineLayout {

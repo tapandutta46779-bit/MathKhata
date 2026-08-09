@@ -247,9 +247,9 @@ test('paper-like lines offer a quiet calculation and an opt-in local solve', asy
   await page.keyboard.type('x^2=4');
   await page.getByRole('button', { name: /Solve equation/ }).click();
   await expect(page.getByText('Solve for x', { exact: true })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: 'Add on next line' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Add (?:on next line|result)/ })).toBeVisible();
   await page.screenshot({ path: 'docs/screenshots/07-local-assistant.png' });
-  await page.getByRole('button', { name: 'Add on next line' }).click();
+  await page.getByRole('button', { name: /Add (?:on next line|result)/ }).click();
   await expect(page.getByTestId('page-object-math')).toHaveCount(3);
   await expect.poll(async () =>
     Number.parseFloat(
@@ -586,13 +586,15 @@ test('long structured mathematics flows across ruled lines without hiding contro
     const toggles = [...(element.shadowRoot?.querySelectorAll('[part="menu-toggle"], [part="virtual-keyboard-toggle"]') ?? [])]
       .map((item) => item.getBoundingClientRect())
       .filter((rect) => rect.width > 0);
-    return !!content
-      && !!contentElement
-      && contentElement.scrollWidth <= contentElement.clientWidth + 1
-      && toggles.every((rect) => content.right <= rect.left + 0.5)
-      && (!calculationRail || toggles.every((rect) => rect.right <= calculationRail.left));
+    return {
+      contentFits: !!content && !!contentElement && contentElement.scrollWidth <= contentElement.clientWidth + 1,
+      controlsFollowContent: !!content && toggles.every((rect) => content.right <= rect.left + 0.5),
+      controlsClearRail: !calculationRail || toggles.every((rect) => rect.right <= calculationRail.left),
+      rightmostControl: Math.max(0, ...toggles.map((rect) => rect.right)),
+      railLeft: calculationRail?.left ?? null,
+    };
   });
-  expect(controlsClearContent).toBe(true);
+  expect(controlsClearContent).toEqual(expect.objectContaining({ contentFits: true, controlsFollowContent: true, controlsClearRail: true }));
   await expect(field.locator('[part~="menu-toggle"]')).toBeVisible();
   await expect(field.locator('[part~="virtual-keyboard-toggle"]')).toBeVisible();
 
@@ -631,7 +633,7 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await expect(research.getByLabel('Interactive 2D graph')).toBeVisible();
   await research.getByRole('button', { name: 'Zoom in' }).click();
   await research.getByRole('button', { name: '+ Add expression' }).click();
-  await expect(research.getByLabel('Expression 3')).toBeVisible();
+  await expect(research.getByRole('textbox', { name: 'Expression 3', exact: true })).toBeVisible();
   await research.getByRole('button', { name: '3D Surface' }).click();
   await expect(research.getByLabel('Interactive 3D graph')).toBeVisible();
   await expect(research.getByLabel('3D surface expression 1')).toHaveValue('a*sin(x)*cos(y)');
@@ -642,9 +644,17 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await expect(research.getByLabel('3D point 1 z coordinate')).toBeVisible();
   await research.getByRole('button', { name: '+ Parametric curve' }).click();
   await expect(research.getByLabel('3D curve 1 z expression')).toHaveValue('t/3');
+  await research.getByRole('button', { name: '+ Parametric surface' }).click();
+  await expect(research.getByLabel('Parametric surface 1 z expression')).toHaveValue('sin(v)');
+  await research.getByRole('button', { name: '+ Add implicit F(x,y,z)=0' }).click();
+  await expect(research.getByLabel('Implicit surface expression 1')).toHaveValue('x^2+y^2+z^2-9');
+  await research.getByLabel('3D surface expression 2').fill('x^2-y^2{x>-2}{x<2}');
   await research.getByLabel('3D rendering style').selectOption('mesh');
   await research.getByRole('button', { name: 'Zoom 3D view in' }).click();
-  await research.getByRole('button', { name: 'Geometry' }).click();
+  await research.getByLabel('Lock zoom').check();
+  await expect(research.getByRole('button', { name: 'Zoom 3D view in' })).toBeDisabled();
+  await research.getByLabel('Lock zoom').uncheck();
+  await research.getByRole('button', { name: 'Geometry', exact: true }).click();
   const geometryCanvas = research.getByLabel('Interactive geometry canvas');
   await expect(geometryCanvas).toBeVisible();
   await expect(research.getByRole('button', { name: 'Construct circle' })).toBeVisible();
@@ -653,11 +663,22 @@ test('continuous composer writes mixed ruled lines and research tools stay viewp
   await geometryCanvas.click({ position: { x: 310, y: 260 } });
   await expect(research.getByRole('button', { name: /Segment AB/ })).toBeVisible();
   await expect(research.getByLabel('Point A x coordinate')).toBeVisible();
+  await research.getByLabel('Geometry construction expression').fill('midpoint(A,B)');
+  await research.getByLabel('Geometry construction expression').press('Enter');
+  await expect(research.getByLabel('Point C x coordinate')).toBeVisible();
+  await research.getByLabel('Point A x coordinate').fill('0');
+  await research.getByLabel('Point B x coordinate').fill('4');
+  await expect(research.getByLabel('Point C x coordinate')).toHaveValue('2');
+  await research.getByRole('button', { name: /Segment AB/ }).click();
+  await expect(research.getByLabel('Selected geometry controls')).toBeVisible();
+  await research.getByRole('button', { name: 'Translate copy' }).click();
+  await expect(research.getByText('1 selected')).toBeVisible();
+  await expect(research.getByRole('button', { name: 'Construct perpendicular line' })).toBeVisible();
   await research.getByRole('button', { name: 'Move points and pan' }).click();
   await research.getByRole('button', { name: 'Zoom geometry in' }).click();
   await research.getByRole('button', { name: 'Close research tools' }).click();
   await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
-  await expect(research.getByRole('button', { name: 'Geometry' })).toHaveClass(/is-active/);
+  await expect(research.getByRole('button', { name: 'Geometry', exact: true })).toHaveClass(/is-active/);
   await expect(research.getByRole('button', { name: /Segment AB/ })).toBeVisible();
   await research.getByRole('button', { name: 'Scientific' }).click();
   await expect(research.getByText('Scientific expression')).toBeVisible();

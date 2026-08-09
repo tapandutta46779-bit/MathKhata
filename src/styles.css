@@ -295,6 +295,7 @@ math-field.continuous-line-preview {
 }
 
 .page-object { position: absolute; border: 0; background: transparent; }
+.notebook-page:has(.calculation-rail) .page-object--math { max-width: calc(100% - 425px); }
 .page-object.is-selected::before {
   position: absolute;
   top: 17px;
@@ -620,9 +621,9 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .graph-parameter .parameter-name { width: 35px; padding: 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 11px ui-monospace, monospace; }
 .graph-parameter output { text-align: right; font: 9px ui-monospace, monospace; }
 .graph-parameter > input[type="range"] { width: 100%; accent-color: var(--accent); }
-.parameter-range, .curve-domain { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-.parameter-range label, .curve-domain label { display: flex; align-items: center; gap: 3px; color: var(--muted); font-size: 7px; }
-.parameter-range input, .curve-domain input { min-width: 0; width: 100%; padding: 2px 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 8px ui-monospace, monospace; }
+.parameter-range, .curve-domain, .parametric-surface-domain { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.parameter-range label, .curve-domain label, .parametric-surface-domain label { display: flex; align-items: center; gap: 3px; color: var(--muted); font-size: 7px; }
+.parameter-range input, .curve-domain input, .parametric-surface-domain input { min-width: 0; width: 100%; padding: 2px 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 8px ui-monospace, monospace; }
 .graph-3d-object-card { display: grid; gap: 5px; padding: 6px; border-radius: 7px; background: #f3f0e8; }
 .graph-3d-object-title { display: grid; grid-template-columns: 15px 1fr 22px; align-items: center; gap: 5px; }
 .graph-3d-object-title strong { font: 9px ui-monospace, monospace; }
@@ -667,6 +668,12 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry-options { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0; padding: 6px; border-radius: 6px; background: rgba(234,230,219,.64); }
 .geometry-options label { display: flex; align-items: center; gap: 3px; color: #625e55; font-size: 7.5px; }
 .geometry-options input { accent-color: var(--accent); }
+.geometry-options select { min-width: 0; padding: 2px 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font-size: 7px; }
+.geometry-command { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; margin: 7px 0; padding: 6px; border: 1px solid rgba(55,51,42,.1); border-radius: 7px; background: #fffefa; }
+.geometry-command label { display: grid; gap: 3px; color: var(--muted); font-size: 7px; }
+.geometry-command input { min-width: 0; width: 100%; padding: 4px 5px; border: 1px solid var(--border); border-radius: 5px; font: 9px ui-monospace, monospace; }
+.geometry-command button { align-self: end; padding: 5px 8px; border-radius: 5px; color: white; background: var(--accent); font-size: 8px; font-weight: 700; }
+.geometry-command p { grid-column: 1 / -1; margin: 0; color: #8b312a; font-size: 7px; line-height: 1.35; }
 .geometry-finish { width: 100%; padding: 6px; border-radius: 6px; color: #fff; background: var(--accent); font-size: 8px; font-weight: 700; }
 .geometry-finish:disabled { opacity: .45; }
 .geometry-instruction { margin: 6px 0; color: #486b86; font-size: 8px; line-height: 1.4; }
@@ -675,6 +682,15 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry-object-list > p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; }
 .geometry-object-list > button { padding: 5px 6px; border-radius: 5px; color: #625e55; background: #fffefa; font-size: 8px; text-align: left; }
 .geometry-object-list > button.is-selected { color: #713c2a; outline: 1px solid rgba(154,72,44,.35); background: #f4e4da; }
+.geometry-selection-panel { display: grid; gap: 6px; margin-top: 7px; padding: 7px; border: 1px solid rgba(154,72,44,.2); border-radius: 7px; background: #fffaf5; }
+.geometry-selection-panel > header, .geometry-selection-style { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.geometry-selection-panel > header strong { font-size: 8px; }
+.geometry-selection-panel button { padding: 4px 6px; border-radius: 5px; color: #713c2a; background: #eee9df; font-size: 7px; }
+.geometry-selection-style label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 7px; }
+.geometry-selection-style input[type="color"] { width: 25px; height: 20px; padding: 1px; border: 1px solid var(--border); border-radius: 4px; }
+.geometry-transform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.geometry-transform-grid label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 3px; color: var(--muted); font-size: 7px; }
+.geometry-transform-grid input { min-width: 0; width: 100%; padding: 3px; border: 1px solid var(--border); border-radius: 4px; background: #fffefa; font: 8px ui-monospace, monospace; }
 .geometry-point-list > div { display: grid; grid-template-columns: 16px 1fr 1fr; gap: 4px; align-items: center; }
 .geometry-point-list b { color: #3777a5; font: 9px ui-monospace, monospace; }
 .geometry-point-list label { display: flex; align-items: center; gap: 2px; color: var(--muted); font-size: 7px; }

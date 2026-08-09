@@ -63,3 +63,102 @@ export function lineIntersection(
     y: firstStart.y + parameter * firstY,
   };
 }
+
+export function geometryMidpoint(
+  left: GeometryCoordinate,
+  right: GeometryCoordinate,
+): GeometryCoordinate {
+  return { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
+}
+
+export function translateCoordinate(
+  point: GeometryCoordinate,
+  deltaX: number,
+  deltaY: number,
+): GeometryCoordinate {
+  return { x: point.x + deltaX, y: point.y + deltaY };
+}
+
+export function rotateCoordinate(
+  point: GeometryCoordinate,
+  center: GeometryCoordinate,
+  angleDegreesValue: number,
+): GeometryCoordinate {
+  const radians = angleDegreesValue * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const x = point.x - center.x;
+  const y = point.y - center.y;
+  return {
+    x: center.x + x * cosine - y * sine,
+    y: center.y + x * sine + y * cosine,
+  };
+}
+
+export function dilateCoordinate(
+  point: GeometryCoordinate,
+  center: GeometryCoordinate,
+  scale: number,
+): GeometryCoordinate {
+  return {
+    x: center.x + (point.x - center.x) * scale,
+    y: center.y + (point.y - center.y) * scale,
+  };
+}
+
+export function reflectCoordinate(
+  point: GeometryCoordinate,
+  axis: 'x' | 'y',
+): GeometryCoordinate {
+  return axis === 'x' ? { x: point.x, y: -point.y } : { x: -point.x, y: point.y };
+}
+
+export function lineCircleIntersections(
+  start: GeometryCoordinate,
+  end: GeometryCoordinate,
+  center: GeometryCoordinate,
+  radius: number,
+): GeometryCoordinate[] {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const a = dx * dx + dy * dy;
+  if (a < 1e-12 || radius < 0) return [];
+  const offsetX = start.x - center.x;
+  const offsetY = start.y - center.y;
+  const b = 2 * (offsetX * dx + offsetY * dy);
+  const c = offsetX * offsetX + offsetY * offsetY - radius * radius;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < -1e-10) return [];
+  const root = Math.sqrt(Math.max(0, discriminant));
+  const parameters = discriminant <= 1e-10
+    ? [-b / (2 * a)]
+    : [(-b - root) / (2 * a), (-b + root) / (2 * a)];
+  return parameters.map((parameter) => ({
+    x: start.x + parameter * dx,
+    y: start.y + parameter * dy,
+  }));
+}
+
+export function circleCircleIntersections(
+  firstCenter: GeometryCoordinate,
+  firstRadius: number,
+  secondCenter: GeometryCoordinate,
+  secondRadius: number,
+): GeometryCoordinate[] {
+  const distance = geometryDistance(firstCenter, secondCenter);
+  if (
+    distance < 1e-10
+    || distance > firstRadius + secondRadius + 1e-10
+    || distance < Math.abs(firstRadius - secondRadius) - 1e-10
+  ) return [];
+  const along = (firstRadius * firstRadius - secondRadius * secondRadius + distance * distance) / (2 * distance);
+  const height = Math.sqrt(Math.max(0, firstRadius * firstRadius - along * along));
+  const ux = (secondCenter.x - firstCenter.x) / distance;
+  const uy = (secondCenter.y - firstCenter.y) / distance;
+  const base = { x: firstCenter.x + along * ux, y: firstCenter.y + along * uy };
+  if (height < 1e-10) return [base];
+  return [
+    { x: base.x - uy * height, y: base.y + ux * height },
+    { x: base.x + uy * height, y: base.y - ux * height },
+  ];
+}
