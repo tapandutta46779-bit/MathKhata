@@ -341,6 +341,37 @@ export function PageAssistantRail() {
       </nav>
       {assistantView === 'chat' && (
         <section className="aion-chat" aria-label="AION mathematical conversation">
+          {!window.mathKhataDesktop && (
+            <div className="aion-mode-picker" role="radiogroup" aria-label="AION processing mode">
+              <div>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={aion.provider === 'online'}
+                  className={aion.provider === 'online' ? 'is-active' : ''}
+                  disabled={aion.status === 'analyzing' || aion.status === 'loading'}
+                  onClick={() => aion.setProvider('online')}
+                >
+                  Fast online
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={aion.provider === 'on-device'}
+                  className={aion.provider === 'on-device' ? 'is-active' : ''}
+                  disabled={aion.status === 'analyzing' || aion.status === 'loading'}
+                  onClick={() => aion.setProvider('on-device')}
+                >
+                  Private on-device
+                </button>
+              </div>
+              <p>
+                {aion.provider === 'online'
+                  ? 'Qwen3 30B-A3B · broader and faster to start · works on mobile · sends this page and question for processing · free daily allowance'
+                  : 'Qwen3 8B · private and usable offline after setup · approximately 4.62 GB first download · cached by this browser · desktop-grade memory recommended'}
+              </p>
+            </div>
+          )}
           <div
             className="aion-chat__conversation"
             ref={conversationRef}

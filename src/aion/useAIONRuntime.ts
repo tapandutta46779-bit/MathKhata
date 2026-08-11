@@ -1,17 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NotebookContext } from '../extensions/providers';
 import {
+  type AIONProvider,
   type AIONRuntimeStatus,
 } from './runtime';
-import { askAIONAboutPage, checkAIONLocal } from './ollamaProvider';
+import { askAIONAboutPage, checkAIONLocal, checkAIONOnline } from './ollamaProvider';
+
+const AION_PROVIDER_PREFERENCE = 'mathkhata.aion-provider';
+
+function initialProvider(): AIONProvider {
+  if (window.mathKhataDesktop || import.meta.env.DEV) return 'on-device';
+  try {
+    const stored = window.localStorage.getItem(AION_PROVIDER_PREFERENCE);
+    if (stored === 'on-device' || stored === 'online') return stored;
+  } catch {
+    // Use capability-based selection when storage is unavailable.
+  }
+  const likelyMobile = window.matchMedia?.('(pointer: coarse)').matches
+    || navigator.maxTouchPoints > 1;
+  return likelyMobile || !('gpu' in navigator) ? 'online' : 'on-device';
+}
 
 export interface AIONRuntimeState {
   status: AIONRuntimeStatus;
   progress?: number;
   message?: string;
-  device?: 'ollama' | 'webgpu';
+  device?: 'ollama' | 'webgpu' | 'cloudflare';
   result?: string;
   elapsedSeconds: number;
+  provider: AIONProvider;
+  setProvider: (provider: AIONProvider) => void;
   enable: () => void;
   analyze: (context: NotebookContext, question?: string) => void;
   stop: () => void;
@@ -22,9 +40,21 @@ export function useAIONRuntime(): AIONRuntimeState {
   const [status, setStatus] = useState<AIONRuntimeStatus>('loading');
   const [progress, setProgress] = useState<number>();
   const [message, setMessage] = useState<string>();
-  const [device, setDevice] = useState<'ollama' | 'webgpu'>();
+  const [device, setDevice] = useState<'ollama' | 'webgpu' | 'cloudflare'>();
   const [result, setResult] = useState<string>();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [provider, setProviderState] = useState<AIONProvider>(initialProvider);
+
+  const setProvider = useCallback((next: AIONProvider) => {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setProviderState(next);
+    try {
+      window.localStorage.setItem(AION_PROVIDER_PREFERENCE, next);
+    } catch {
+      // The choice still applies for the current session.
+    }
+  }, []);
 
   const enable = useCallback(async () => {
     setStatus('loading');
@@ -35,19 +65,23 @@ export function useAIONRuntime(): AIONRuntimeState {
     const controller = new AbortController();
     requestRef.current?.abort();
     requestRef.current = controller;
-    const local = await checkAIONLocal(controller.signal);
+    const local = provider === 'online' && !window.mathKhataDesktop
+      ? await checkAIONOnline(controller.signal)
+      : await checkAIONLocal(controller.signal);
     if (controller.signal.aborted) return;
     setMessage(local.message);
     if (local.modelReady) {
       setStatus('ready');
-      setDevice(window.mathKhataDesktop?.aion || import.meta.env.DEV ? 'ollama' : 'webgpu');
+      setDevice(provider === 'online' && !window.mathKhataDesktop
+        ? 'cloudflare'
+        : window.mathKhataDesktop?.aion || import.meta.env.DEV ? 'ollama' : 'webgpu');
       setProgress(100);
     } else {
       setStatus(local.reachable ? 'idle' : 'error');
       setDevice(undefined);
     }
     if (requestRef.current === controller) requestRef.current = null;
-  }, []);
+  }, [provider]);
 
   const analyze = useCallback(async (context: NotebookContext, question?: string) => {
     if (status !== 'ready') return;
@@ -71,6 +105,7 @@ export function useAIONRuntime(): AIONRuntimeState {
           setMessage(runtimeMessage);
           if (runtimeProgress !== undefined) setProgress(runtimeProgress);
         },
+        provider,
       );
       if (controller.signal.aborted) return;
       setResult(answer.text);
@@ -84,7 +119,7 @@ export function useAIONRuntime(): AIONRuntimeState {
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
     }
-  }, [status]);
+  }, [provider, status]);
 
   const stop = useCallback(() => {
     const request = requestRef.current;
@@ -109,5 +144,17 @@ export function useAIONRuntime(): AIONRuntimeState {
     return () => requestRef.current?.abort();
   }, [enable]);
 
-  return { status, progress, message, device, result, elapsedSeconds, enable, analyze, stop };
+  return {
+    status,
+    progress,
+    message,
+    device,
+    result,
+    elapsedSeconds,
+    provider,
+    setProvider,
+    enable,
+    analyze,
+    stop,
+  };
 }

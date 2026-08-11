@@ -9,6 +9,11 @@ interface TopBarProps {
   pageNumber: number;
 }
 
+interface InstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
 const STATUS_LABELS = {
   loading: 'Loading…',
   unsaved: 'Unsaved changes',
@@ -36,6 +41,8 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
   const [title, setTitle] = useState(notebook.title);
   const [menuOpen, setMenuOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [menuMessage, setMenuMessage] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const overflow = useRef<HTMLDivElement>(null);
@@ -86,6 +93,36 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
     window.addEventListener('keydown', closeFromEscape, true);
     return () => window.removeEventListener('keydown', closeFromEscape, true);
   }, [aboutOpen]);
+
+  useEffect(() => {
+    const capturePrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const installed = () => {
+      setInstallPrompt(null);
+      setInstallOpen(false);
+      setMenuMessage('MathKhata was installed on this device.');
+    };
+    window.addEventListener('beforeinstallprompt', capturePrompt);
+    window.addEventListener('appinstalled', installed);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', capturePrompt);
+      window.removeEventListener('appinstalled', installed);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!installOpen) return;
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setInstallOpen(false);
+    };
+    window.addEventListener('keydown', closeFromEscape, true);
+    return () => window.removeEventListener('keydown', closeFromEscape, true);
+  }, [installOpen]);
 
   function toggleMenu() {
     if (menuOpen) {
@@ -169,6 +206,19 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
             <button type="button" role="menuitem" onClick={exportNotebook}>Export structured JSON</button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); fileInput.current?.click(); }}>Import JSON…</button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); window.print(); }}>Print / Save PDF…</button>
+            {!window.mathKhataDesktop && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'install-app' }));
+                  setInstallOpen(true);
+                }}
+              >
+                Install MathKhata…
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"
@@ -234,6 +284,46 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
             <a href={import.meta.env.VITE_FEEDBACK_URL || 'https://github.com/tapandutta46779-bit/MathKhata-Feedback/issues/new'} target="_blank" rel="noreferrer">Report an issue</a>
           </div>
           <p className="about-dialog__note">Browser speech availability depends on the browser. AION is optional, and notebook editing never depends on it.</p>
+        </section>
+      </div>
+    )}
+    {installOpen && (
+      <div
+        className="modal-backdrop"
+        role="presentation"
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) setInstallOpen(false);
+        }}
+      >
+        <section className="about-dialog install-dialog" role="dialog" aria-modal="true" aria-labelledby="install-title">
+          <div className="dialog-heading">
+            <div>
+              <span className="eyebrow">Android · Mac · desktop</span>
+              <h2 id="install-title">Install MathKhata</h2>
+            </div>
+            <button type="button" aria-label="Close Install MathKhata" onClick={() => setInstallOpen(false)}>×</button>
+          </div>
+          <p>Install the web app for a normal app window and offline notebook shell. Your notebooks remain stored on this device.</p>
+          {installPrompt ? (
+            <button
+              type="button"
+              className="install-dialog__primary"
+              onClick={async () => {
+                await installPrompt.prompt();
+                const choice = await installPrompt.userChoice;
+                if (choice.outcome === 'accepted') setInstallPrompt(null);
+              }}
+            >
+              Install on this device
+            </button>
+          ) : (
+            <div className="install-dialog__instructions">
+              <p><strong>Android:</strong> open the browser menu and choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
+              <p><strong>Mac:</strong> in Chrome or Edge choose <em>Install MathKhata</em>; in Safari choose <em>File → Add to Dock</em>.</p>
+              <p><strong>iPhone/iPad:</strong> use <em>Share → Add to Home Screen</em>.</p>
+            </div>
+          )}
+          <p className="about-dialog__note">The Qwen3 8B on-device model is separate from the app shell. Its approximately 4.62 GB first download is cached after successful setup, but the browser may remove it if site storage is cleared. Fast online AION requires no model download.</p>
         </section>
       </div>
     )}

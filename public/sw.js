@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mathkhata-public-beta-v2';
+const CACHE_NAME = 'mathkhata-public-beta-v3';
 const CORE_ASSETS = [
   './manifest.webmanifest',
   './icons/mathkhata.svg',

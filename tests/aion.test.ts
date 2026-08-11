@@ -10,6 +10,7 @@ import {
   askAIONLocal,
   canCheckWithoutBlockingAION,
   checkAIONLocal,
+  parsePublicAIONEvent,
 } from '../src/aion/ollamaProvider';
 import { AION_WEBGPU_MODEL } from '../src/aion/webgpuProvider';
 import { createNotebook, createMathObject, createTextObject, addObject } from '../src/domain/notebook';
@@ -32,6 +33,18 @@ describe('AION provider boundary', () => {
     expect(AION_BASE_MODEL).toBe('qwen3:8b');
     expect(AION_BROWSER_MODEL).toBe('Qwen3-8B-q4f16_1-MLC');
     expect(AION_WEBGPU_MODEL).toBe(AION_BROWSER_MODEL);
+  });
+
+  it('assembles visible online SSE chunks and detects the generation boundary', () => {
+    expect(parsePublicAIONEvent('data: {"response":"First"}\n\n')).toEqual({
+      text: 'First', done: false, truncated: false,
+    });
+    expect(parsePublicAIONEvent('data: {"choices":[{"delta":{"content":" step"},"finish_reason":"length"}]}\n\n')).toEqual({
+      text: ' step', done: true, truncated: true,
+    });
+    expect(parsePublicAIONEvent('data: [DONE]\n\n')).toEqual({
+      text: '', done: true, truncated: false,
+    });
   });
 
   it('detects the installed Ollama model without sending page content', async () => {

@@ -2,3 +2,9 @@
 name = "mathkhata"
 compatibility_date = "2026-08-11"
 pages_build_output_dir = "./dist"
+
+[ai]
+binding = "AI"
+
+[env.production]
+ai = { binding = "AI" }

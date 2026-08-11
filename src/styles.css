@@ -468,7 +468,13 @@ math-field.assistant-math { display: block; grid-column: 1 / -1; width: 100%; pa
 .aion-status { padding: 2px 4px; border-radius: 4px; color: #716b62; background: #e6e1d7; font-size: 6px; font-style: normal; font-weight: 750; text-transform: uppercase; }
 .aion-status--ready { color: #426449; background: #dcebdd; }
 .aion-status--error { color: #8b312a; background: #f5deda; }
-.aion-chat { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
+.aion-chat { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
+.aion-mode-picker { display: grid; gap: 5px; padding: 8px 11px; border-bottom: 1px solid var(--border); background: rgba(255,254,250,.94); }
+.aion-mode-picker > div { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 9px; background: #ece7de; }
+.aion-mode-picker button { min-width: 0; padding: 6px 7px; border-radius: 7px; color: #716b62; background: transparent; font-size: 8px; font-weight: 750; }
+.aion-mode-picker button.is-active { color: #713c2a; background: #fffefa; box-shadow: 0 1px 4px rgba(50,44,36,.1); }
+.aion-mode-picker button:disabled { opacity: .62; }
+.aion-mode-picker p { margin: 0; color: var(--muted); font-size: 7px; line-height: 1.45; }
 .aion-chat__conversation { min-width: 0; min-height: 0; padding: 17px 16px 56px; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 56px; }
 .aion-welcome { display: grid; justify-items: start; gap: 8px; max-width: 340px; margin: 6vh auto 0; }
 .aion-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: #fff; background: linear-gradient(145deg, #a25336, #713c2a); font: 700 17px/1 Georgia, serif; box-shadow: 0 6px 15px rgba(113,60,42,.2); }
@@ -942,6 +948,10 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 .about-dialog__links a { padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; color: #713c2a; background: #fff; font-size: 11px; font-weight: 750; text-decoration: none; }
 .about-dialog__links a:hover { border-color: rgba(154,72,44,.45); background: #fff7ee; }
 .about-dialog .about-dialog__note { margin-bottom: 0; font-size: 10px; }
+.install-dialog { width: min(460px, calc(100vw - 24px)); }
+.install-dialog__primary { width: 100%; padding: 10px 12px; border-radius: 9px; color: #fff; background: #713c2a; font-size: 10px; font-weight: 760; }
+.install-dialog__instructions { display: grid; gap: 6px; padding: 9px 10px; border-radius: 9px; background: #f2eee6; }
+.install-dialog__instructions p { margin: 0; font-size: 9px; line-height: 1.5; }
 .dialog-heading { display: flex; align-items: start; justify-content: space-between; }
 .dialog-heading h2 { margin: 2px 0 14px; font: 27px/1.2 Georgia, serif; }
 .eyebrow { color: var(--accent); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }

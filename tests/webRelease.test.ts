@@ -19,7 +19,7 @@ describe('public web replica boundary', () => {
       "mode === 'web'",
     );
     expect(privacy).toContain("Cloudflare's cookie-free Web Analytics");
-    expect(privacy).toContain('does not receive notebook content');
+    expect(privacy).toContain('only when you select Fast online');
     expect(privacy).not.toContain('optional Local Qwen Assistant');
   });
 
@@ -40,19 +40,25 @@ describe('public web replica boundary', () => {
     );
   });
 
-  it('ships exact Qwen3 8B browser inference without a hosted model binding', () => {
+  it('ships private Qwen3 8B and an explicit free-tier Qwen3 30B online option', () => {
     const wrangler = readFileSync(path.resolve('wrangler.toml'), 'utf8');
     const browserProvider = readFileSync(path.resolve('src/aion/webgpuProvider.ts'), 'utf8');
     const assistantUI = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
     const styles = readFileSync(path.resolve('src/styles.css'), 'utf8');
 
-    expect(wrangler).not.toContain('[ai]');
+    expect(wrangler).toContain('[ai]');
+    expect(wrangler).toContain('binding = "AI"');
     expect(browserProvider).toContain("AION_WEBGPU_MODEL = 'Qwen3-8B-q4f16_1-MLC'");
     expect(browserProvider).toContain('CreateWebWorkerMLCEngine');
     expect(browserProvider).toContain('enable_thinking: false');
-    expect(existsSync(path.resolve('functions/api/assistant.ts'))).toBe(false);
+    const onlineFunction = readFileSync(path.resolve('functions/api/assistant.ts'), 'utf8');
+    expect(onlineFunction).toContain('@cf/qwen/qwen3-30b-a3b-fp8');
+    expect(onlineFunction).toContain('/no_think');
     expect(assistantUI).toContain('Ask AION about this page');
     expect(assistantUI).not.toContain('Local Qwen');
+    expect(assistantUI).toContain('Fast online');
+    expect(assistantUI).toContain('Private on-device');
+    expect(assistantUI).toContain('approximately 4.62 GB first download');
     expect(assistantUI).toContain('page-assistant-math-scroll');
     expect(styles).toContain('overscroll-behavior-inline: contain');
   });
