@@ -7,11 +7,15 @@ describe('public web replica boundary', () => {
     const headers = readFileSync(path.resolve('public/_headers'), 'utf8');
 
     expect(headers).toContain("script-src 'self'");
+    expect(headers).toContain('https://static.cloudflareinsights.com/beacon.min.js');
     expect(headers).toContain("style-src 'self' 'unsafe-inline'");
     expect(headers).toContain("font-src 'self' data:");
     expect(headers).toContain("connect-src 'self'");
     expect(headers).not.toContain('127.0.0.1');
     expect(headers).not.toContain('localhost');
+    expect(readFileSync(path.resolve('vite.config.ts'), 'utf8')).toContain(
+      "mode === 'web'",
+    );
   });
 
   it('ships every KaTeX size font used by large operators and structured notation', () => {
