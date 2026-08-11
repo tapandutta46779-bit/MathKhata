@@ -1,7 +1,7 @@
 # MathKhata public beta release verification
 
-- Verification time (UTC): `2026-08-11T13:11:19Z`
-- Deployed release commit: `d85015ee32b78e0da21d24400dfe654ad4244022`
+- Verification time (UTC): `2026-08-11T13:59:47Z`
+- Deployed release commit: `5b7adbab03955431caf419f282b6f736fa4c6145`
 - Public URL: <https://mathkhata.pages.dev>
 - Cloudflare project: `mathkhata`
 - Browser: Google Chrome through the Codex in-app browser, clean public origin
@@ -11,7 +11,7 @@
 - `npm install`: passed; production dependency audit reports 0 known vulnerabilities.
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
-- `npm test`: passed, 346 tests in 17 files.
+- `npm test`: passed, 350 tests in 18 files.
 - `npm run test:e2e`: passed, 13 tests in real Chrome.
 - `npm run build`: passed; web output is 2.7 MB total, with no source maps and without the 23 MB desktop Whisper/WASM runtime.
 - Full development-dependency audit: 4 high-severity advisories remain in the macOS DMG packaging toolchain, with no upstream fix reported. They are development-only, do not enter `dist/`, and do not affect the public web runtime.
@@ -26,7 +26,9 @@
 - JSON export reported successful creation. A valid structured JSON file imported as a separately validated local notebook.
 - 2D Graph, 3D Surface, Geometry, and Scientific workspaces opened and rendered in the deployed app.
 - At 720 by 600, the root document width equalled the viewport, horizontal scroll remained zero, and the page-assistant close control remained inside the viewport.
-- The initial public Page assistant kept deterministic grouping active while hosted AION was unavailable; a later corrective deployment added the explicit-request, same-site AION function.
+- AION reported ready through the deployed same-site function. Two real canonical-site requests streamed progressively, completed normally, rendered 19 MathLive expressions in the tested integral answer, and showed the exact result and verification without raw LaTeX code fences.
+- During a second live generation, the conversation height grew from 1,623 to 3,324 pixels while the user-selected scroll position stayed at 1,276 pixels; streaming no longer forces the conversation back to the newest content.
+- Long display mathematics now has a dedicated keyboard-focusable horizontal overflow region, so a complete expression remains reachable instead of being clipped by the assistant rail.
 - Browser speech made a genuine recognition attempt; permission denial produced `not-allowed` and no fabricated transcript.
 - The About dialog showed version `1.0.0-beta.1`, local storage, no telemetry, the privacy link, and the public issue link.
 - Browser console errors/warnings after the smoke workflow: none.
