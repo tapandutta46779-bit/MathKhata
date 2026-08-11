@@ -38,10 +38,9 @@ describe('public web replica boundary', () => {
 
     expect(wrangler).toContain('[ai]');
     expect(wrangler).toContain('binding = "AI"');
-    expect(assistantFunction).toContain("const MODEL = '@cf/qwen/qwen3-30b-a3b-fp8'");
+    expect(assistantFunction).toContain("const MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct'");
     expect(assistantFunction).toContain('AION_SYSTEM_PROMPT');
     expect(assistantFunction).toContain('MAX_VISIBLE_TOKENS = 4_096');
-    expect(assistantFunction).toContain('/no_think');
     expect(assistantUI).toContain('Ask AION about this page');
     expect(assistantUI).not.toContain('Local Qwen');
   });

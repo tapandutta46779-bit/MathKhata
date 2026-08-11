@@ -1,6 +1,6 @@
 import { AION_SYSTEM_PROMPT } from '../../src/aion/systemPrompt';
 
-const MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
+const MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 const MAX_PROMPT_CHARACTERS = 96_000;
 const MAX_VISIBLE_TOKENS = 4_096;
 
@@ -74,7 +74,7 @@ export async function onRequestPost({ request, env }: FunctionContext): Promise<
           role: 'system',
           content: AION_SYSTEM_PROMPT,
         },
-        { role: 'user', content: `${prompt.trim()}\n\n/no_think` },
+        { role: 'user', content: prompt.trim() },
       ],
     });
 
