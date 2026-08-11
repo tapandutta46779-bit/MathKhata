@@ -1,7 +1,7 @@
 # MathKhata public beta release verification
 
-- Verification time (UTC): `2026-08-11T13:01:24Z`
-- Initial deployed application commit: `45514e9f88b4a1bf9483c287767f853456a4535c`
+- Verification time (UTC): `2026-08-11T13:11:19Z`
+- Deployed release commit: `d85015ee32b78e0da21d24400dfe654ad4244022`
 - Public URL: <https://mathkhata.pages.dev>
 - Cloudflare project: `mathkhata`
 - Browser: Google Chrome through the Codex in-app browser, clean public origin
