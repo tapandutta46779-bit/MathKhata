@@ -6,10 +6,10 @@
 2. **Persistence** — a Dexie adapter stores validated notebooks in IndexedDB. Storage errors leave in-memory work intact and surface a visible status.
 3. **Application state** — a small external store coordinates the current notebook, selected page/object, tools, undo/redo, and debounced persistence.
 4. **Editor UI** — React renders the notebook shell, ruled pages, line-flowing/spatial objects, MathLive editors, palette, dialogs, and accessible controls.
-5. **Voice experiment** — `SpeechProvider → SpeechTranscript → NotebookSpeechParser → optional Local Qwen refinement → NotebookVoiceCandidate → VoiceInsertionController → MathObject | TextObject`. A single candidate may contain several lines of different types; the deterministic candidate never waits for a model.
+5. **Voice experiment** — `SpeechProvider → SpeechTranscript → NotebookSpeechParser → optional AION refinement → NotebookVoiceCandidate → VoiceInsertionController → MathObject | TextObject`. A single candidate may contain several lines of different types; the deterministic candidate never waits for a model.
 6. **Local math assistance** — a small deterministic arithmetic parser supplies immediate numeric suggestions. Nerdamer Prime and local linear-algebra routines are loaded only for an explicit symbolic action; results remain advisory until added.
 7. **Whole-page analysis** — `DocumentContextProvider → PageAnalysis → PageProblemGroup → PageProblemSolver`. Deterministic grouping preserves object IDs/order, consumes TextObjects as context, requires confirmation for uncertain systems, and never edits the page implicitly.
-8. **Local-model provider** — `DocumentContextProvider → compatibility provider → Ollama qwen3:8b` is read-only and replaceable. It cannot become notebook storage or mutate documents. The historical internal `aion` name does not represent the future original AION system.
+8. **AION provider boundary** — `DocumentContextProvider → AION provider → local Ollama or same-site public function` is read-only and replaceable. It cannot become notebook storage or mutate documents.
 9. **Research tools** — fixed, responsive overlays provide 2D/3D exploratory plotting, interactive geometry, scientific evaluation, and an everywhere calculator without changing notebook schema.
 
 ## Versioned document model
@@ -34,4 +34,4 @@ Dexie stores a full validated notebook record, with autosave after document muta
 
 ## Future reasoning
 
-`DocumentContextProvider` derives current page, selection, nearby objects, prior equations, annotations, spatial relationships, and limited edit context from the domain. The deterministic page assistant consumes this contract without direct storage access. Local Qwen receives a compact prompt through the loopback Ollama provider in desktop/local development; it cannot access IndexedDB or mutate a notebook. The public website does not invoke it. See [LOCAL_MODEL_PATH.md](LOCAL_MODEL_PATH.md).
+`DocumentContextProvider` derives current page, selection, nearby objects, prior equations, annotations, spatial relationships, and limited edit context from the domain. The deterministic page assistant consumes this contract without direct storage access. AION receives a compact prompt through the loopback provider in desktop/local development or the same-site Pages Function on the public website after an explicit user request; it cannot access IndexedDB or mutate a notebook. See [LOCAL_MODEL_PATH.md](LOCAL_MODEL_PATH.md).

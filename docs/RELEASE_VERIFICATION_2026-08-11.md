@@ -26,7 +26,7 @@
 - JSON export reported successful creation. A valid structured JSON file imported as a separately validated local notebook.
 - 2D Graph, 3D Surface, Geometry, and Scientific workspaces opened and rendered in the deployed app.
 - At 720 by 600, the root document width equalled the viewport, horizontal scroll remained zero, and the page-assistant close control remained inside the viewport.
-- The public Page assistant kept deterministic grouping active and explicitly reported Local Qwen as unavailable without sending notebook content to an AI service.
+- The initial public Page assistant kept deterministic grouping active while hosted AION was unavailable; a later corrective deployment added the explicit-request, same-site AION function.
 - Browser speech made a genuine recognition attempt; permission denial produced `not-allowed` and no fabricated transcript.
 - The About dialog showed version `1.0.0-beta.1`, local storage, no telemetry, the privacy link, and the public issue link.
 - Browser console errors/warnings after the smoke workflow: none.
@@ -42,6 +42,6 @@
 ## Known limitations
 
 1. Web Speech behavior is browser/vendor dependent and may require an online browser speech service.
-2. Local Qwen, desktop Whisper, and Electron-only capabilities are not available on the hosted website; deterministic fallbacks remain usable.
+2. Desktop Whisper and Electron-only capabilities are not available on the hosted website; deterministic fallbacks remain usable, and public AION is subject to its free daily allowance.
 3. Research graphing and geometry are advanced beta features but do not claim complete Desmos parity.
 4. Production code splitting can be improved after beta; current assets load successfully and the desktop model runtime is excluded.

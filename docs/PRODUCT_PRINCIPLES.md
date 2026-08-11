@@ -26,7 +26,7 @@ Core editing works without a network, account, API key, or AI provider. Autosave
 
 ## Extensible boundaries
 
-Presentation, persistence, speech recognition, parsing, checking, and future reasoning communicate through explicit interfaces. The optional Local Qwen integration and any future original AION system attach through document context rather than taking ownership of notebook storage or UI.
+Presentation, persistence, speech recognition, parsing, checking, and reasoning communicate through explicit interfaces. AION providers attach through document context rather than taking ownership of notebook storage or UI.
 
 ## Honest experiments
 

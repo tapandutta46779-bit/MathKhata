@@ -31,7 +31,7 @@ Then install the artifact on a clean user account and verify:
 1. Create, rename, save, reopen, export, import, print, and recover a notebook.
 2. Use Text, Math, Voice, Symbols, the MathLive virtual keyboard and context menus.
 3. Solve supported arithmetic, equations, determinants, derivatives, and integrals without an AI model.
-4. Open the Local Qwen Assistant with the local service available and unavailable; both states must be honest and the notebook must remain usable.
+4. Open AION with the local service available and unavailable; both states must be honest and the notebook must remain usable.
 5. Exercise 2D, 3D, Geometry, Scientific, and floating calculator workspaces with mouse, trackpad, keyboard, and window resizing.
 6. Deny microphone permission, then grant it deliberately; no other permission should be requested.
 7. Verify the app cannot navigate its main window to arbitrary web content and external HTTPS links open in the system browser.

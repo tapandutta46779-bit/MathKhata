@@ -9,7 +9,7 @@ export interface AIONRuntimeState {
   status: AIONRuntimeStatus;
   progress?: number;
   message?: string;
-  device?: 'ollama';
+  device?: 'ollama' | 'cloudflare';
   result?: string;
   enable: () => void;
   analyze: (context: NotebookContext, question?: string) => void;
@@ -20,13 +20,13 @@ export function useAIONRuntime(): AIONRuntimeState {
   const [status, setStatus] = useState<AIONRuntimeStatus>('loading');
   const [progress, setProgress] = useState<number>();
   const [message, setMessage] = useState<string>();
-  const [device, setDevice] = useState<'ollama'>();
+  const [device, setDevice] = useState<'ollama' | 'cloudflare'>();
   const [result, setResult] = useState<string>();
 
   const enable = useCallback(async () => {
     setStatus('loading');
     setResult(undefined);
-    setMessage('Checking the Local Qwen Assistant…');
+    setMessage('Checking AION…');
     setProgress(undefined);
     const controller = new AbortController();
     requestRef.current?.abort();
@@ -36,7 +36,7 @@ export function useAIONRuntime(): AIONRuntimeState {
     setMessage(local.message);
     if (local.modelReady) {
       setStatus('ready');
-      setDevice('ollama');
+      setDevice(window.mathKhataDesktop?.aion || import.meta.env.DEV ? 'ollama' : 'cloudflare');
       setProgress(100);
     } else {
       setStatus(local.reachable ? 'idle' : 'error');
@@ -48,7 +48,7 @@ export function useAIONRuntime(): AIONRuntimeState {
     if (status !== 'ready') return;
     setStatus('analyzing');
     setResult(undefined);
-    setMessage(question ? 'Local Qwen is working through your question…' : 'Local Qwen is reading the current page…');
+    setMessage(question ? 'AION is working through your question…' : 'AION is reading the current page…');
     const controller = new AbortController();
     requestRef.current?.abort();
     requestRef.current = controller;
@@ -59,12 +59,12 @@ export function useAIONRuntime(): AIONRuntimeState {
       if (controller.signal.aborted) return;
       setResult(answer.text);
       setStatus('ready');
-      setMessage('Local Qwen completed the analysis.');
-      setDevice('ollama');
+      setMessage('AION completed the analysis.');
+      setDevice(answer.runtime);
     } catch (error) {
       if (controller.signal.aborted) return;
       setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'The Local Qwen Assistant could not complete the request.');
+      setMessage(error instanceof Error ? error.message : 'AION could not complete the request.');
     }
   }, [status]);
 

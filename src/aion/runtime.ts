@@ -1,6 +1,6 @@
 import type { NotebookContext } from '../extensions/providers';
 
-export const AION_DISPLAY_NAME = 'Local Qwen Assistant';
+export const AION_DISPLAY_NAME = 'AION';
 export const AION_BASE_MODEL = 'qwen3:8b';
 export const AION_BROWSER_FALLBACK_MODEL = 'onnx-community/Qwen2.5-0.5B-Instruct';
 export const AION_RUNTIME_DESCRIPTION = 'Qwen3 8B · Q4_K_M · Ollama · optional on-device runtime';
@@ -30,7 +30,7 @@ export function aionPageObjectText(context: NotebookContext): string {
 
 export function createAIONPagePrompt(context: NotebookContext): string {
   return [
-    'You are the optional Local Qwen Assistant inside a mathematical notebook.',
+    'You are AION inside a mathematical notebook.',
     'Analyze only the supplied current-page objects. Do not claim that you edited the notebook.',
     'Respect vertical order, spacing, and text notes. Do not merge unrelated questions.',
     'Identify likely problem groups, possible systems of equations, suspicious speech-recognition text, and useful next steps.',

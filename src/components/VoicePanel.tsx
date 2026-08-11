@@ -169,8 +169,8 @@ export function VoicePanel() {
           {!candidate.isFinal && <span className="provisional-label">provisional</span>}
           {candidate.isFinal && (
             <p className={`aion-voice-state aion-voice-state--${aionVoiceState}`} role="status">
-              {aionVoiceState === 'refining' && 'Local Qwen is interpreting this; the deterministic draft remains usable.'}
-              {aionVoiceState === 'refined' && 'Interpreted by Local Qwen. Review before inserting.'}
+              {aionVoiceState === 'refining' && 'AION is interpreting this; the deterministic draft remains usable.'}
+              {aionVoiceState === 'refined' && 'Interpreted by AION. Review before inserting.'}
               {aionVoiceState === 'fallback' && 'Using the deterministic local parser; no AI service received this transcript.'}
             </p>
           )}

@@ -233,7 +233,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
             <a href="./privacy.html" target="_blank" rel="noreferrer">Privacy</a>
             <a href={import.meta.env.VITE_FEEDBACK_URL || 'https://github.com/tapandutta46779-bit/MathKhata-Feedback/issues/new'} target="_blank" rel="noreferrer">Report an issue</a>
           </div>
-          <p className="about-dialog__note">Browser speech availability depends on the browser. The optional Local Qwen Assistant is not a hosted service and notebook editing never depends on it.</p>
+          <p className="about-dialog__note">Browser speech availability depends on the browser. AION is optional, and notebook editing never depends on it.</p>
         </section>
       </div>
     )}

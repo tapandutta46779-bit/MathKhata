@@ -526,8 +526,8 @@ test('whole-page assistant separates questions, reads notes, reviews voice corru
   const assistant = page.getByTestId('page-assistant');
   await page.getByRole('button', { name: /Open page assistant/ }).click();
   await expect(assistant).toBeVisible();
-  await expect(assistant).toContainText('Local Qwen');
-  await expect(assistant).not.toContainText('AION');
+  await expect(assistant).toContainText('AION');
+  await expect(assistant).not.toContainText('Local Qwen');
   await expect(assistant).not.toContainText('Ollama');
   await assistant.getByRole('button', { name: /Page outline/ }).click();
   await expect(assistant.locator('.page-problem')).toHaveCount(3);

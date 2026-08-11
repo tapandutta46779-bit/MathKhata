@@ -30,4 +30,17 @@ describe('public web replica boundary', () => {
       'MathfieldElement.fontsDirectory',
     );
   });
+
+  it('ships the public AION function and its same-origin Workers AI binding', () => {
+    const wrangler = readFileSync(path.resolve('wrangler.toml'), 'utf8');
+    const assistantFunction = readFileSync(path.resolve('functions/api/assistant.ts'), 'utf8');
+    const assistantUI = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
+
+    expect(wrangler).toContain('[ai]');
+    expect(wrangler).toContain('binding = "AI"');
+    expect(assistantFunction).toContain("const MODEL = '@cf/qwen/qwen3-30b-a3b-fp8'");
+    expect(assistantFunction).toContain("'You are AION inside MathKhata");
+    expect(assistantUI).toContain('Ask AION about this page');
+    expect(assistantUI).not.toContain('Local Qwen');
+  });
 });

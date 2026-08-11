@@ -40,7 +40,7 @@ To restore an earlier release, check out the desired trusted Git commit, run the
 - Notebook editing, IndexedDB persistence, JSON import/export, deterministic speech parsing, checked local mathematics, MathLive, the floating calculator, and browser-compatible research tools run on the website.
 - Browser voice input uses Web Speech only when the browser genuinely exposes it. The browser vendor may process recognition remotely; denial or unavailability creates no transcript.
 - The packaged desktop app's local Whisper model, Electron IPC, native filesystem/printing integration, and local Ollama bridge are not shipped in the public web bundle.
-- The optional Local Qwen Assistant is available only in the packaged desktop app or local development. The public website does not probe localhost and sends no page content to an AI service.
+- AION is available through a same-site Cloudflare Pages Function. It receives the current page context only when the user explicitly sends a question; notebook storage remains local. The checked solver and page outline continue working if the free daily AI allowance is unavailable.
 - The future original non-LLM AION reasoning architecture is not implemented in this beta.
 
 ## Known limitations

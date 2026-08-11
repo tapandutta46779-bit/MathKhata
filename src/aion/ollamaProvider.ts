@@ -4,10 +4,7 @@ import { createAIONPagePrompt } from './runtime';
 
 export const AION_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
 export const AION_OLLAMA_MODEL = 'qwen3:8b';
-
-const PUBLIC_WEB_ASSISTANT_MESSAGE =
-  'The Local Qwen Assistant is available in the desktop app or local development. ' +
-  'This public web beta does not send notebook content to an AI service; the checked local solver and page outline remain available.';
+export const AION_PUBLIC_ENDPOINT = '/api/assistant';
 
 export function canUseLocalAssistantClient(): boolean {
   if (typeof window === 'undefined') return false;
@@ -27,6 +24,19 @@ interface OllamaChatResponse {
   error?: string;
 }
 
+interface PublicAIONStatusResponse {
+  ready?: boolean;
+  message?: string;
+  error?: string;
+}
+
+interface PublicAIONStreamChunk {
+  response?: string;
+  message?: { content?: string };
+  choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+  error?: string;
+}
+
 export interface AIONLocalStatus {
   reachable: boolean;
   modelReady: boolean;
@@ -37,7 +47,7 @@ export interface AIONLocalStatus {
 export interface AIONAnswer {
   text: string;
   model: string;
-  runtime: 'ollama';
+  runtime: 'ollama' | 'cloudflare';
 }
 
 function withAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -62,14 +72,6 @@ function cleanVisibleAnswer(text: string): string {
 }
 
 export async function checkAIONLocal(signal?: AbortSignal): Promise<AIONLocalStatus> {
-  if (!canUseLocalAssistantClient()) {
-    return {
-      reachable: false,
-      modelReady: false,
-      model: AION_OLLAMA_MODEL,
-      message: PUBLIC_WEB_ASSISTANT_MESSAGE,
-    };
-  }
   try {
     const desktop = window.mathKhataDesktop?.aion;
     let payload: OllamaTagsResponse;
@@ -77,14 +79,22 @@ export async function checkAIONLocal(signal?: AbortSignal): Promise<AIONLocalSta
       payload = await withAbort(desktop.check(), signal);
     } else if (import.meta.env.DEV) {
       const response = await fetch(`${AION_OLLAMA_ENDPOINT}/api/tags`, { signal });
-      if (!response.ok) throw new Error(`Local Qwen returned ${response.status}`);
+      if (!response.ok) throw new Error(`AION returned ${response.status}`);
       payload = await response.json() as OllamaTagsResponse;
     } else {
+      const response = await fetch(AION_PUBLIC_ENDPOINT, {
+        signal,
+        headers: { Accept: 'application/json' },
+      });
+      const publicStatus = await response.json().catch(() => ({})) as PublicAIONStatusResponse;
+      const ready = response.ok && publicStatus.ready === true;
       return {
-        reachable: false,
-        modelReady: false,
-        model: AION_OLLAMA_MODEL,
-        message: PUBLIC_WEB_ASSISTANT_MESSAGE,
+        reachable: response.ok,
+        modelReady: ready,
+        model: 'AION',
+        message: ready
+          ? 'AION is ready.'
+          : publicStatus.message || publicStatus.error || 'AION is temporarily unavailable.',
       };
     }
     const modelReady = payload.models?.some((entry) => {
@@ -96,8 +106,8 @@ export async function checkAIONLocal(signal?: AbortSignal): Promise<AIONLocalSta
       modelReady,
       model: AION_OLLAMA_MODEL,
       message: modelReady
-        ? 'The Local Qwen Assistant is ready on this device.'
-        : 'The Local Qwen Assistant is still preparing or is not installed.',
+        ? 'AION is ready on this device.'
+        : 'AION is still preparing or is not installed.',
     };
   } catch (error) {
     const reason = error instanceof Error && error.message
@@ -107,7 +117,7 @@ export async function checkAIONLocal(signal?: AbortSignal): Promise<AIONLocalSta
       reachable: false,
       modelReady: false,
       model: AION_OLLAMA_MODEL,
-      message: `The Local Qwen Assistant is unavailable: ${reason}. Notebook editing and the checked local solver still work without it.`,
+      message: `AION is unavailable: ${reason}. Notebook editing and the checked local solver still work without it.`,
     };
   }
 }
@@ -116,7 +126,6 @@ export async function askAIONLocal(
   prompt: string,
   options: { signal?: AbortSignal; json?: boolean; temperature?: number; onUpdate?: (text: string) => void } = {},
 ): Promise<AIONAnswer> {
-  if (!canUseLocalAssistantClient()) throw new Error(PUBLIC_WEB_ASSISTANT_MESSAGE);
   const requestPayload = {
     ...(options.json ? { format: 'json' as const } : {}),
     options: {
@@ -129,7 +138,7 @@ export async function askAIONLocal(
       {
         role: 'system' as const,
         content: [
-          'You are the Local Qwen Assistant inside MathKhata.',
+          'You are AION inside MathKhata.',
           'Be precise and pedagogical. Show useful solution steps in the visible answer, but never reveal hidden chain-of-thought.',
           'Separate independent questions. Use the supplied page context only. State uncertainty and assumptions honestly.',
           'Never claim that you edited notebook content. Never use Markdown code fences.',
@@ -189,9 +198,9 @@ export async function askAIONLocal(
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as OllamaChatResponse;
-      throw new Error(payload.error || `Local Qwen returned ${response.status}.`);
+      throw new Error(payload.error || `AION returned ${response.status}.`);
     }
-    if (!response.body) throw new Error('Local Qwen returned no response stream.');
+    if (!response.body) throw new Error('AION returned no response stream.');
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     while (true) {
@@ -204,12 +213,58 @@ export async function askAIONLocal(
     }
     buffer += decoder.decode();
   } else {
-    throw new Error(PUBLIC_WEB_ASSISTANT_MESSAGE);
+    const response = await fetch(AION_PUBLIC_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      signal: options.signal,
+      body: JSON.stringify({ prompt }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as PublicAIONStatusResponse;
+      throw new Error(payload.error || payload.message || `AION returned ${response.status}.`);
+    }
+    if (!response.body) throw new Error('AION returned no response stream.');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let eventBuffer = '';
+    const consumeEventLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return;
+      const data = trimmed.slice(5).trim();
+      if (!data || data === '[DONE]') return;
+      const payload = JSON.parse(data) as PublicAIONStreamChunk;
+      if (payload.error) throw new Error(payload.error);
+      const chunk = payload.response
+        ?? payload.message?.content
+        ?? payload.choices?.[0]?.delta?.content
+        ?? payload.choices?.[0]?.message?.content
+        ?? '';
+      answerText += chunk;
+      const visible = cleanVisibleAnswer(answerText);
+      if (visible) options.onUpdate?.(visible);
+    };
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      eventBuffer += decoder.decode(chunk.value, { stream: true });
+      const lines = eventBuffer.split(/\r?\n/);
+      eventBuffer = lines.pop() ?? '';
+      lines.forEach(consumeEventLine);
+    }
+    eventBuffer += decoder.decode();
+    if (eventBuffer.trim()) consumeEventLine(eventBuffer);
   }
   if (buffer.trim()) consumeLine(buffer);
   const text = cleanVisibleAnswer(answerText);
-  if (!text) throw new Error('Local Qwen returned an empty response.');
-  return { text, model: AION_OLLAMA_MODEL, runtime: 'ollama' };
+  if (!text) throw new Error('AION returned an empty response.');
+  return {
+    text,
+    model: import.meta.env.DEV || window.mathKhataDesktop?.aion ? AION_OLLAMA_MODEL : 'AION',
+    runtime: import.meta.env.DEV || window.mathKhataDesktop?.aion ? 'ollama' : 'cloudflare',
+  };
 }
 
 export function canCheckWithoutBlockingAION(latex: string): boolean {
