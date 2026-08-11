@@ -1,5 +1,6 @@
 import type { NotebookContext } from '../extensions/providers';
 import { canOfferLocalSolve, solveLocally } from '../assistant/localMathSolver';
+import { checkSphereFluxQuestion } from '../assistant/vectorFluxCheck';
 import { createAIONPagePrompt } from './runtime';
 import { AION_SYSTEM_PROMPT } from './systemPrompt';
 
@@ -73,6 +74,7 @@ function cleanVisibleAnswer(text: string): string {
     .replace(/<t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$/i, '')
     .replace(/```(?:latex|tex|math)\s*([\s\S]*?)```/gi, (_, math: string) => `\\[${math.trim()}\\]`)
     .replace(/```(?:markdown|text)?\s*([\s\S]*?)```/gi, (_, content: string) => content.trim())
+    .replace(/^(#{1,6})(?=\S)/gm, '$1 ')
     .trim();
 }
 
@@ -354,6 +356,26 @@ async function createCheckedPageResults(context: NotebookContext): Promise<strin
   return checked.join('\n');
 }
 
+async function createCheckedQuestionResults(question?: string): Promise<string> {
+  if (!question?.trim()) return '';
+  const checked: string[] = [];
+  const expressions = [...question.matchAll(/\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]/g)]
+    .map((match) => (match[1] ?? match[2] ?? '').trim())
+    .filter(Boolean);
+  for (const expression of [...new Set(expressions)]) {
+    if (!canOfferLocalSolve(expression) || !canCheckWithoutBlockingAION(expression)) continue;
+    try {
+      const result = await solveLocally(expression);
+      checked.push(`Question expression (${expression}). ${result.label}: ${result.resultLatex}. ${result.explanation}`);
+    } catch {
+      // AION still receives the original expression and must state uncertainty.
+    }
+  }
+  const fluxCheck = checkSphereFluxQuestion(question);
+  if (fluxCheck) checked.push(fluxCheck);
+  return checked.join('\n');
+}
+
 export async function askAIONAboutPage(
   context: NotebookContext,
   question?: string,
@@ -361,13 +383,15 @@ export async function askAIONAboutPage(
   onUpdate?: (text: string) => void,
 ): Promise<AIONAnswer> {
   const checkedResults = await createCheckedPageResults(context);
-  const checkedSection = checkedResults
+  const checkedQuestionResults = await createCheckedQuestionResults(question);
+  const allCheckedResults = [checkedResults, checkedQuestionResults].filter(Boolean).join('\n');
+  const checkedSection = allCheckedResults
     ? [
         '',
         'Checked local mathematical results:',
         'These deterministic CAS and numerical results are the computational references for this answer.',
         'Do not invent or repeat a conflicting value. If notation is ambiguous, explicitly identify the ambiguity before interpreting it.',
-        checkedResults,
+        allCheckedResults,
       ].join('\n')
     : '';
   const integralConstraints = context.currentPage.objects

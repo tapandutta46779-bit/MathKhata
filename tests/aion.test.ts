@@ -60,6 +60,16 @@ describe('AION provider boundary', () => {
     expect(answer.text).not.toContain('```');
   });
 
+  it('repairs compact Markdown headings in streamed visible answers', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      message: { content: '###3. Limit\n\\[1/3\\]' },
+    }), { status: 200 }));
+
+    const answer = await askAIONLocal('Evaluate the limit');
+
+    expect(answer.text).toBe('### 3. Limit\n\\[1/3\\]');
+  });
+
   it('preserves ordered hosted stream chunks and detects completion boundaries', () => {
     expect(parsePublicAIONEvent('data: {"response":"First "}\n\n')).toEqual({
       text: 'First ',
@@ -139,5 +149,28 @@ describe('AION provider boundary', () => {
     expect(prompt).toContain('unbounded multiple integral');
     expect(prompt).toContain('Never invent bounds, a region, or a numerical value');
     expect(prompt).toContain('mixed derivative');
+  });
+
+  it('checks question mathematics and diagonal polynomial sphere flux before generation', async () => {
+    const notebook = createNotebook('Stress checks');
+    const context = createDocumentContext(notebook, notebook.pages[0].id, null)!;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      message: { content: 'Checked solutions.' },
+    }), { status: 200 }));
+    const question = [
+      'Evaluate \\(\\int_0^1\\int_0^2\\int_0^3(x+2y+3z)\\,dz\\,dy\\,dx\\).',
+      'For \\(\\mathbf F=(x^3,y^3,z^3)\\), find the outward flux through the unit sphere.',
+      'Compute \\(\\det\\begin{pmatrix}2&1&0\\\\1&3&1\\\\0&1&2\\end{pmatrix}\\).',
+    ].join(' ');
+
+    await askAIONAboutPage(context, question);
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(request.body as string) as { messages: Array<{ content: string }> };
+    const prompt = body.messages[1].content;
+    expect(prompt).toContain('Multiple integral value: 42');
+    expect(prompt).toContain('Determinant: 8');
+    expect(prompt).toContain('outward flux is \\(\\frac{12}{5}\\pi\\)');
+    expect(prompt).toContain('exactly one Jacobian factor');
   });
 });

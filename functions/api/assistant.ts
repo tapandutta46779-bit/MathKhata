@@ -67,7 +67,7 @@ export async function onRequestPost({ request, env }: FunctionContext): Promise<
     const stream = await env.AI.run(MODEL, {
       stream: true,
       max_tokens: MAX_VISIBLE_TOKENS,
-      temperature: 0.35,
+      temperature: 0.2,
       top_p: 0.9,
       messages: [
         {
