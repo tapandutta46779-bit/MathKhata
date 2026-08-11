@@ -59,7 +59,10 @@ describe('public web replica boundary', () => {
     expect(assistantUI).not.toContain('Local Qwen');
     expect(assistantUI).toContain('Fast online');
     expect(assistantUI).toContain('Private on-device');
-    expect(assistantUI).toContain('approximately 4.62 GB first download');
+    expect(assistantUI).toContain('AION online · broader capability · fast start');
+    expect(assistantUI).toContain('AION private model · usable offline after setup');
+    expect(assistantUI).not.toContain('Mistral Small 3.1 24B ·');
+    expect(assistantUI).not.toContain('Qwen3 8B · private');
     expect(topBar).toContain('The AION private model is separate from the app shell.');
     expect(topBar).not.toContain('The Qwen3 8B on-device model is separate from the app shell.');
     expect(assistantUI).toContain('page-assistant-math-scroll');

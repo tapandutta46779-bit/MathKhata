@@ -379,8 +379,8 @@ export function PageAssistantRail() {
               </div>
               <p>
                 {aion.provider === 'online'
-                  ? 'Mistral Small 3.1 24B · broader and faster to start · works on mobile · sends this page and question for processing · free daily allowance'
-                  : 'Qwen3 8B · private and usable offline after setup · approximately 4.62 GB first download · cached by this browser · desktop-grade memory recommended'}
+                  ? 'AION online · broader capability · fast start · works on mobile · sends this page and question for processing · free daily allowance'
+                  : 'AION private model · usable offline after setup · first download is cached by this browser · desktop-grade memory recommended'}
               </p>
             </div>
           )}

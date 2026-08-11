@@ -489,7 +489,7 @@ math-field.assistant-math { display: block; grid-column: 1 / -1; width: 100%; pa
 .aion-message--user p, .aion-message--progress p, .aion-message--error p { margin: 0; font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
 .aion-message--assistant { padding: 3px 2px 7px; }
 .aion-message__name { display: block; margin-bottom: 7px; color: #713c2a; font-size: 9px; font-weight: 800; letter-spacing: .04em; }
-.aion-message__elapsed { display: block; width: fit-content; margin-top: 8px; padding: 3px 6px; border-radius: 6px; color: #7b756c; background: #eeeae2; font-size: 7px; font-weight: 700; }
+.aion-message__elapsed { display: block; width: fit-content; margin-top: 8px; padding: 4px 8px; border-radius: 7px; color: #5f574e; background: #e7e0d5; font-size: 10px; font-weight: 700; }
 .aion-progress__heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .aion-message--progress .aion-progress__heading p { color: #49463f; font-weight: 750; }
 .aion-progress__heading button { flex: 0 0 auto; padding: 5px 8px; border: 1px solid rgba(113,60,42,.28); border-radius: 7px; color: #713c2a; background: #fffefa; font-size: 8px; font-weight: 750; }
