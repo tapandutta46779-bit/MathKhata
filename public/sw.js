@@ -1,6 +1,12 @@
-const CACHE_NAME = 'mathkhata-public-beta-v3';
+const CACHE_PREFIX = 'mathkhata-public-beta-';
+const CACHE_NAME = `${CACHE_PREFIX}v5`;
+const OFFLINE_READY_PATH = './offline-ready.json';
 const CORE_ASSETS = [
+  './offline-assets.json',
   './manifest.webmanifest',
+  './privacy.html',
+  './feedback.html',
+  './public-beta.css',
   './icons/mathkhata.svg',
   './icons/mathkhata-192.png',
   './icons/mathkhata-512.png',
@@ -38,7 +44,23 @@ async function precacheBuild() {
   const assetUrls = [...html.matchAll(/(?:src|href)="([^"#]+)"/g)]
     .map((match) => new URL(match[1], indexUrl).href)
     .filter((url) => new URL(url).origin === indexUrl.origin);
-  await cache.addAll([...new Set([...CORE_ASSETS.map((asset) => new URL(asset, indexUrl).href), ...assetUrls])]);
+  const manifestResponse = await fetch(new URL('./offline-assets.json', indexUrl), { cache: 'reload' });
+  if (!manifestResponse.ok) throw new Error(`Cannot cache MathKhata asset manifest: ${manifestResponse.status}`);
+  const manifest = await manifestResponse.json();
+  const buildAssets = Array.isArray(manifest.assets)
+    ? manifest.assets.map((asset) => new URL(asset, indexUrl).href)
+    : [];
+  await cache.addAll([...new Set([
+    ...CORE_ASSETS.map((asset) => new URL(asset, indexUrl).href),
+    ...assetUrls,
+    ...buildAssets,
+  ])]);
+  await cache.put(
+    new URL(OFFLINE_READY_PATH, indexUrl),
+    new Response(JSON.stringify({ ready: true, cachedAt: Date.now() }), {
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  );
 }
 
 self.addEventListener('install', (event) => {
@@ -48,7 +70,9 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys
+        .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+        .map((key) => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
 });
@@ -66,12 +90,12 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       } catch (error) {
-        const fallback = await caches.match(new URL('./index.html', self.registration.scope));
+        const fallback = await caches.match(new URL('./index.html', self.registration.scope), { ignoreVary: true });
         if (fallback) return fallback;
         throw error;
       }
     }
-    const cached = await caches.match(event.request);
+    const cached = await caches.match(event.request, { ignoreVary: true });
     if (cached) return cached;
     const response = await fetch(event.request);
     if (response.ok) {

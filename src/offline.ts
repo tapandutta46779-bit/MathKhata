@@ -6,3 +6,14 @@ export async function registerOfflineApp(): Promise<void> {
     console.warn('MathKhata offline cache could not be registered.', error);
   }
 }
+
+export async function checkOfflineAppReady(): Promise<boolean> {
+  if (!('serviceWorker' in navigator) || !('caches' in window)) return false;
+  try {
+    await navigator.serviceWorker.ready;
+    const readyUrl = new URL(`${import.meta.env.BASE_URL}offline-ready.json`, window.location.href);
+    return Boolean(await window.caches.match(readyUrl));
+  } catch {
+    return false;
+  }
+}

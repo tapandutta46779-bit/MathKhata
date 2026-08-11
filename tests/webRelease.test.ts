@@ -45,6 +45,9 @@ describe('public web replica boundary', () => {
     const browserProvider = readFileSync(path.resolve('src/aion/webgpuProvider.ts'), 'utf8');
     const assistantUI = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
     const topBar = readFileSync(path.resolve('src/components/TopBar.tsx'), 'utf8');
+    const webGPUProvider = readFileSync(path.resolve('src/aion/webgpuProvider.ts'), 'utf8');
+    const serviceWorker = readFileSync(path.resolve('public/sw.js'), 'utf8');
+    const viteConfig = readFileSync(path.resolve('vite.config.ts'), 'utf8');
     const styles = readFileSync(path.resolve('src/styles.css'), 'utf8');
 
     expect(wrangler).toContain('[ai]');
@@ -65,6 +68,19 @@ describe('public web replica boundary', () => {
     expect(assistantUI).not.toContain('Qwen3 8B · private');
     expect(topBar).toContain('The AION private model is separate from the app shell.');
     expect(topBar).not.toContain('The Qwen3 8B on-device model is separate from the app shell.');
+    expect(topBar).toContain('Install app + prepare offline AION');
+    expect(topBar).toContain('void prepareOfflineAION();');
+    expect(webGPUProvider).toContain('prepareAIONWebGPU');
+    expect(webGPUProvider).toContain('hasModelInCache');
+    expect(topBar).toContain('MathKhata offline app');
+    expect(topBar).toContain('Private AION offline');
+    expect(topBar).toContain('checkOfflineAppReady');
+    expect(serviceWorker).toContain("const CACHE_PREFIX = 'mathkhata-public-beta-'");
+    expect(serviceWorker).toContain('key.startsWith(CACHE_PREFIX)');
+    expect(serviceWorker).toContain('{ ignoreVary: true }');
+    expect(serviceWorker).toContain("new URL('./offline-assets.json', indexUrl)");
+    expect(serviceWorker).toContain('offline-ready.json');
+    expect(viteConfig).toContain("fileName: 'offline-assets.json'");
     expect(assistantUI).toContain('page-assistant-math-scroll');
     expect(styles).toContain('overscroll-behavior-inline: contain');
   });

@@ -7,6 +7,21 @@ export default defineConfig(({ command, mode }) => ({
   plugins: [
     react(),
     {
+      name: 'mathkhata-offline-assets',
+      apply: 'build',
+      generateBundle(_options, bundle) {
+        const assets = Object.keys(bundle)
+          .filter((fileName) => !fileName.endsWith('.map'))
+          .map((fileName) => `./${fileName}`)
+          .sort();
+        this.emitFile({
+          type: 'asset',
+          fileName: 'offline-assets.json',
+          source: JSON.stringify({ assets }),
+        });
+      },
+    },
+    {
       name: 'mathkhata-csp',
       transformIndexHtml(html) {
         const scriptSources = command !== 'serve' && mode === 'web'

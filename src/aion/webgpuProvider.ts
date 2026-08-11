@@ -1,5 +1,6 @@
 import {
   CreateWebWorkerMLCEngine,
+  hasModelInCache,
   type InitProgressReport,
   type WebWorkerMLCEngine,
 } from '@mlc-ai/web-llm';
@@ -23,6 +24,16 @@ const progressListeners = new Set<NonNullable<AIONWebGPUOptions['onStatus']>>();
 export function canUseAIONWebGPU(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   return window.isSecureContext && 'gpu' in navigator;
+}
+
+export async function isAIONWebGPUCached(): Promise<boolean> {
+  return hasModelInCache(AION_WEBGPU_MODEL);
+}
+
+export async function prepareAIONWebGPU(
+  onStatus?: AIONWebGPUOptions['onStatus'],
+): Promise<void> {
+  await loadEngine(onStatus);
 }
 
 function reportProgress(report: InitProgressReport) {

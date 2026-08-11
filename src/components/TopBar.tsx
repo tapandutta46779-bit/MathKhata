@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Notebook } from '../domain/model';
 import { deserializeNotebook, serializeNotebook } from '../domain/schema';
+import { checkOfflineAppReady } from '../offline';
 import { useNotebookStore } from '../store/notebookStore';
 import packageMetadata from '../../package.json';
 
@@ -12,6 +13,12 @@ interface TopBarProps {
 interface InstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
+interface OfflineAIONSetupState {
+  phase: 'idle' | 'installing' | 'preparing' | 'ready' | 'error';
+  message?: string;
+  progress?: number;
 }
 
 const STATUS_LABELS = {
@@ -43,7 +50,10 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [offlineAIONSetup, setOfflineAIONSetup] = useState<OfflineAIONSetupState>({ phase: 'idle' });
+  const [offlineAppReady, setOfflineAppReady] = useState<boolean | null>(null);
   const [menuMessage, setMenuMessage] = useState<string | null>(null);
+  const offlineAIONSetupPromise = useRef<Promise<void> | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const overflow = useRef<HTMLDivElement>(null);
 
@@ -94,6 +104,43 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
     return () => window.removeEventListener('keydown', closeFromEscape, true);
   }, [aboutOpen]);
 
+  const prepareOfflineAION = useCallback(() => {
+    if (offlineAIONSetupPromise.current) return offlineAIONSetupPromise.current;
+    const setup = (async () => {
+      setOfflineAIONSetup({
+        phase: 'preparing',
+        message: 'Preparing offline AION. Keep MathKhata open and connected until setup finishes…',
+        progress: 0,
+      });
+      try {
+        setOfflineAppReady(await checkOfflineAppReady());
+        await navigator.storage?.persist?.().catch(() => false);
+        const { canUseAIONWebGPU, prepareAIONWebGPU } = await import('../aion/webgpuProvider');
+        if (!canUseAIONWebGPU()) {
+          throw new Error('Offline AION requires WebGPU and sufficient laptop memory. The notebook app is still installed and Fast online remains available.');
+        }
+        await prepareAIONWebGPU((message, progress) => {
+          setOfflineAIONSetup({ phase: 'preparing', message, progress });
+        });
+        setOfflineAIONSetup({
+          phase: 'ready',
+          message: 'MathKhata and offline AION are ready on this device.',
+          progress: 100,
+        });
+        setOfflineAppReady(await checkOfflineAppReady());
+        setMenuMessage('MathKhata and offline AION are ready on this device.');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Offline AION setup could not finish.';
+        setOfflineAIONSetup({ phase: 'error', message });
+        setMenuMessage('MathKhata was installed, but offline AION setup needs attention.');
+      }
+    })().finally(() => {
+      offlineAIONSetupPromise.current = null;
+    });
+    offlineAIONSetupPromise.current = setup;
+    return setup;
+  }, []);
+
   useEffect(() => {
     const capturePrompt = (event: Event) => {
       event.preventDefault();
@@ -101,8 +148,9 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
     };
     const installed = () => {
       setInstallPrompt(null);
-      setInstallOpen(false);
-      setMenuMessage('MathKhata was installed on this device.');
+      setInstallOpen(true);
+      setMenuMessage('MathKhata was installed. Preparing offline AION…');
+      void prepareOfflineAION();
     };
     window.addEventListener('beforeinstallprompt', capturePrompt);
     window.addEventListener('appinstalled', installed);
@@ -110,7 +158,33 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
       window.removeEventListener('beforeinstallprompt', capturePrompt);
       window.removeEventListener('appinstalled', installed);
     };
-  }, []);
+  }, [prepareOfflineAION]);
+
+  useEffect(() => {
+    if (!installOpen || offlineAIONSetup.phase !== 'idle') return;
+    let active = true;
+    void Promise.all([
+      checkOfflineAppReady(),
+      import('../aion/webgpuProvider').then(({ isAIONWebGPUCached }) => isAIONWebGPUCached()),
+    ])
+      .then(([appReady, aionCached]) => {
+        if (!active) return;
+        setOfflineAppReady(appReady);
+        if (aionCached) {
+          setOfflineAIONSetup({
+            phase: 'ready',
+            message: 'Offline AION is already prepared on this device.',
+            progress: 100,
+          });
+        }
+      })
+      .catch(() => {
+        // Cache inspection is advisory; setup will report any actionable error.
+      });
+    return () => {
+      active = false;
+    };
+  }, [installOpen, offlineAIONSetup.phase]);
 
   useEffect(() => {
     if (!installOpen) return;
@@ -303,26 +377,77 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
             </div>
             <button type="button" aria-label="Close Install MathKhata" onClick={() => setInstallOpen(false)}>×</button>
           </div>
-          <p>Install the web app for a normal app window and offline notebook shell. Your notebooks remain stored on this device.</p>
+          <p>Install the web app for a normal app window and offline notebook workspace. After installation, MathKhata automatically prepares private AION for offline use.</p>
           {installPrompt ? (
             <button
               type="button"
               className="install-dialog__primary"
+              disabled={offlineAIONSetup.phase === 'installing' || offlineAIONSetup.phase === 'preparing'}
               onClick={async () => {
-                await installPrompt.prompt();
-                const choice = await installPrompt.userChoice;
-                if (choice.outcome === 'accepted') setInstallPrompt(null);
+                setOfflineAIONSetup({ phase: 'installing', message: 'Waiting for installation confirmation…' });
+                try {
+                  await installPrompt.prompt();
+                  const choice = await installPrompt.userChoice;
+                  if (choice.outcome === 'accepted') {
+                    setInstallPrompt(null);
+                    await prepareOfflineAION();
+                  } else {
+                    setOfflineAIONSetup({ phase: 'idle' });
+                  }
+                } catch (error) {
+                  setOfflineAIONSetup({
+                    phase: 'error',
+                    message: error instanceof Error ? error.message : 'Installation could not start.',
+                  });
+                }
               }}
             >
-              Install on this device
+              {offlineAIONSetup.phase === 'installing' ? 'Confirm installation…' : 'Install app + prepare offline AION'}
             </button>
           ) : (
             <div className="install-dialog__instructions">
               <p><strong>Android:</strong> open the browser menu and choose <em>Install app</em> or <em>Add to Home screen</em>.</p>
               <p><strong>Mac:</strong> in Chrome or Edge choose <em>Install MathKhata</em>; in Safari choose <em>File → Add to Dock</em>.</p>
               <p><strong>iPhone/iPad:</strong> use <em>Share → Add to Home Screen</em>.</p>
+              {offlineAIONSetup.phase !== 'ready' && (
+                <button
+                  type="button"
+                  className="install-dialog__primary"
+                  disabled={offlineAIONSetup.phase === 'preparing'}
+                  onClick={() => void prepareOfflineAION()}
+                >
+                  {offlineAIONSetup.phase === 'preparing' ? 'Preparing offline AION…' : 'Prepare offline AION now'}
+                </button>
+              )}
             </div>
           )}
+          {offlineAIONSetup.phase !== 'idle' && (
+            <div className={`install-dialog__aion-status is-${offlineAIONSetup.phase}`} role="status" aria-live="polite">
+              <strong>
+                {offlineAIONSetup.phase === 'ready'
+                  ? 'Offline AION ready'
+                  : offlineAIONSetup.phase === 'error'
+                    ? 'Offline AION needs attention'
+                    : offlineAIONSetup.phase === 'installing'
+                      ? 'Installing MathKhata'
+                      : 'Downloading offline AION'}
+              </strong>
+              {offlineAIONSetup.progress !== undefined && (
+                <progress max="100" value={offlineAIONSetup.progress} aria-label="Offline AION setup progress" />
+              )}
+              {offlineAIONSetup.message && <p>{offlineAIONSetup.message}</p>}
+            </div>
+          )}
+          <div className="install-dialog__readiness" aria-label="Offline readiness">
+            <div className={offlineAppReady ? 'is-ready' : ''}>
+              <span aria-hidden="true">{offlineAppReady ? '✓' : '○'}</span>
+              <p><strong>MathKhata offline app</strong><small>{offlineAppReady ? 'Complete browser-compatible workspace cached' : 'Finishing or checking the offline app cache'}</small></p>
+            </div>
+            <div className={offlineAIONSetup.phase === 'ready' ? 'is-ready' : ''}>
+              <span aria-hidden="true">{offlineAIONSetup.phase === 'ready' ? '✓' : '○'}</span>
+              <p><strong>Private AION offline</strong><small>{offlineAIONSetup.phase === 'ready' ? 'Model and runtime cached on this device' : 'Ready only after the separate setup finishes'}</small></p>
+            </div>
+          </div>
           <p className="about-dialog__note">The AION private model is separate from the app shell. Its first download is cached after successful setup, but the browser may remove it if site storage is cleared. Fast online AION requires no model download.</p>
         </section>
       </div>
