@@ -2,7 +2,7 @@
 
 MathKhata is a local-first mathematical notebook and research workspace for laptops. Its page is the interface: write structured mathematics and ordinary notes directly on ruled lines, then return later without losing layout or mathematical editability.
 
-Version 1.0 public beta runs as an installable macOS, Windows, or Linux desktop application and as a browser/PWA build. It supports a physical keyboard, trackpad or mouse, and optional microphone access. It has no account, cloud database, telemetry, or API-key requirement. The desktop speech model is downloaded once on first use and cached locally; recorded audio is then transcribed on-device.
+Version 1.0 public beta runs as an installable macOS, Windows, or Linux desktop application and as a browser/PWA build. It supports a physical keyboard, trackpad or mouse, and optional microphone access. It has no account, cloud notebook database, personal tracking, or API-key requirement. The public website uses cookie-free aggregate Cloudflare Web Analytics; the desktop application does not. The desktop speech model is downloaded once on first use and cached locally; recorded audio is then transcribed on-device.
 
 ## Desktop application
 

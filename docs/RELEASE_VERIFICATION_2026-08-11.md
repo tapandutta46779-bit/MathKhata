@@ -39,7 +39,7 @@
 - No credentials, private notebook data, source maps, or personal filesystem paths were found in `dist/`.
 - The account-specific Google Drive mount was removed from documentation while automatic wildcard-based Drive discovery and backup scripts were preserved.
 - The production CSP permits only same-origin network connections. The built JavaScript contains no Ollama/localhost endpoint.
-- No application analytics or individual tracking was added.
+- Cloudflare's cookie-free Web Analytics beacon is enabled for aggregate page views and performance measurements. It does not receive notebook content, equations, or microphone recordings, and no individual tracking was added.
 
 ## Known limitations
 

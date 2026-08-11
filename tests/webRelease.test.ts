@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 describe('public web replica boundary', () => {
   it('keeps MathLive layout styles while restricting public network access', () => {
     const headers = readFileSync(path.resolve('public/_headers'), 'utf8');
+    const privacy = readFileSync(path.resolve('public/privacy.html'), 'utf8');
 
     expect(headers).toContain("script-src 'self'");
     expect(headers).toContain('https://static.cloudflareinsights.com/beacon.min.js');
@@ -16,6 +17,9 @@ describe('public web replica boundary', () => {
     expect(readFileSync(path.resolve('vite.config.ts'), 'utf8')).toContain(
       "mode === 'web'",
     );
+    expect(privacy).toContain("Cloudflare's cookie-free Web Analytics");
+    expect(privacy).toContain('does not receive notebook content');
+    expect(privacy).not.toContain('optional Local Qwen Assistant');
   });
 
   it('ships every KaTeX size font used by large operators and structured notation', () => {

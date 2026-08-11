@@ -227,7 +227,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
           <dl className="about-dialog__facts">
             <div><dt>Version</dt><dd>{packageMetadata.version}</dd></div>
             <div><dt>Storage</dt><dd>Local browser database</dd></div>
-            <div><dt>Telemetry</dt><dd>None</dd></div>
+            <div><dt>Analytics</dt><dd>{import.meta.env.MODE === 'web' ? 'Cookie-free page metrics' : 'None'}</dd></div>
           </dl>
           <div className="about-dialog__links">
             <a href="./privacy.html" target="_blank" rel="noreferrer">Privacy</a>
