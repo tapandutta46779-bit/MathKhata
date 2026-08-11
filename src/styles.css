@@ -924,6 +924,17 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 
 .modal-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(43,40,34,.3); backdrop-filter: blur(4px); }
 .notebook-library { width: min(590px, 90vw); max-height: 78vh; padding: 18px; overflow: auto; border: 1px solid rgba(255,255,255,.5); border-radius: 17px; background: #fffefa; box-shadow: 0 30px 80px rgba(30,28,24,.26); }
+.about-dialog { width: min(460px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 32px)); padding: 22px; overflow: auto; border: 1px solid rgba(255,255,255,.55); border-radius: 17px; background: #fffefa; box-shadow: 0 30px 80px rgba(30,28,24,.26); }
+.about-dialog > p { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.about-dialog__facts { display: grid; gap: 0; margin: 18px 0; border-block: 1px solid var(--border); }
+.about-dialog__facts > div { display: flex; justify-content: space-between; gap: 20px; padding: 9px 0; border-bottom: 1px solid #eeeae1; font-size: 11px; }
+.about-dialog__facts > div:last-child { border-bottom: 0; }
+.about-dialog__facts dt { color: var(--muted); }
+.about-dialog__facts dd { margin: 0; color: var(--ink); font-weight: 700; text-align: right; }
+.about-dialog__links { display: flex; flex-wrap: wrap; gap: 9px; }
+.about-dialog__links a { padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; color: #713c2a; background: #fff; font-size: 11px; font-weight: 750; text-decoration: none; }
+.about-dialog__links a:hover { border-color: rgba(154,72,44,.45); background: #fff7ee; }
+.about-dialog .about-dialog__note { margin-bottom: 0; font-size: 10px; }
 .dialog-heading { display: flex; align-items: start; justify-content: space-between; }
 .dialog-heading h2 { margin: 2px 0 14px; font: 27px/1.2 Georgia, serif; }
 .eyebrow { color: var(--accent); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }

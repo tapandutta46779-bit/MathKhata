@@ -93,7 +93,7 @@ function InlineAIONContent({ text }: { text: string }) {
           <ReadOnlyMath
             key={partIndex}
             latex={math.trim()}
-            label="AION answer mathematics"
+            label="Local Qwen answer mathematics"
             display={part.startsWith('$$') || part.startsWith('\\[')}
           />
         );
@@ -121,7 +121,7 @@ function AIONVisibleAnswer({ text }: { text: string }) {
         const key = `${lineIndex}-${line.slice(0, 24)}`;
         if (/^-{3,}$/.test(line)) return <hr key={key} />;
         const bareMath = bareAIONMath(line);
-        if (bareMath) return <ReadOnlyMath key={key} latex={bareMath} label="AION answer mathematics" display />;
+        if (bareMath) return <ReadOnlyMath key={key} latex={bareMath} label="Local Qwen answer mathematics" display />;
         if (/^#{1,4}\s+/.test(line)) {
           return <h3 key={key}><InlineAIONContent text={line.replace(/^#{1,4}\s+/, '')} /></h3>;
         }
@@ -299,15 +299,15 @@ export function PageAssistantRail() {
     >
       <header className="page-assistant__header">
         <div>
-          <strong>AION</strong>
-          <span>Page-aware mathematical assistant</span>
+          <strong>Page assistant</strong>
+          <span>Deterministic outline · optional Local Qwen</span>
         </div>
         <div className="page-assistant__header-actions">
           <button type="button" aria-label="Collapse page assistant" onClick={closeAssistant}>›</button>
           <button type="button" aria-label="Close page assistant" onClick={closeAssistant}>×</button>
         </div>
       </header>
-      <nav className="page-assistant__views" aria-label="AION assistant views">
+      <nav className="page-assistant__views" aria-label="Page assistant views">
         <button
           type="button"
           className={assistantView === 'chat' ? 'is-active' : ''}
@@ -329,7 +329,7 @@ export function PageAssistantRail() {
         </em>
       </nav>
       {assistantView === 'chat' && (
-        <section className="aion-chat" aria-label="AION mathematical conversation">
+        <section className="aion-chat" aria-label="Local Qwen mathematical conversation">
           <div
             className="aion-chat__conversation"
             ref={conversationRef}
@@ -351,7 +351,7 @@ export function PageAssistantRail() {
                 <div className="aion-message aion-message--user"><p>{turn.question}</p></div>
                 {turn.answer && (
                   <div className="aion-message aion-message--assistant">
-                    <span className="aion-message__name">AION</span>
+                    <span className="aion-message__name">Local Qwen</span>
                     <AIONVisibleAnswer text={turn.answer} />
                   </div>
                 )}
@@ -359,16 +359,16 @@ export function PageAssistantRail() {
             ))}
             {(aion.status === 'loading' || aion.status === 'analyzing') && (
               <div className="aion-message aion-message--assistant aion-message--progress" role="status">
-                <span className="aion-message__name">AION</span>
+                <span className="aion-message__name">Local Qwen</span>
                 <p>{aion.message || 'Working through the mathematics…'}</p>
                 <progress max="100" value={aion.progress} />
               </div>
             )}
             {(aion.status === 'idle' || aion.status === 'error') && (
               <div className="aion-message aion-message--assistant aion-message--error" role="status">
-                <span className="aion-message__name">AION</span>
-                <p>{aion.message || 'AION is unavailable. Notebook editing and the checked local solver remain available.'}</p>
-                <button type="button" onClick={aion.enable}>Retry AION</button>
+                <span className="aion-message__name">Local Qwen</span>
+                <p>{aion.message || 'The Local Qwen Assistant is unavailable. Notebook editing and the checked local solver remain available.'}</p>
+                <button type="button" onClick={aion.enable}>Check Local Qwen again</button>
               </div>
             )}
           </div>
@@ -376,8 +376,8 @@ export function PageAssistantRail() {
             <textarea
               rows={3}
               value={aionQuestion}
-              aria-label="Ask AION about this page"
-              placeholder="Ask AION about this page…"
+              aria-label="Ask Local Qwen about this page"
+              placeholder="Ask Local Qwen about this page…"
               onChange={(event) => setAionQuestion(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
@@ -387,10 +387,10 @@ export function PageAssistantRail() {
               }}
             />
             <div>
-              <span>AION reads the current page; insertion stays under your control.</span>
+              <span>Local Qwen receives the current page only when available; insertion stays under your control.</span>
               <button
                 type="button"
-                aria-label="Send question to AION"
+                aria-label="Send question to Local Qwen"
                 disabled={aion.status !== 'ready' || !aionQuestion.trim()}
                 onClick={() => submitAION(aionQuestion)}
               >
@@ -478,7 +478,7 @@ export function PageAssistantRail() {
                 )}
                 {mathCount > 0 && aion.status === 'ready' && (
                   <button type="button" onClick={() => explainGroupWithAION(group, groupIndex)}>
-                    Explain with AION
+                    Explain with Local Qwen
                   </button>
                 )}
               </div>

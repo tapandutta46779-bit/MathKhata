@@ -26,7 +26,7 @@ export function useAIONRuntime(): AIONRuntimeState {
   const enable = useCallback(async () => {
     setStatus('loading');
     setResult(undefined);
-    setMessage('Checking the private AION runtime…');
+    setMessage('Checking the Local Qwen Assistant…');
     setProgress(undefined);
     const controller = new AbortController();
     requestRef.current?.abort();
@@ -48,7 +48,7 @@ export function useAIONRuntime(): AIONRuntimeState {
     if (status !== 'ready') return;
     setStatus('analyzing');
     setResult(undefined);
-    setMessage(question ? 'AION is working through your question locally…' : 'AION is reading the current page locally…');
+    setMessage(question ? 'Local Qwen is working through your question…' : 'Local Qwen is reading the current page…');
     const controller = new AbortController();
     requestRef.current?.abort();
     requestRef.current = controller;
@@ -59,12 +59,12 @@ export function useAIONRuntime(): AIONRuntimeState {
       if (controller.signal.aborted) return;
       setResult(answer.text);
       setStatus('ready');
-      setMessage('AION completed the local analysis.');
+      setMessage('Local Qwen completed the analysis.');
       setDevice('ollama');
     } catch (error) {
       if (controller.signal.aborted) return;
       setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'AION could not complete the request.');
+      setMessage(error instanceof Error ? error.message : 'The Local Qwen Assistant could not complete the request.');
     }
   }, [status]);
 

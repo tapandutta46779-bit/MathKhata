@@ -2301,7 +2301,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     ? 'Local interactive 3D: explicit, parametric, and sampled implicit surfaces; sliders, points, curves, traces, viewport locks, and sampled intersections.'
     : tool === 'geometry'
       ? 'Local dynamic geometry: constructions, expressions, multi-select styling, transformations, dragging, measurements, and line/circle intersections.'
-      : 'All calculations run locally. Verify research-critical results with the checked solver or AION.';
+      : 'All calculations run locally. Verify research-critical results with the checked solver or, when configured, Local Qwen.';
   return (
     <aside className="research-tools-panel" aria-label="Research mathematics tools" data-testid="research-tools-panel" hidden={!open}>
       <header><div><strong>Research workspace</strong><span>Graph · geometry · scientific</span></div><button type="button" aria-label="Close research tools" onClick={onClose}>×</button></header>

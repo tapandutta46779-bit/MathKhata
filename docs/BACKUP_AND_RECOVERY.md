@@ -43,8 +43,8 @@ The final verified mount, timestamps, and backup contents are recorded here afte
 
 ## Verified Stage 1 destination
 
-- Detected mount: `~/Library/CloudStorage/GoogleDrive-tapandutta46769@gmail.com/My Drive`
-- Project backup: `~/Library/CloudStorage/GoogleDrive-tapandutta46769@gmail.com/My Drive/MathKhata`
+- Detected mount: the first writable `~/Library/CloudStorage/GoogleDrive-*/My Drive` directory, or `MATHKHATA_DRIVE_ROOT` when explicitly configured.
+- Project backup: `<detected Google Drive root>/MathKhata`.
 - Automatic workflow: repository-local `core.hooksPath` points to `.githooks`; every successful commit invokes the fail-safe mirror/bundle script.
 - Verified content: `source-mirror/README.md`, `source-mirror/package.json`, architecture documentation, all six screenshots, and `git-backups/MathKhata-latest.bundle`.
 - Independent integrity check: `git bundle verify` reported a complete history for `main` and `HEAD`.

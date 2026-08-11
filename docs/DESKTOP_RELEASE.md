@@ -30,8 +30,8 @@ Then install the artifact on a clean user account and verify:
 
 1. Create, rename, save, reopen, export, import, print, and recover a notebook.
 2. Use Text, Math, Voice, Symbols, the MathLive virtual keyboard and context menus.
-3. Solve supported arithmetic, equations, determinants, derivatives, and integrals without AION.
-4. Open AION with the local service available and unavailable; both states must be honest and the notebook must remain usable.
+3. Solve supported arithmetic, equations, determinants, derivatives, and integrals without an AI model.
+4. Open the Local Qwen Assistant with the local service available and unavailable; both states must be honest and the notebook must remain usable.
 5. Exercise 2D, 3D, Geometry, Scientific, and floating calculator workspaces with mouse, trackpad, keyboard, and window resizing.
 6. Deny microphone permission, then grant it deliberately; no other permission should be requested.
 7. Verify the app cannot navigate its main window to arbitrary web content and external HTTPS links open in the system browser.
@@ -60,6 +60,6 @@ The structured `.mathkhata.json` export is the portable backup and migration for
 
 ## Security posture
 
-The desktop renderer loads packaged `mathkhata://app` content in production. Node integration is disabled; context isolation, renderer sandboxing, web security, restrictive navigation, a CSP, ASAR integrity validation, and Electron fuses are enabled. The privileged renderer bridge accepts fixed notebook commands and validated requests to the loopback AION service; it cannot request an arbitrary URL or arbitrary filesystem path. The CSP separately permits model-file downloads from Hugging Face for the first-run local speech recognizer. No microphone audio is sent with those model requests.
+The desktop renderer loads packaged `mathkhata://app` content in production. Node integration is disabled; context isolation, renderer sandboxing, web security, restrictive navigation, a CSP, ASAR integrity validation, and Electron fuses are enabled. The privileged renderer bridge accepts fixed notebook commands and validated requests to the loopback Ollama service; it cannot request an arbitrary URL or arbitrary filesystem path. The internal bridge retains historical `aion` naming for compatibility. The CSP separately permits model-file downloads from Hugging Face for the first-run local speech recognizer. No microphone audio is sent with those model requests.
 
 Runtime production dependencies must report zero known vulnerabilities with `npm audit --omit=dev`. Installer tooling is kept outside the shipped renderer archive and must also be reviewed on each release.

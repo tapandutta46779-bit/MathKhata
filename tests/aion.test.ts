@@ -9,7 +9,7 @@ import {
 import { createNotebook, createMathObject, createTextObject, addObject } from '../src/domain/notebook';
 import { createDocumentContext } from '../src/extensions/providers';
 
-describe('AION local-runtime boundary', () => {
+describe('local Qwen compatibility-provider boundary', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('does not block live AION streaming on expensive synchronous calculus preflight', () => {
@@ -20,8 +20,8 @@ describe('AION local-runtime boundary', () => {
     expect(canCheckWithoutBlockingAION('\\sum_{n=1}^{\\infty}n^{-2}')).toBe(false);
   });
 
-  it('uses the exact AION name and discloses a real base model', () => {
-    expect(AION_DISPLAY_NAME).toBe('AION');
+  it('uses an honest public name and discloses the real base model', () => {
+    expect(AION_DISPLAY_NAME).toBe('Local Qwen Assistant');
     expect(AION_BASE_MODEL).toBe('qwen3:8b');
   });
 
@@ -67,7 +67,7 @@ describe('AION local-runtime boundary', () => {
 
     expect(context).not.toBeNull();
     const prompt = createAIONPagePrompt(context!);
-    expect(prompt).toContain('You are AION');
+    expect(prompt).toContain('You are the optional Local Qwen Assistant');
     expect(prompt.indexOf('x^2=4')).toBeLessThan(prompt.indexOf('Solve separately'));
     expect(prompt).toContain('Do not claim that you edited the notebook');
   });

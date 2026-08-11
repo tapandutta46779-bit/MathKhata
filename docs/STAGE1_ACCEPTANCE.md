@@ -52,7 +52,7 @@ This is the verification ledger for Stage 1. A checked item must be backed by a 
 - [x] Problem grouping is correctable with split/join/confirm controls, solving is per group, and no analysis silently merges or edits notebook content.
 - [x] Assistant visibility is a persisted user preference: analysis refreshes, math edits, page switches, React remounts, and reloads never reopen a panel the writer closed.
 - [x] At 1280×659 and a narrower viewport, the assistant and notebook menu remain inside the viewport, do not overlap close controls, do not widen the document, and dismiss by second click, Escape, outside pointer, or item selection.
-- [x] The app makes no trained-model claim. Deterministic parsing/segmentation and local CAS remain reliable; AION discloses its Qwen3 8B Q4_K_M base and local Ollama runtime.
+- [x] The app makes no trained-model claim. Deterministic parsing/segmentation and local CAS remain reliable; the optional assistant is disclosed as Qwen3 8B Q4_K_M through local Ollama and is distinct from future AION work.
 
 ## Evidence and backup
 

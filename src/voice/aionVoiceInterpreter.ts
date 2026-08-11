@@ -52,7 +52,7 @@ export async function refineVoiceCandidateWithAION(
   const answer = await askAIONLocal(prompt, { signal, json: true, temperature: 0.1 });
   const payload = extractJson(answer.text);
   const segments = payload.segments?.map(validateSegment).filter((segment): segment is VoiceCandidateSegment => Boolean(segment)) ?? [];
-  if (segments.length === 0) throw new Error('AION did not return a usable voice interpretation.');
+  if (segments.length === 0) throw new Error('Local Qwen did not return a usable voice interpretation.');
   const parserFinishTimestamp = typeof performance === 'undefined' ? Date.now() : performance.now();
   return {
     ...candidate,

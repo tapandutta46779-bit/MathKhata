@@ -1,9 +1,29 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 
-export default defineConfig({
+export default defineConfig(({ command, mode }) => ({
   base: './',
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'mathkhata-csp',
+      transformIndexHtml(html) {
+        const connectSources = command === 'serve'
+          ? "'self' http://127.0.0.1:11434 http://localhost:11434 ws://127.0.0.1:4173"
+          : "'self'";
+        return html.replace('__MATHKHATA_CONNECT_SRC__', connectSources);
+      },
+    },
+  ],
+  resolve: mode === 'web' ? {
+    alias: [
+      {
+        find: '../voice/desktopSpeechProvider',
+        replacement: fileURLToPath(new URL('./src/voice/desktopSpeechProvider.web.ts', import.meta.url)),
+      },
+    ],
+  } : undefined,
   server: {
     port: 4173,
     strictPort: true,
@@ -20,4 +40,4 @@ export default defineConfig({
       reporter: ['text', 'html'],
     },
   },
-});
+}));

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Notebook } from '../domain/model';
 import { deserializeNotebook, serializeNotebook } from '../domain/schema';
 import { useNotebookStore } from '../store/notebookStore';
+import packageMetadata from '../../package.json';
 
 interface TopBarProps {
   notebook: Notebook;
@@ -34,6 +35,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
   const importNotebook = useNotebookStore((state) => state.importNotebook);
   const [title, setTitle] = useState(notebook.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [menuMessage, setMenuMessage] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const overflow = useRef<HTMLDivElement>(null);
@@ -73,6 +75,18 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
     };
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (!aboutOpen) return;
+    const closeFromEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setAboutOpen(false);
+    };
+    window.addEventListener('keydown', closeFromEscape, true);
+    return () => window.removeEventListener('keydown', closeFromEscape, true);
+  }, [aboutOpen]);
+
   function toggleMenu() {
     if (menuOpen) {
       setMenuOpen(false);
@@ -95,6 +109,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
   }
 
   return (
+    <>
     <header className="top-bar">
       <div className="brand-mark" aria-label="MathKhata">
         <span aria-hidden="true">∫</span>
@@ -154,6 +169,17 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
             <button type="button" role="menuitem" onClick={exportNotebook}>Export structured JSON</button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); fileInput.current?.click(); }}>Import JSON…</button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); window.print(); }}>Print / Save PDF…</button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'about' }));
+                setAboutOpen(true);
+              }}
+            >
+              About &amp; feedback…
+            </button>
           </div>
         )}
       </div>
@@ -181,5 +207,36 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
         }}
       />
     </header>
+    {aboutOpen && (
+      <div
+        className="modal-backdrop"
+        role="presentation"
+        onPointerDown={(event) => {
+          if (event.target === event.currentTarget) setAboutOpen(false);
+        }}
+      >
+        <section className="about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title">
+          <div className="dialog-heading">
+            <div>
+              <span className="eyebrow">Public Beta</span>
+              <h2 id="about-title">MathKhata</h2>
+            </div>
+            <button type="button" aria-label="Close About MathKhata" onClick={() => setAboutOpen(false)}>×</button>
+          </div>
+          <p>A local-first mathematical notebook and research workspace. Your notebook stays in this browser unless you export it.</p>
+          <dl className="about-dialog__facts">
+            <div><dt>Version</dt><dd>{packageMetadata.version}</dd></div>
+            <div><dt>Storage</dt><dd>Local browser database</dd></div>
+            <div><dt>Telemetry</dt><dd>None</dd></div>
+          </dl>
+          <div className="about-dialog__links">
+            <a href="./privacy.html" target="_blank" rel="noreferrer">Privacy</a>
+            <a href={import.meta.env.VITE_FEEDBACK_URL || 'https://github.com/tapandutta46779-bit/MathKhata-Feedback/issues/new'} target="_blank" rel="noreferrer">Report an issue</a>
+          </div>
+          <p className="about-dialog__note">Browser speech availability depends on the browser. The optional Local Qwen Assistant is not a hosted service and notebook editing never depends on it.</p>
+        </section>
+      </div>
+    )}
+    </>
   );
 }

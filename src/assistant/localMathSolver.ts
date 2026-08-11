@@ -582,7 +582,7 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
       const numericalLatex = finiteDecimal(estimate.value);
       const errorText = Number.isFinite(estimate.error)
         ? `The last Simpson refinement changed the estimate by about ${estimate.error.toExponential(2)} after error scaling.`
-        : 'The panel limit was reached; use AION or another high-precision integrator for a tighter error target.';
+        : 'The panel limit was reached; use a checked high-precision integrator for a tighter error target.';
       return {
         kind: 'integral',
         label: 'Numerical integral value',

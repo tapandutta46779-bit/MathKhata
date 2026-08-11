@@ -11,6 +11,7 @@ import { WebSpeechProvider } from '../voice/webSpeechProvider';
 import { DesktopSpeechProvider } from '../voice/desktopSpeechProvider';
 import type { NotebookVoiceCandidate, VoiceState } from '../voice/types';
 import { refineVoiceCandidateWithAION } from '../voice/aionVoiceInterpreter';
+import { canUseLocalAssistantClient } from '../aion/ollamaProvider';
 
 export function VoicePanel() {
   const provider = useMemo(() => window.mathKhataDesktop
@@ -85,6 +86,10 @@ export function VoicePanel() {
         setCandidate(deterministic);
         if (transcript.isFinal) {
           refinementRef.current?.abort();
+          if (!canUseLocalAssistantClient()) {
+            setAionVoiceState('fallback');
+            return;
+          }
           const controller = new AbortController();
           refinementRef.current = controller;
           setAionVoiceState('refining');
@@ -164,9 +169,9 @@ export function VoicePanel() {
           {!candidate.isFinal && <span className="provisional-label">provisional</span>}
           {candidate.isFinal && (
             <p className={`aion-voice-state aion-voice-state--${aionVoiceState}`} role="status">
-              {aionVoiceState === 'refining' && 'AION is interpreting this locally; the deterministic draft remains usable.'}
-              {aionVoiceState === 'refined' && 'Interpreted by local AION. Review before inserting.'}
-              {aionVoiceState === 'fallback' && 'AION was unavailable; using the deterministic local parser.'}
+              {aionVoiceState === 'refining' && 'Local Qwen is interpreting this; the deterministic draft remains usable.'}
+              {aionVoiceState === 'refined' && 'Interpreted by Local Qwen. Review before inserting.'}
+              {aionVoiceState === 'fallback' && 'Using the deterministic local parser; no AI service received this transcript.'}
             </p>
           )}
           {candidate.latency.totalVisibleLatencyMs !== undefined && (

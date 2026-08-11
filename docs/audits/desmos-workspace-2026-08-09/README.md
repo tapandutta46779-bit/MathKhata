@@ -51,7 +51,7 @@ Verified MathKhata screenshots after the implementation:
 7. Geometry and 2D have continuous major/minor grids and pointer-centered wheel zoom. Geometry now spans multiple orders of magnitude, supports pinch zoom, Fit and Reset, object-body dragging, constrained-point feedback, Space-drag temporary panning, and always reopens safely in Move rather than a persisted construction or Delete tool.
 8. 3D has a clearer expression rail plus a viewport-layer settings panel for rendering, projection, axes, axis numbers, XY grid, bounding cube, intersections, camera locks, perspective, independent x/y/z bounds, mesh density, and camera presets. The settings layer has contained touch/trackpad scrolling, a sticky close header, keyboard focus scrolling, and direct Mesh decrement/increment/numeric controls. Horizontal orbit now follows Desmos direction and uses a calmer calibrated sensitivity. The 3D canvas supports orbit, wheel zoom, trace, surfaces, points, curves, parameters, sampled implicit surfaces, and sampled intersections.
 9. Scientific now uses a MathLive expression field, rendered mathematical history, exact and decimal results, `ans`, RAD/DEG modes, three keypad sections, cursor controls, backspace, history reuse, and clear history.
-10. The research overlay remains viewport-contained at 1280×659, preserves all notebook MathLive/Symbols/Voice/AION access paths, and does not widen the root document.
+10. The research overlay remains viewport-contained at 1280×659, preserves all notebook MathLive/Symbols/Voice/page-assistant access paths, and does not widen the root document.
 
 ## Honest remaining differences from complete Desmos parity
 
@@ -60,5 +60,5 @@ MathKhata now follows the core Desmos interaction model, but it is not a complet
 ## Regression evidence
 
 - 331 unit tests passed.
-- 13 end-to-end tests cover the full notebook flow, MathLive keyboard/menu/symbol access, voice, AION, long structured mathematics, 2D/3D/Geometry/Scientific workflows, circle radius editing, safe Geometry reopen/drag/fit/extended anchored zoom, independent 3D bounds, Desmos-direction orbit and pointer release, fully scrollable 3D Mesh/camera settings, keyboard focus traversal, settings dismissal, square-coordinate canvas sizing, and viewport containment at 1280×659 and 720×600.
+- 13 end-to-end tests cover the full notebook flow, MathLive keyboard/menu/symbol access, voice, page assistant, long structured mathematics, 2D/3D/Geometry/Scientific workflows, circle radius editing, safe Geometry reopen/drag/fit/extended anchored zoom, independent 3D bounds, Desmos-direction orbit and pointer release, fully scrollable 3D Mesh/camera settings, keyboard focus traversal, settings dismissal, square-coordinate canvas sizing, and viewport containment at 1280×659 and 720×600.
 - Typecheck, lint, and the production build passed.
