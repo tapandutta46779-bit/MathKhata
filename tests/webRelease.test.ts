@@ -35,6 +35,7 @@ describe('public web replica boundary', () => {
     const wrangler = readFileSync(path.resolve('wrangler.toml'), 'utf8');
     const assistantFunction = readFileSync(path.resolve('functions/api/assistant.ts'), 'utf8');
     const assistantUI = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
+    const styles = readFileSync(path.resolve('src/styles.css'), 'utf8');
 
     expect(wrangler).toContain('[ai]');
     expect(wrangler).toContain('binding = "AI"');
@@ -43,5 +44,7 @@ describe('public web replica boundary', () => {
     expect(assistantFunction).toContain('MAX_VISIBLE_TOKENS = 4_096');
     expect(assistantUI).toContain('Ask AION about this page');
     expect(assistantUI).not.toContain('Local Qwen');
+    expect(assistantUI).toContain('page-assistant-math-scroll');
+    expect(styles).toContain('overscroll-behavior-inline: contain');
   });
 });

@@ -49,7 +49,7 @@ function storeOpenPreference(open: boolean) {
 }
 
 function ReadOnlyMath({ latex, label, display = false }: { latex: string; label: string; display?: boolean }) {
-  return (
+  const field = (
     <math-field
       class={`page-assistant-math${display ? ' page-assistant-math--display' : ''}`}
       read-only="true"
@@ -60,6 +60,17 @@ function ReadOnlyMath({ latex, label, display = false }: { latex: string; label:
         }
       }}
     />
+  );
+  if (!display) return field;
+  return (
+    <div
+      className="page-assistant-math-scroll"
+      role="group"
+      aria-label={`${label}. Scroll horizontally for the complete expression.`}
+      tabIndex={0}
+    >
+      {field}
+    </div>
   );
 }
 
