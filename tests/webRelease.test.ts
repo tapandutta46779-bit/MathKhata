@@ -44,6 +44,7 @@ describe('public web replica boundary', () => {
     const wrangler = readFileSync(path.resolve('wrangler.toml'), 'utf8');
     const browserProvider = readFileSync(path.resolve('src/aion/webgpuProvider.ts'), 'utf8');
     const assistantUI = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
+    const topBar = readFileSync(path.resolve('src/components/TopBar.tsx'), 'utf8');
     const styles = readFileSync(path.resolve('src/styles.css'), 'utf8');
 
     expect(wrangler).toContain('[ai]');
@@ -59,6 +60,8 @@ describe('public web replica boundary', () => {
     expect(assistantUI).toContain('Fast online');
     expect(assistantUI).toContain('Private on-device');
     expect(assistantUI).toContain('approximately 4.62 GB first download');
+    expect(topBar).toContain('The AION private model is separate from the app shell.');
+    expect(topBar).not.toContain('The Qwen3 8B on-device model is separate from the app shell.');
     expect(assistantUI).toContain('page-assistant-math-scroll');
     expect(styles).toContain('overscroll-behavior-inline: contain');
   });

@@ -323,7 +323,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
               <p><strong>iPhone/iPad:</strong> use <em>Share → Add to Home Screen</em>.</p>
             </div>
           )}
-          <p className="about-dialog__note">The Qwen3 8B on-device model is separate from the app shell. Its approximately 4.62 GB first download is cached after successful setup, but the browser may remove it if site storage is cleared. Fast online AION requires no model download.</p>
+          <p className="about-dialog__note">The AION private model is separate from the app shell. Its first download is cached after successful setup, but the browser may remove it if site storage is cleared. Fast online AION requires no model download.</p>
         </section>
       </div>
     )}
