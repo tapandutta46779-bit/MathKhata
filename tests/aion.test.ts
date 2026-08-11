@@ -5,6 +5,7 @@ import {
   askAIONLocal,
   canCheckWithoutBlockingAION,
   checkAIONLocal,
+  parsePublicAIONEvent,
 } from '../src/aion/ollamaProvider';
 import { createNotebook, createMathObject, createTextObject, addObject } from '../src/domain/notebook';
 import { createDocumentContext } from '../src/extensions/providers';
@@ -56,6 +57,29 @@ describe('AION provider boundary', () => {
 
     expect(answer.text).toBe('\\[x^2+6=42\\]');
     expect(answer.text).not.toContain('```');
+  });
+
+  it('preserves ordered hosted stream chunks and detects completion boundaries', () => {
+    expect(parsePublicAIONEvent('data: {"response":"First "}\n\n')).toEqual({
+      text: 'First ',
+      done: false,
+      truncated: false,
+    });
+    expect(parsePublicAIONEvent('data: {"choices":[{"delta":{"content":"second"},"finish_reason":null}]}\n\n')).toEqual({
+      text: 'second',
+      done: false,
+      truncated: false,
+    });
+    expect(parsePublicAIONEvent('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n')).toEqual({
+      text: '',
+      done: true,
+      truncated: true,
+    });
+    expect(parsePublicAIONEvent('data: [DONE]\n\n')).toEqual({
+      text: '',
+      done: true,
+      truncated: false,
+    });
   });
 
   it('creates a spatially ordered, read-only page prompt', () => {

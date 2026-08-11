@@ -1,5 +1,8 @@
+import { AION_SYSTEM_PROMPT } from '../../src/aion/systemPrompt';
+
 const MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
-const MAX_PROMPT_CHARACTERS = 48_000;
+const MAX_PROMPT_CHARACTERS = 96_000;
+const MAX_VISIBLE_TOKENS = 4_096;
 
 interface WorkersAI {
   run(model: string, input: {
@@ -63,22 +66,15 @@ export async function onRequestPost({ request, env }: FunctionContext): Promise<
   try {
     const stream = await env.AI.run(MODEL, {
       stream: true,
-      max_tokens: 1536,
+      max_tokens: MAX_VISIBLE_TOKENS,
       temperature: 0.35,
       top_p: 0.9,
       messages: [
         {
           role: 'system',
-          content: [
-            'You are AION inside MathKhata, a mathematical notebook.',
-            'Be precise and pedagogical. Show visible, checkable solution steps, but never reveal hidden chain-of-thought.',
-            'Separate independent questions and use only the supplied page context. State uncertainty and assumptions honestly.',
-            'Never claim that you edited notebook content. Never use Markdown code fences.',
-            'Put inline mathematics in \\( ... \\) and display mathematics in \\[ ... \\].',
-            'Render every formula as mathematics, never as raw LaTeX source or programming code.',
-          ].join(' '),
+          content: AION_SYSTEM_PROMPT,
         },
-        { role: 'user', content: prompt.trim() },
+        { role: 'user', content: `${prompt.trim()}\n\n/no_think` },
       ],
     });
 

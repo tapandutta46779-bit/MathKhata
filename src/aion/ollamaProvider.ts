@@ -1,6 +1,7 @@
 import type { NotebookContext } from '../extensions/providers';
 import { canOfferLocalSolve, solveLocally } from '../assistant/localMathSolver';
 import { createAIONPagePrompt } from './runtime';
+import { AION_SYSTEM_PROMPT } from './systemPrompt';
 
 export const AION_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
 export const AION_OLLAMA_MODEL = 'qwen3:8b';
@@ -33,7 +34,11 @@ interface PublicAIONStatusResponse {
 interface PublicAIONStreamChunk {
   response?: string;
   message?: { content?: string };
-  choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+  choices?: Array<{
+    delta?: { content?: string };
+    message?: { content?: string };
+    finish_reason?: string | null;
+  }>;
   error?: string;
 }
 
@@ -69,6 +74,29 @@ function cleanVisibleAnswer(text: string): string {
     .replace(/```(?:latex|tex|math)\s*([\s\S]*?)```/gi, (_, math: string) => `\\[${math.trim()}\\]`)
     .replace(/```(?:markdown|text)?\s*([\s\S]*?)```/gi, (_, content: string) => content.trim())
     .trim();
+}
+
+export function parsePublicAIONEvent(event: string): { text: string; done: boolean; truncated: boolean } {
+  const data = event
+    .split(/\r?\n/)
+    .filter((line) => line.trimStart().startsWith('data:'))
+    .map((line) => line.slice(line.indexOf('data:') + 5).trimStart())
+    .join('\n')
+    .trim();
+  if (!data) return { text: '', done: false, truncated: false };
+  if (data === '[DONE]') return { text: '', done: true, truncated: false };
+  const payload = JSON.parse(data) as PublicAIONStreamChunk;
+  if (payload.error) throw new Error(payload.error);
+  const finishReason = payload.choices?.[0]?.finish_reason;
+  return {
+    text: payload.response
+      ?? payload.message?.content
+      ?? payload.choices?.[0]?.delta?.content
+      ?? payload.choices?.[0]?.message?.content
+      ?? '',
+    done: Boolean(finishReason),
+    truncated: finishReason === 'length',
+  };
 }
 
 export async function checkAIONLocal(signal?: AbortSignal): Promise<AIONLocalStatus> {
@@ -137,14 +165,7 @@ export async function askAIONLocal(
     messages: [
       {
         role: 'system' as const,
-        content: [
-          'You are AION inside MathKhata.',
-          'Be precise and pedagogical. Show useful solution steps in the visible answer, but never reveal hidden chain-of-thought.',
-          'Separate independent questions. Use the supplied page context only. State uncertainty and assumptions honestly.',
-          'Never claim that you edited notebook content. Never use Markdown code fences.',
-          'Put inline mathematics in \\( ... \\) and display mathematics in \\[ ... \\].',
-          'Render every formula as mathematics, never as raw LaTeX source or programming code.',
-        ].join(' '),
+        content: AION_SYSTEM_PROMPT,
       },
       { role: 'user' as const, content: prompt },
     ],
@@ -213,49 +234,61 @@ export async function askAIONLocal(
     }
     buffer += decoder.decode();
   } else {
-    const response = await fetch(AION_PUBLIC_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-      },
-      signal: options.signal,
-      body: JSON.stringify({ prompt }),
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({})) as PublicAIONStatusResponse;
-      throw new Error(payload.error || payload.message || `AION returned ${response.status}.`);
+    let publicPrompt = prompt;
+    let completed = false;
+    for (let segment = 0; segment < 3; segment += 1) {
+      const response = await fetch(AION_PUBLIC_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        signal: options.signal,
+        body: JSON.stringify({ prompt: publicPrompt }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({})) as PublicAIONStatusResponse;
+        throw new Error(payload.error || payload.message || `AION returned ${response.status}.`);
+      }
+      if (!response.body) throw new Error('AION returned no response stream.');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let eventBuffer = '';
+      let truncated = false;
+      const consumeEvent = (event: string) => {
+        const parsed = parsePublicAIONEvent(event);
+        truncated ||= parsed.truncated;
+        answerText += parsed.text;
+        const visible = cleanVisibleAnswer(answerText);
+        if (visible) options.onUpdate?.(visible);
+      };
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        eventBuffer += decoder.decode(chunk.value, { stream: true });
+        const events = eventBuffer.split(/\r?\n\r?\n/);
+        eventBuffer = events.pop() ?? '';
+        events.forEach(consumeEvent);
+      }
+      eventBuffer += decoder.decode();
+      if (eventBuffer.trim()) consumeEvent(eventBuffer);
+      if (!truncated) {
+        completed = true;
+        break;
+      }
+      publicPrompt = [
+        prompt,
+        '',
+        'The previous visible answer reached the generation boundary. Continue exactly where it stopped.',
+        'Do not repeat earlier material. Finish every remaining step, verification, and final result.',
+        '',
+        'Previous visible answer:',
+        cleanVisibleAnswer(answerText),
+      ].join('\n');
     }
-    if (!response.body) throw new Error('AION returned no response stream.');
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let eventBuffer = '';
-    const consumeEventLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data:')) return;
-      const data = trimmed.slice(5).trim();
-      if (!data || data === '[DONE]') return;
-      const payload = JSON.parse(data) as PublicAIONStreamChunk;
-      if (payload.error) throw new Error(payload.error);
-      const chunk = payload.response
-        ?? payload.message?.content
-        ?? payload.choices?.[0]?.delta?.content
-        ?? payload.choices?.[0]?.message?.content
-        ?? '';
-      answerText += chunk;
-      const visible = cleanVisibleAnswer(answerText);
-      if (visible) options.onUpdate?.(visible);
-    };
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      eventBuffer += decoder.decode(chunk.value, { stream: true });
-      const lines = eventBuffer.split(/\r?\n/);
-      eventBuffer = lines.pop() ?? '';
-      lines.forEach(consumeEventLine);
+    if (!completed) {
+      throw new Error('AION could not finish this unusually long answer after continuing it twice.');
     }
-    eventBuffer += decoder.decode();
-    if (eventBuffer.trim()) consumeEventLine(eventBuffer);
   }
   if (buffer.trim()) consumeLine(buffer);
   const text = cleanVisibleAnswer(answerText);
