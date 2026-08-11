@@ -29,7 +29,9 @@ export default defineConfig(({ command, mode }) => ({
           : "'self'";
         const connectSources = command === 'serve'
           ? "'self' http://127.0.0.1:11434 http://localhost:11434 ws://127.0.0.1:4173"
-          : "'self'";
+          : mode === 'web'
+            ? "'self' https://cloudflareinsights.com"
+            : "'self'";
         return html
           .replace('__MATHKHATA_SCRIPT_SRC__', scriptSources)
           .replace('__MATHKHATA_CONNECT_SRC__', connectSources);

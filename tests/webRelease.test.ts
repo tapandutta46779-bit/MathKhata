@@ -11,7 +11,11 @@ describe('public web replica boundary', () => {
     expect(headers).toContain('https://static.cloudflareinsights.com/beacon.min.js');
     expect(headers).toContain("style-src 'self' 'unsafe-inline'");
     expect(headers).toContain("font-src 'self' data:");
-    expect(headers).toContain("connect-src 'self' https://huggingface.co");
+    expect(headers).toContain("connect-src 'self' https://cloudflareinsights.com https://huggingface.co");
+    expect(headers).toContain('https://cloudflareinsights.com');
+    expect(readFileSync(path.resolve('vite.config.ts'), 'utf8')).toContain(
+      "\"'self' https://cloudflareinsights.com\"",
+    );
     expect(headers).toContain('https://raw.githubusercontent.com');
     expect(headers).not.toContain('127.0.0.1');
     expect(headers).not.toContain('localhost');
