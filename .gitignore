@@ -12,6 +12,7 @@ test-results/
 blob-report/
 .cache/
 .vite/
+.wrangler/
 .tmp/
 tmp/
 *.tmp

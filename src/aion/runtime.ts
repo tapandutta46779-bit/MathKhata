@@ -2,21 +2,11 @@ import type { NotebookContext } from '../extensions/providers';
 
 export const AION_DISPLAY_NAME = 'AION';
 export const AION_BASE_MODEL = 'qwen3:8b';
-export const AION_BROWSER_FALLBACK_MODEL = 'onnx-community/Qwen2.5-0.5B-Instruct';
-export const AION_RUNTIME_DESCRIPTION = 'Qwen3 8B · Q4_K_M · Ollama · optional on-device runtime';
-export const AION_APPROXIMATE_DOWNLOAD = 'about 5.2 GB';
+export const AION_BROWSER_MODEL = 'Qwen3-8B-q4f16_1-MLC';
+export const AION_RUNTIME_DESCRIPTION = 'Qwen3 8B · on-device browser or Ollama runtime';
+export const AION_APPROXIMATE_DOWNLOAD = 'several gigabytes on first use';
 
 export type AIONRuntimeStatus = 'idle' | 'loading' | 'ready' | 'analyzing' | 'error';
-
-export type AIONWorkerRequest =
-  | { type: 'load' }
-  | { type: 'analyze'; prompt: string };
-
-export type AIONWorkerResponse =
-  | { type: 'progress'; progress?: number; message: string }
-  | { type: 'ready'; device: 'webgpu' | 'wasm' }
-  | { type: 'result'; text: string }
-  | { type: 'error'; message: string };
 
 export function aionPageObjectText(context: NotebookContext): string {
   return [...context.currentPage.objects]
@@ -40,6 +30,7 @@ export function createAIONPagePrompt(context: NotebookContext): string {
     'Do not present LaTeX source, programming code, or hidden reasoning. State uncertainty honestly.',
     'Never invent bounds, a region, or a numerical value for an integral when they are absent from the page. Treat an unbounded multiple integral as an indefinite iterated integral in its written differential order.',
     'Do not repeat completed steps or headings.',
+    'Before the final answer, verify the result by a second applicable method. Name only a check you actually performed; if independent verification is unavailable, say that plainly rather than inventing a CAS, numerical, or graph check.',
     '',
     `Notebook: ${context.notebook.title}`,
     `Page: ${context.currentPage.order + 1}`,

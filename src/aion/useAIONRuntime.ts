@@ -9,10 +9,12 @@ export interface AIONRuntimeState {
   status: AIONRuntimeStatus;
   progress?: number;
   message?: string;
-  device?: 'ollama' | 'cloudflare';
+  device?: 'ollama' | 'webgpu';
   result?: string;
+  elapsedSeconds: number;
   enable: () => void;
   analyze: (context: NotebookContext, question?: string) => void;
+  stop: () => void;
 }
 
 export function useAIONRuntime(): AIONRuntimeState {
@@ -20,14 +22,16 @@ export function useAIONRuntime(): AIONRuntimeState {
   const [status, setStatus] = useState<AIONRuntimeStatus>('loading');
   const [progress, setProgress] = useState<number>();
   const [message, setMessage] = useState<string>();
-  const [device, setDevice] = useState<'ollama' | 'cloudflare'>();
+  const [device, setDevice] = useState<'ollama' | 'webgpu'>();
   const [result, setResult] = useState<string>();
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const enable = useCallback(async () => {
     setStatus('loading');
     setResult(undefined);
     setMessage('Checking AION…');
     setProgress(undefined);
+    setElapsedSeconds(0);
     const controller = new AbortController();
     requestRef.current?.abort();
     requestRef.current = controller;
@@ -36,26 +40,38 @@ export function useAIONRuntime(): AIONRuntimeState {
     setMessage(local.message);
     if (local.modelReady) {
       setStatus('ready');
-      setDevice(window.mathKhataDesktop?.aion || import.meta.env.DEV ? 'ollama' : 'cloudflare');
+      setDevice(window.mathKhataDesktop?.aion || import.meta.env.DEV ? 'ollama' : 'webgpu');
       setProgress(100);
     } else {
       setStatus(local.reachable ? 'idle' : 'error');
       setDevice(undefined);
     }
+    if (requestRef.current === controller) requestRef.current = null;
   }, []);
 
   const analyze = useCallback(async (context: NotebookContext, question?: string) => {
     if (status !== 'ready') return;
     setStatus('analyzing');
     setResult(undefined);
+    setElapsedSeconds(0);
     setMessage(question ? 'AION is working through your question…' : 'AION is reading the current page…');
     const controller = new AbortController();
     requestRef.current?.abort();
     requestRef.current = controller;
     try {
-      const answer = await askAIONAboutPage(context, question, controller.signal, (visible) => {
-        if (!controller.signal.aborted) setResult(visible);
-      });
+      const answer = await askAIONAboutPage(
+        context,
+        question,
+        controller.signal,
+        (visible) => {
+          if (!controller.signal.aborted) setResult(visible);
+        },
+        (runtimeMessage, runtimeProgress) => {
+          if (controller.signal.aborted) return;
+          setMessage(runtimeMessage);
+          if (runtimeProgress !== undefined) setProgress(runtimeProgress);
+        },
+      );
       if (controller.signal.aborted) return;
       setResult(answer.text);
       setStatus('ready');
@@ -65,7 +81,27 @@ export function useAIONRuntime(): AIONRuntimeState {
       if (controller.signal.aborted) return;
       setStatus('error');
       setMessage(error instanceof Error ? error.message : 'AION could not complete the request.');
+    } finally {
+      if (requestRef.current === controller) requestRef.current = null;
     }
+  }, [status]);
+
+  const stop = useCallback(() => {
+    const request = requestRef.current;
+    if (!request || request.signal.aborted) return;
+    request.abort(new DOMException('AION generation stopped by the user.', 'AbortError'));
+    requestRef.current = null;
+    setStatus((current) => current === 'analyzing' ? 'ready' : current);
+    setMessage('Generation stopped.');
+    setProgress(undefined);
+  }, []);
+
+  useEffect(() => {
+    if (status !== 'analyzing') return;
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((seconds) => seconds + 1);
+    }, 1_000);
+    return () => window.clearInterval(timer);
   }, [status]);
 
   useEffect(() => {
@@ -73,5 +109,5 @@ export function useAIONRuntime(): AIONRuntimeState {
     return () => requestRef.current?.abort();
   }, [enable]);
 
-  return { status, progress, message, device, result, enable, analyze };
+  return { status, progress, message, device, result, elapsedSeconds, enable, analyze, stop };
 }

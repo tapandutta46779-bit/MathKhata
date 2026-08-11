@@ -57,7 +57,7 @@ Long expressions are kept as one structured MathLive expression but rendered thr
 
 The compact right-side Page assistant reads the complete current page through the read-only document-context boundary. It preserves ruled-line/spatial order, treats notes as context, proposes separate problems or equation systems, flags likely voice corruption, and lets the writer split, join, or confirm groups before solving. It is closed by default, remembers that choice across reloads, and never changes page content without an explicit action.
 
-Deterministic page analysis remains the reliable foundation. In the packaged desktop app or local development, AION can optionally use the configured local model through Ollama. On the public website, AION uses a same-site Cloudflare Pages Function and Workers AI only after the user explicitly sends a question. Deterministic grouping and CAS remain independent verification layers, and notebook editing never depends on AI availability. Details are in [docs/LOCAL_MODEL_PATH.md](docs/LOCAL_MODEL_PATH.md) and [docs/PRIVACY.md](docs/PRIVACY.md).
+Deterministic page analysis remains the reliable foundation. In the packaged desktop app or local development, AION can optionally use Qwen3 8B through Ollama. On the public website, the same Qwen3 8B model runs privately on the user's device through WebLLM and WebGPU; its multi-gigabyte model files download and cache on first use. Deterministic grouping and CAS remain independent verification layers, and notebook editing never depends on AI availability. Details are in [docs/LOCAL_MODEL_PATH.md](docs/LOCAL_MODEL_PATH.md) and [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Data and backups
 

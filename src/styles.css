@@ -483,6 +483,11 @@ math-field.assistant-math { display: block; grid-column: 1 / -1; width: 100%; pa
 .aion-message--user p, .aion-message--progress p, .aion-message--error p { margin: 0; font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
 .aion-message--assistant { padding: 3px 2px 7px; }
 .aion-message__name { display: block; margin-bottom: 7px; color: #713c2a; font-size: 9px; font-weight: 800; letter-spacing: .04em; }
+.aion-progress__heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.aion-message--progress .aion-progress__heading p { color: #49463f; font-weight: 750; }
+.aion-progress__heading button { flex: 0 0 auto; padding: 5px 8px; border: 1px solid rgba(113,60,42,.28); border-radius: 7px; color: #713c2a; background: #fffefa; font-size: 8px; font-weight: 750; }
+.aion-progress__heading button:hover { background: #f5ebe4; }
+.aion-message--progress .aion-progress__detail { margin-top: 5px; color: var(--muted); font-size: 8px; }
 .aion-message--progress progress { width: 100%; height: 5px; margin-top: 9px; accent-color: var(--accent); }
 .aion-message--error { padding: 10px; border-radius: 9px; color: #8b312a; background: #f9e5e1; }
 .aion-message--error button { margin-top: 8px; padding: 6px 8px; border-radius: 6px; color: #fff; background: #75402e; font-size: 8px; font-weight: 750; }

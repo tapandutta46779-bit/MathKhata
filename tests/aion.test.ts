@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AION_BASE_MODEL, AION_DISPLAY_NAME, createAIONPagePrompt } from '../src/aion/runtime';
+import {
+  AION_BASE_MODEL,
+  AION_BROWSER_MODEL,
+  AION_DISPLAY_NAME,
+  createAIONPagePrompt,
+} from '../src/aion/runtime';
 import {
   askAIONAboutPage,
   askAIONLocal,
   canCheckWithoutBlockingAION,
   checkAIONLocal,
-  parsePublicAIONEvent,
 } from '../src/aion/ollamaProvider';
+import { AION_WEBGPU_MODEL } from '../src/aion/webgpuProvider';
 import { createNotebook, createMathObject, createTextObject, addObject } from '../src/domain/notebook';
 import { createDocumentContext } from '../src/extensions/providers';
 
@@ -25,6 +30,8 @@ describe('AION provider boundary', () => {
   it('uses the requested AION public name while retaining the provider model internally', () => {
     expect(AION_DISPLAY_NAME).toBe('AION');
     expect(AION_BASE_MODEL).toBe('qwen3:8b');
+    expect(AION_BROWSER_MODEL).toBe('Qwen3-8B-q4f16_1-MLC');
+    expect(AION_WEBGPU_MODEL).toBe(AION_BROWSER_MODEL);
   });
 
   it('detects the installed Ollama model without sending page content', async () => {
@@ -68,29 +75,6 @@ describe('AION provider boundary', () => {
     const answer = await askAIONLocal('Evaluate the limit');
 
     expect(answer.text).toBe('### 3. Limit\n\\[1/3\\]');
-  });
-
-  it('preserves ordered hosted stream chunks and detects completion boundaries', () => {
-    expect(parsePublicAIONEvent('data: {"response":"First "}\n\n')).toEqual({
-      text: 'First ',
-      done: false,
-      truncated: false,
-    });
-    expect(parsePublicAIONEvent('data: {"choices":[{"delta":{"content":"second"},"finish_reason":null}]}\n\n')).toEqual({
-      text: 'second',
-      done: false,
-      truncated: false,
-    });
-    expect(parsePublicAIONEvent('data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n')).toEqual({
-      text: '',
-      done: true,
-      truncated: true,
-    });
-    expect(parsePublicAIONEvent('data: [DONE]\n\n')).toEqual({
-      text: '',
-      done: true,
-      truncated: false,
-    });
   });
 
   it('creates a spatially ordered, read-only page prompt', () => {

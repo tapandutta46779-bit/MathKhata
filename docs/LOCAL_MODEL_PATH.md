@@ -2,7 +2,7 @@
 
 ## Current, honest status
 
-MathKhata can optionally use the published **Qwen3 8B** model, quantized as **Q4_K_M**, through a local **Ollama** service under the model name `qwen3:8b`. The model artifact is about 5.2 GB. MathKhata did not train Qwen3 and does not claim that it did.
+MathKhata can optionally use the published **Qwen3 8B** model. The desktop path uses **Q4_K_M** through local **Ollama** under the model name `qwen3:8b`. The public browser path uses the MLC **Qwen3-8B-q4f16_1** build through WebLLM/WebGPU. Both require several gigabytes of model data and memory. MathKhata did not train Qwen3 and does not claim that it did.
 
 AION currently uses a replaceable provider boundary. The desktop/local provider connects to the configured model through Ollama; a future original reasoning architecture can replace that provider without taking ownership of notebook storage or presentation.
 
@@ -37,7 +37,7 @@ ollama list
 
 ## Privacy and resource tradeoffs
 
-The local model consumes several gigabytes of disk and can use substantial memory while answering. In the desktop/local provider, page text is sent to the local loopback Ollama service and model files are stored by Ollama locally. The public provider sends an explicitly requested AION prompt to Cloudflare Workers AI. Google Drive is used for source/notebook backup only if the writer explicitly enables or performs that backup.
+The model consumes several gigabytes of disk and can use substantial memory while answering. In the desktop/local provider, page text is sent to the local loopback Ollama service and model files are stored by Ollama locally. In the public browser provider, model files are downloaded from the published MLC/Hugging Face distribution and cached by the browser; prompts remain on the user's device. Google Drive is used for source/notebook backup only if the writer explicitly enables or performs that backup.
 
 ## Future AION boundary
 

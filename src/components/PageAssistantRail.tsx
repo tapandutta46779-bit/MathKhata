@@ -371,7 +371,15 @@ export function PageAssistantRail() {
             {(aion.status === 'loading' || aion.status === 'analyzing') && (
               <div className="aion-message aion-message--assistant aion-message--progress" role="status">
                 <span className="aion-message__name">AION</span>
-                <p>{aion.message || 'Working through the mathematics…'}</p>
+                <div className="aion-progress__heading">
+                  <p>{aion.status === 'analyzing' ? `Working · ${aion.elapsedSeconds} s` : 'Starting AION'}</p>
+                  {aion.status === 'analyzing' && (
+                    <button type="button" onClick={aion.stop} aria-label="Stop AION generation">
+                      Stop generation
+                    </button>
+                  )}
+                </div>
+                <p className="aion-progress__detail">{aion.message || 'Working through the mathematics…'}</p>
                 <progress max="100" value={aion.progress} />
               </div>
             )}
