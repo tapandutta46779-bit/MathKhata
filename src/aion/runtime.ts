@@ -10,6 +10,14 @@ export const AION_APPROXIMATE_DOWNLOAD = 'several gigabytes on first use';
 export type AIONRuntimeStatus = 'idle' | 'loading' | 'ready' | 'analyzing' | 'error';
 export type AIONProvider = 'on-device' | 'online';
 
+export function formatAIONElapsed(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  if (seconds < 60) return `${seconds} sec`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes} min ${remainder} sec` : `${minutes} min`;
+}
+
 export function aionPageObjectText(context: NotebookContext): string {
   return [...context.currentPage.objects]
     .sort((left, right) => left.y - right.y || left.x - right.x || left.zIndex - right.zIndex)

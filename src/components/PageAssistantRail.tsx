@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MathfieldElement } from 'mathlive';
 import { useAIONRuntime } from '../aion/useAIONRuntime';
+import { formatAIONElapsed } from '../aion/runtime';
 import {
   analyzeNotebookPage,
   confirmProblemGroup,
@@ -27,6 +28,8 @@ interface AIONConversationTurn {
   id: string;
   question: string;
   answer: string;
+  elapsedSeconds?: number;
+  complete?: boolean;
 }
 
 const PAGE_ASSISTANT_PREFERENCE = 'mathkhata.page-assistant-open';
@@ -201,11 +204,20 @@ export function PageAssistantRail() {
   }, []);
 
   useEffect(() => {
-    if (!aion.result || !activeTurnId) return;
+    if (!activeTurnId) return;
+    const complete = aion.status !== 'analyzing' && aion.status !== 'loading';
     setConversation((current) => current.map((turn) => (
-      turn.id === activeTurnId ? { ...turn, answer: aion.result! } : turn
+      turn.id === activeTurnId
+        ? {
+            ...turn,
+            answer: aion.result || turn.answer,
+            elapsedSeconds: aion.elapsedSeconds,
+            complete,
+          }
+        : turn
     )));
-  }, [activeTurnId, aion.result]);
+    if (complete) setActiveTurnId(null);
+  }, [activeTurnId, aion.elapsedSeconds, aion.result, aion.status]);
 
   useEffect(() => {
     if (!activeTurnId) return;
@@ -395,6 +407,11 @@ export function PageAssistantRail() {
                   <div className="aion-message aion-message--assistant">
                     <span className="aion-message__name">AION</span>
                     <AIONVisibleAnswer text={turn.answer} />
+                    {turn.complete && turn.elapsedSeconds !== undefined && (
+                      <span className="aion-message__elapsed">
+                        Thought for {formatAIONElapsed(turn.elapsedSeconds)}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

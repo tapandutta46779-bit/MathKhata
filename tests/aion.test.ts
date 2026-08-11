@@ -4,6 +4,7 @@ import {
   AION_BROWSER_MODEL,
   AION_DISPLAY_NAME,
   createAIONPagePrompt,
+  formatAIONElapsed,
 } from '../src/aion/runtime';
 import {
   askAIONAboutPage,
@@ -33,6 +34,12 @@ describe('AION provider boundary', () => {
     expect(AION_BASE_MODEL).toBe('qwen3:8b');
     expect(AION_BROWSER_MODEL).toBe('Qwen3-8B-q4f16_1-MLC');
     expect(AION_WEBGPU_MODEL).toBe(AION_BROWSER_MODEL);
+  });
+
+  it('formats persistent generation duration like a conversational assistant', () => {
+    expect(formatAIONElapsed(12)).toBe('12 sec');
+    expect(formatAIONElapsed(60)).toBe('1 min');
+    expect(formatAIONElapsed(128)).toBe('2 min 8 sec');
   });
 
   it('assembles visible online SSE chunks and detects the generation boundary', () => {

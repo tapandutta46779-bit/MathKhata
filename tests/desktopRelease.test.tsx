@@ -161,7 +161,7 @@ describe('desktop public-release boundary', () => {
     expect(readFileSync(path.resolve('src/voice/desktopSpeech.worker.ts'), 'utf8')).toContain("dtype: 'q4'");
     const assistant = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
     expect(assistant).toContain('}, [activeTurnId]);');
-    expect(assistant).not.toContain('aion.result, aion.status]);');
+    expect(assistant).toContain('Thought for {formatAIONElapsed(turn.elapsedSeconds)}');
     expect(assistant).not.toContain('followStreamingAnswerRef');
   });
 });

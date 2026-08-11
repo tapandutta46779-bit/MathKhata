@@ -37,6 +37,7 @@ export interface AIONRuntimeState {
 
 export function useAIONRuntime(): AIONRuntimeState {
   const requestRef = useRef<AbortController | null>(null);
+  const startedAtRef = useRef<number | null>(null);
   const [status, setStatus] = useState<AIONRuntimeStatus>('loading');
   const [progress, setProgress] = useState<number>();
   const [message, setMessage] = useState<string>();
@@ -88,6 +89,7 @@ export function useAIONRuntime(): AIONRuntimeState {
     setStatus('analyzing');
     setResult(undefined);
     setElapsedSeconds(0);
+    startedAtRef.current = Date.now();
     setMessage(question ? 'AION is working through your question…' : 'AION is reading the current page…');
     const controller = new AbortController();
     requestRef.current?.abort();
@@ -109,11 +111,19 @@ export function useAIONRuntime(): AIONRuntimeState {
       );
       if (controller.signal.aborted) return;
       setResult(answer.text);
+      if (startedAtRef.current !== null) {
+        setElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1_000)));
+        startedAtRef.current = null;
+      }
       setStatus('ready');
       setMessage('AION completed the analysis.');
       setDevice(answer.runtime);
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (startedAtRef.current !== null) {
+        setElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1_000)));
+        startedAtRef.current = null;
+      }
       setStatus('error');
       setMessage(error instanceof Error ? error.message : 'AION could not complete the request.');
     } finally {
@@ -126,6 +136,10 @@ export function useAIONRuntime(): AIONRuntimeState {
     if (!request || request.signal.aborted) return;
     request.abort(new DOMException('AION generation stopped by the user.', 'AbortError'));
     requestRef.current = null;
+    if (startedAtRef.current !== null) {
+      setElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1_000)));
+      startedAtRef.current = null;
+    }
     setStatus((current) => current === 'analyzing' ? 'ready' : current);
     setMessage('Generation stopped.');
     setProgress(undefined);
@@ -134,7 +148,9 @@ export function useAIONRuntime(): AIONRuntimeState {
   useEffect(() => {
     if (status !== 'analyzing') return;
     const timer = window.setInterval(() => {
-      setElapsedSeconds((seconds) => seconds + 1);
+      if (startedAtRef.current !== null) {
+        setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAtRef.current) / 1_000)));
+      }
     }, 1_000);
     return () => window.clearInterval(timer);
   }, [status]);
