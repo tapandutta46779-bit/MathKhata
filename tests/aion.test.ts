@@ -18,6 +18,7 @@ describe('AION provider boundary', () => {
     expect(canCheckWithoutBlockingAION('\\int_0^1 e^x x\\sin(x^3)\\,dx')).toBe(true);
     expect(canCheckWithoutBlockingAION('\\int_0^2 e^{x^2}(x^3+5)\\,dx')).toBe(false);
     expect(canCheckWithoutBlockingAION('\\iint_D f(x,y)\\,dx\\,dy')).toBe(false);
+    expect(canCheckWithoutBlockingAION('\\iiint xy^2\\left(z+x\\sin z\\right)\\,dx\\,dy\\,dz')).toBe(true);
     expect(canCheckWithoutBlockingAION('\\sum_{n=1}^{\\infty}n^{-2}')).toBe(false);
   });
 
@@ -117,5 +118,26 @@ describe('AION provider boundary', () => {
     expect(prompt).toContain('Checked local mathematical results');
     expect(prompt).toContain('\\approx 0.42777611548');
     expect(prompt).toContain('Do not invent or repeat a conflicting value');
+  });
+
+  it('grounds an unbounded triple integral without inventing a region or numeric value', async () => {
+    const notebook = createNotebook('Triple integral notes');
+    const page = notebook.pages[0];
+    const expression = '\\iiint xy^2\\left(z+x\\sin z\\right)\\,dx\\,dy\\,dz';
+    const withIntegral = addObject(notebook, page.id, createMathObject({ x: 82, y: 20 }, expression));
+    const context = createDocumentContext(withIntegral, page.id, null)!;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      message: { content: 'A checked symbolic antiderivative is shown below.' },
+    }), { status: 200 }));
+
+    await askAIONAboutPage(context, 'Solve this integral with steps.');
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(request.body as string) as { messages: Array<{ content: string }> };
+    const prompt = body.messages[1].content;
+    expect(prompt).toContain('Triple antiderivative');
+    expect(prompt).toContain('unbounded multiple integral');
+    expect(prompt).toContain('Never invent bounds, a region, or a numerical value');
+    expect(prompt).toContain('mixed derivative');
   });
 });

@@ -38,6 +38,8 @@ export function createAIONPagePrompt(context: NotebookContext): string {
     'Use short Markdown headings and lists. Never use a code fence.',
     'Write inline mathematics inside \\( ... \\) and display mathematics inside \\[ ... \\] so the notebook can typeset it.',
     'Do not present LaTeX source, programming code, or hidden reasoning. State uncertainty honestly.',
+    'Never invent bounds, a region, or a numerical value for an integral when they are absent from the page. Treat an unbounded multiple integral as an indefinite iterated integral in its written differential order.',
+    'Do not repeat completed steps or headings.',
     '',
     `Notebook: ${context.notebook.title}`,
     `Page: ${context.currentPage.order + 1}`,

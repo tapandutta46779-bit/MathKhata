@@ -308,7 +308,16 @@ export function canCheckWithoutBlockingAION(latex: string): boolean {
   // minutes, preventing the desktop request—and visible streaming—from even
   // starting. They remain available through the explicit checked solver, but
   // never run as a prerequisite for an AION conversation.
-  if (/\\(?:iint|iiint|oint|sum|prod|lim)(?![a-zA-Z])/.test(compact)) return false;
+  const multipleIntegral = compact.match(/^\\(?:iint|iiint)(?![a-zA-Z])/);
+  if (multipleIntegral) {
+    // The local solver handles short, unbounded iterated antiderivatives
+    // reliably. Region or bound notation needs interpretation and must not be
+    // guessed as a blocking prerequisite for chat.
+    const afterOperator = compact.slice(multipleIntegral[0].length);
+    if (/^[_^]/.test(afterOperator)) return false;
+  } else if (/\\(?:iint|iiint|oint|sum|prod|lim)(?![a-zA-Z])/.test(compact)) {
+    return false;
+  }
   if (/e\^\{[^{}]*[a-zA-Z]\^\{?2\}?[^{}]*\}|\\exp(?:\\left)?\([^)]*[a-zA-Z]\^\{?2\}?/.test(compact)) return false;
   return true;
 }
@@ -361,7 +370,18 @@ export async function askAIONAboutPage(
         checkedResults,
       ].join('\n')
     : '';
-  const pagePrompt = `${createAIONPagePrompt(context)}${checkedSection}`;
+  const integralConstraints = context.currentPage.objects
+    .filter((object) => object.type === 'math')
+    .flatMap((object, index) => {
+      const compact = object.latex.replace(/\s+/g, '');
+      const command = compact.match(/^\\(?:iint|iiint)(?![a-zA-Z])/);
+      if (!command || /^[_^]/.test(compact.slice(command[0].length))) return [];
+      return [`Line ${index + 1} is an unbounded multiple integral. Treat it as an indefinite iterated integral in the written differential order. Never invent bounds, a region, or a numerical value. Give a symbolic antiderivative and verify it by the corresponding mixed derivative.`];
+    });
+  const constraintSection = integralConstraints.length
+    ? `\n\nIntegral interpretation constraints:\n${integralConstraints.join('\n')}`
+    : '';
+  const pagePrompt = `${createAIONPagePrompt(context)}${constraintSection}${checkedSection}`;
   const prompt = question?.trim()
     ? `${pagePrompt}\n\nUser question:\n${question.trim()}\n\nAnswer the question with clear, checkable steps. For approximations, distinguish a coarse estimate from the checked value.`
     : pagePrompt;

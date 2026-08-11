@@ -145,10 +145,22 @@ function derivativeName(order: number, partial: boolean): string {
  * unchanged because they mean `(sin x)^2`.
  */
 export function normalizeLatexForCAS(latex: string): string {
-  return latex.replace(
+  let normalized = latex.replace(
     /\\(sin|cos|tan|sec|csc|cot|sinh|cosh|tanh|log|ln|exp)\s+((?:[A-Za-z0-9]|\\[A-Za-z]+)(?:\s*[_^](?:\{[^{}]*\}|[A-Za-z0-9]))*)/g,
     (_, functionName: string, argument: string) => `\\${functionName}\\left(${argument.trim()}\\right)`,
   );
+  // Nerdamer's LaTeX bridge treats compact products such as `xy` as one
+  // identifier and `x\\sin(z)` as `xsin*z`. MathLive emits both forms, so
+  // make those implicit products explicit before conversion.
+  normalized = normalized.replace(
+    /(?<![\\A-Za-z])([A-Za-z]{2,})(?![A-Za-z])/g,
+    (run: string) => run.split('').join(' * '),
+  );
+  normalized = normalized.replace(
+    /([A-Za-z0-9)}\]])\s*(?=\\(?:sin|cos|tan|sec|csc|cot|sinh|cosh|tanh|log|ln|exp)\b)/g,
+    '$1 * ',
+  );
+  return normalized;
 }
 
 function readBraced(source: string, start: number): BracedGroup | null {
@@ -506,11 +518,12 @@ export async function solveLocally(latex: string): Promise<LocalSolveResult> {
     return {
       kind: 'integral',
       label: multiIntegral.count === 2 ? 'Double antiderivative' : 'Triple antiderivative',
-      resultLatex: `${resultLatex}+C`,
-      explanation: `Integrated successively with respect to ${multiIntegral.variables.join(', ')}. Add bounds or a region for a definite volume integral.`,
+      resultLatex,
+      explanation: `Computed a particular mixed antiderivative successively with respect to ${multiIntegral.variables.join(', ')}. The fully general indefinite result may also include terms annihilated by the corresponding mixed derivative. Add bounds or a region only when the original problem supplies them.`,
       steps: [
         { label: 'Order of integration', text: `Integrate successively in ${multiIntegral.variables.join(', ')}.` },
-        { label: 'Antiderivative', latex: `${resultLatex}+C` },
+        { label: 'Particular mixed antiderivative', latex: resultLatex },
+        { label: 'Verification', text: `Differentiate successively with respect to ${[...multiIntegral.variables].reverse().join(', ')} to recover the integrand.` },
       ],
     };
   }

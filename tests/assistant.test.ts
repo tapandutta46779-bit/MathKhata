@@ -157,9 +157,21 @@ describe('opt-in local symbolic solver', () => {
     const triple = await solveLocally('\\iiint x+y+z\\,dx\\,dy\\,dz');
 
     expect(double.label).toBe('Double antiderivative');
-    expect(double.resultLatex).toContain('+C');
+    expect(double.resultLatex).not.toContain('+C');
     expect(triple.label).toBe('Triple antiderivative');
-    expect(triple.resultLatex).toContain('+C');
+    expect(triple.resultLatex).not.toContain('+C');
+    expect(triple.explanation).toContain('fully general indefinite result');
+  });
+
+  it('checks the Safari-reported triple integral as a symbolic mixed antiderivative', async () => {
+    const result = await solveLocally('\\iiint xy^2\\left(z+x\\sin z\\right)\\,dx\\,dy\\,dz');
+
+    expect(result.label).toBe('Triple antiderivative');
+    expect(compact(result.resultLatex)).toContain('x^{2}');
+    expect(compact(result.resultLatex)).toContain('y^{3}');
+    expect(compact(result.resultLatex)).toContain('z^{2}');
+    expect(compact(result.resultLatex)).toMatch(/\\(?:mathrm\{)?cos/);
+    expect(result.steps?.at(-1)?.label).toBe('Verification');
   });
 
   it('evaluates explicitly bounded nested integrals in the stated order', async () => {
