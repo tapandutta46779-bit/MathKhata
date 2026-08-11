@@ -3,7 +3,7 @@ import type { NotebookContext } from '../extensions/providers';
 export const AION_DISPLAY_NAME = 'AION';
 export const AION_BASE_MODEL = 'qwen3:8b';
 export const AION_BROWSER_MODEL = 'Qwen3-8B-q4f16_1-MLC';
-export const AION_ONLINE_MODEL = 'Qwen3 30B-A3B';
+export const AION_ONLINE_MODEL = 'Mistral Small 3.1 24B';
 export const AION_RUNTIME_DESCRIPTION = 'Qwen3 8B · on-device browser or Ollama runtime';
 export const AION_APPROXIMATE_DOWNLOAD = 'several gigabytes on first use';
 

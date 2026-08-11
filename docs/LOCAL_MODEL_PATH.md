@@ -2,7 +2,7 @@
 
 ## Current, honest status
 
-MathKhata can optionally use published Qwen models. The desktop path uses **Qwen3 8B Q4_K_M** through local **Ollama** under the model name `qwen3:8b`. The public browser's **Private on-device** path uses the MLC **Qwen3-8B-q4f16_1** build through WebLLM/WebGPU and requires several gigabytes of model data and memory. The public **Fast online** path uses Cloudflare's hosted **Qwen3 30B-A3B FP8** model, requires no model download, and is subject to the account's free daily Workers AI allowance. MathKhata did not train either model and does not claim that it did.
+MathKhata can optionally use published language models. The desktop path uses **Qwen3 8B Q4_K_M** through local **Ollama** under the model name `qwen3:8b`. The public browser's **Private on-device** path uses the MLC **Qwen3-8B-q4f16_1** build through WebLLM/WebGPU and requires several gigabytes of model data and memory. The public **Fast online** path uses Cloudflare's hosted **Mistral Small 3.1 24B Instruct** model, requires no model download, and is subject to the account's free daily Workers AI allowance. MathKhata did not train either model and does not claim that it did.
 
 AION currently uses a replaceable provider boundary. The desktop/local provider connects to the configured model through Ollama; a future original reasoning architecture can replace that provider without taking ownership of notebook storage or presentation.
 

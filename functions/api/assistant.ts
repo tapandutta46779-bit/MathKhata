@@ -1,6 +1,6 @@
 import { AION_SYSTEM_PROMPT } from '../../src/aion/systemPrompt';
 
-const MODEL = '@cf/qwen/qwen3-30b-a3b-fp8';
+const MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 const MAX_PROMPT_CHARACTERS = 96_000;
 const MAX_VISIBLE_TOKENS = 4_096;
 
@@ -71,9 +71,7 @@ export async function onRequestPost({ request, env }: FunctionContext): Promise<
       top_p: 0.9,
       messages: [
         { role: 'system', content: AION_SYSTEM_PROMPT },
-        // Qwen3 supports a no-thinking instruction. AION streams only the
-        // visible answer and never exposes hidden reasoning tokens.
-        { role: 'user', content: `/no_think\n${prompt.trim()}` },
+        { role: 'user', content: prompt.trim() },
       ],
     });
 

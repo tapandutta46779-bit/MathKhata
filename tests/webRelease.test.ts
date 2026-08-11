@@ -40,7 +40,7 @@ describe('public web replica boundary', () => {
     );
   });
 
-  it('ships private Qwen3 8B and an explicit free-tier Qwen3 30B online option', () => {
+  it('ships private Qwen3 8B and an explicit free-tier Mistral 24B online option', () => {
     const wrangler = readFileSync(path.resolve('wrangler.toml'), 'utf8');
     const browserProvider = readFileSync(path.resolve('src/aion/webgpuProvider.ts'), 'utf8');
     const assistantUI = readFileSync(path.resolve('src/components/PageAssistantRail.tsx'), 'utf8');
@@ -52,8 +52,8 @@ describe('public web replica boundary', () => {
     expect(browserProvider).toContain('CreateWebWorkerMLCEngine');
     expect(browserProvider).toContain('enable_thinking: false');
     const onlineFunction = readFileSync(path.resolve('functions/api/assistant.ts'), 'utf8');
-    expect(onlineFunction).toContain('@cf/qwen/qwen3-30b-a3b-fp8');
-    expect(onlineFunction).toContain('/no_think');
+    expect(onlineFunction).toContain('@cf/mistralai/mistral-small-3.1-24b-instruct');
+    expect(onlineFunction).not.toContain('/no_think');
     expect(assistantUI).toContain('Ask AION about this page');
     expect(assistantUI).not.toContain('Local Qwen');
     expect(assistantUI).toContain('Fast online');
