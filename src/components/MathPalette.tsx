@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { MATH_PALETTE_CATEGORIES } from '../domain/mathNotation';
 import type { MathObject } from '../domain/model';
-import { focusMathfield, insertIntoMathfield } from '../editor/mathfieldRegistry';
+import { focusMathfield, insertIntoActiveMathfield, insertIntoMathfield } from '../editor/mathfieldRegistry';
 import { useNotebookStore } from '../store/notebookStore';
 
 function selectedMathObject(): MathObject | null {
@@ -14,6 +14,9 @@ function selectedMathObject(): MathObject | null {
 
 function insertTemplate(template: string) {
   const state = useNotebookStore.getState();
+  // The ruled-line composer is a registered MathLive field too. Prefer its
+  // active caret before falling back to a committed page object/new object.
+  if (insertIntoActiveMathfield(template)) return;
   const selected = selectedMathObject();
   if (selected && insertIntoMathfield(selected.id, template)) return;
   const id = state.createObject('math', state.insertionPoint);

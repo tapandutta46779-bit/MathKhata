@@ -116,14 +116,35 @@ export function insertIntoMathfield(id: string, latex: string): boolean {
   if (!field) return false;
   activeId = id;
   focusMathfieldElement(field.element);
-  const inserted = field.element.insert(latex, {
+  field.element.insert(latex, {
     insertionMode: 'replaceSelection',
     selectionMode: 'placeholder',
   });
   field.onValueChange(field.element.value);
-  return inserted;
+  // MathLive can return false for complex templates (notably matrices) even
+  // after it accepted and rendered them. This boolean means the target field
+  // was found and handled, so callers must not create a second math object.
+  return true;
 }
 
 export function insertIntoActiveMathfield(latex: string): boolean {
   return activeId ? insertIntoMathfield(activeId, latex) : false;
+}
+
+export function showActiveMathfieldMenu(): boolean {
+  const field = activeId ? fields.get(activeId)?.element : null;
+  if (!field) return false;
+  focusMathfieldElement(field);
+  const bounds = field.getBoundingClientRect();
+  return field.showMenu({
+    location: { x: bounds.left + 18, y: bounds.bottom },
+    modifiers: { alt: false, control: false, meta: false, shift: false },
+  });
+}
+
+export function focusActiveMathfield(): boolean {
+  const field = activeId ? fields.get(activeId)?.element : null;
+  if (!field) return false;
+  focusMathfieldElement(field);
+  return true;
 }

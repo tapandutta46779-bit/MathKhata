@@ -5,6 +5,7 @@ import {
   MIN_OBJECT_WIDTH,
   SCHEMA_VERSION,
   type MathObject,
+  type DrawingElement,
   type Notebook,
   type Page,
   type PageObject,
@@ -38,6 +39,7 @@ export function createPage(order = 0, options: FactoryOptions = {}): Page {
     createdAt: timestamp,
     updatedAt: timestamp,
     objects: [],
+    drawings: [],
   };
 }
 
@@ -278,4 +280,41 @@ export function getObject(
   objectId: string,
 ): PageObject | undefined {
   return getPage(notebook, pageId)?.objects.find((object) => object.id === objectId);
+}
+
+export function addDrawing(
+  notebook: Notebook,
+  pageId: string,
+  drawing: DrawingElement,
+  now: DateFactory = defaultDate,
+): Notebook {
+  let changed = false;
+  const pages = notebook.pages.map((page) => {
+    if (page.id !== pageId) return page;
+    changed = true;
+    const timestamp = now();
+    return {
+      ...page,
+      drawings: [...page.drawings, { ...drawing, updatedAt: timestamp }],
+      updatedAt: timestamp,
+    };
+  });
+  return changed ? updateNotebook(notebook, pages, now) : notebook;
+}
+
+export function removeDrawing(
+  notebook: Notebook,
+  pageId: string,
+  drawingId: string,
+  now: DateFactory = defaultDate,
+): Notebook {
+  let changed = false;
+  const pages = notebook.pages.map((page) => {
+    if (page.id !== pageId) return page;
+    const drawings = page.drawings.filter((drawing) => drawing.id !== drawingId);
+    if (drawings.length === page.drawings.length) return page;
+    changed = true;
+    return { ...page, drawings, updatedAt: now() };
+  });
+  return changed ? updateNotebook(notebook, pages, now) : notebook;
 }

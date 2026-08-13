@@ -4,6 +4,18 @@ import { SCHEMA_VERSION, type MathKhataExport, type Notebook } from './model';
 const dateSchema = z.string().datetime({ offset: true });
 const coordinateSchema = z.number().finite().min(0).max(20_000);
 const sizeSchema = z.number().finite().positive().max(20_000);
+const drawingPointSchema = z.object({ x: coordinateSchema, y: coordinateSchema }).strict();
+
+export const drawingElementSchema = z.object({
+  id: z.string().min(1).max(200),
+  kind: z.enum(['pen', 'highlighter', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon', 'perpendicular']),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  width: z.number().finite().min(0.5).max(80),
+  opacity: z.number().finite().min(0.05).max(1),
+  points: z.array(drawingPointSchema).min(2).max(20_000),
+  createdAt: dateSchema,
+  updatedAt: dateSchema,
+}).strict();
 
 const baseObjectShape = {
   id: z.string().min(1).max(200),
@@ -49,6 +61,7 @@ export const pageSchema = z
     createdAt: dateSchema,
     updatedAt: dateSchema,
     objects: z.array(pageObjectSchema).max(10_000),
+    drawings: z.array(drawingElementSchema).max(20_000),
   })
   .strict();
 
@@ -75,6 +88,12 @@ export const notebookSchema = z
         }
         ids.add(object.id);
       }
+      for (const drawing of page.drawings) {
+        if (ids.has(drawing.id)) {
+          context.addIssue({ code: 'custom', message: `Duplicate id: ${drawing.id}` });
+        }
+        ids.add(drawing.id);
+      }
     }
   });
 
@@ -97,8 +116,19 @@ export class NotebookValidationError extends Error {
 type NotebookMigration = (value: Record<string, unknown>) => Record<string, unknown>;
 
 // A migration registered at key N transforms schema N into schema N + 1.
-// Schema 1 is the first public format, so the registry is intentionally empty today.
-const notebookMigrations: Partial<Record<number, NotebookMigration>> = Object.freeze({});
+const notebookMigrations: Partial<Record<number, NotebookMigration>> = Object.freeze({
+  1: (value: Record<string, unknown>) => ({
+    ...value,
+    schemaVersion: 2,
+    pages: Array.isArray(value.pages)
+      ? value.pages.map((page: unknown) => (
+        typeof page === 'object' && page !== null
+          ? { ...page, drawings: [] }
+          : page
+      ))
+      : value.pages,
+  }),
+});
 
 export function migrateNotebook(value: unknown): unknown {
   if (typeof value !== 'object' || value === null || !('schemaVersion' in value)) return value;
@@ -141,6 +171,13 @@ export function normalizeNotebook(notebook: Notebook): Notebook {
       .map((page, order) => ({
         ...page,
         order,
+        drawings: page.drawings.map((drawing) => ({
+          ...drawing,
+          points: drawing.points.map((point) => ({
+            x: Math.min(Math.max(0, point.x), page.width),
+            y: Math.min(Math.max(0, point.y), page.height),
+          })),
+        })),
         objects: page.objects.map((object) => ({
           ...object,
           x: Math.min(Math.max(0, object.x), Math.max(0, page.width - object.width)),
@@ -168,9 +205,17 @@ export function deserializeNotebook(json: string): Notebook {
   } catch (error) {
     throw new NotebookValidationError('The selected file is not valid JSON.', error);
   }
-  const result = exportSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new NotebookValidationError('This is not a valid MathKhata notebook export.', result.error.flatten());
+  const envelope = z.object({
+    format: z.literal('mathkhata-notebook'),
+    schemaVersion: z.number().int().min(1),
+    exportedAt: dateSchema,
+    notebook: z.unknown(),
+  }).strict().safeParse(parsed);
+  if (!envelope.success) {
+    throw new NotebookValidationError('This is not a valid Math Notebook export.', envelope.error.flatten());
   }
-  return normalizeNotebook(result.data.notebook);
+  if (envelope.data.schemaVersion !== (envelope.data.notebook as { schemaVersion?: unknown })?.schemaVersion) {
+    throw new NotebookValidationError('The notebook export has conflicting schema versions.');
+  }
+  return validateNotebook(envelope.data.notebook);
 }

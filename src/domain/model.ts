@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
 export const DEFAULT_PAGE_WIDTH = 900;
 export const DEFAULT_PAGE_HEIGHT = 1200;
 export const MIN_OBJECT_WIDTH = 120;
@@ -23,6 +23,7 @@ export interface Page {
   createdAt: ISODateString;
   updatedAt: ISODateString;
   objects: PageObject[];
+  drawings: DrawingElement[];
 }
 
 export interface PageObjectBase {
@@ -71,10 +72,30 @@ export interface Point {
   y: number;
 }
 
+export type DrawingKind =
+  | 'pen'
+  | 'highlighter'
+  | 'line'
+  | 'arrow'
+  | 'rectangle'
+  | 'ellipse'
+  | 'polygon'
+  | 'perpendicular';
+
+export interface DrawingElement {
+  id: string;
+  kind: DrawingKind;
+  color: string;
+  width: number;
+  opacity: number;
+  points: Point[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
 export interface MathKhataExport {
   format: 'mathkhata-notebook';
   schemaVersion: typeof SCHEMA_VERSION;
   exportedAt: ISODateString;
   notebook: Notebook;
 }
-

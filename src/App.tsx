@@ -13,6 +13,7 @@ import { TopBar } from './components/TopBar';
 import { VoicePanel } from './components/VoicePanel';
 import { FloatingCalculator } from './components/FloatingCalculator';
 import { ResearchToolsPanel } from './components/ResearchToolsPanel';
+import type { WritingMode } from './components/ContinuousLineComposer';
 import { useNotebookStore } from './store/notebookStore';
 
 function isEditingTarget(target: EventTarget | null): boolean {
@@ -28,6 +29,7 @@ function isEditingTarget(target: EventTarget | null): boolean {
 export default function App() {
   const [researchOpen, setResearchOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [writingMode, setWritingMode] = useState<WritingMode>('auto');
   const notebook = useNotebookStore((state) => state.notebook);
   const hydrated = useNotebookStore((state) => state.hydrated);
   const currentPageId = useNotebookStore((state) => state.currentPageId);
@@ -111,8 +113,16 @@ export default function App() {
         return;
       }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && !editingTarget) {
-        if (key === 'm') setTool('math');
-        if (key === 't') setTool('text');
+        if (key === 'm') {
+          setWritingMode('math');
+          setTool('select');
+          requestAnimationFrame(() => window.dispatchEvent(new Event('mathnotebook:focus-writer')));
+        }
+        if (key === 't') {
+          setWritingMode('text');
+          setTool('select');
+          requestAnimationFrame(() => window.dispatchEvent(new Event('mathnotebook:focus-writer')));
+        }
         if (key === 'v') setTool('voice');
       }
     }
@@ -141,7 +151,7 @@ export default function App() {
     return (
       <main className="loading-screen">
         <span className="loading-mark" aria-hidden="true">∫</span>
-        <p>Opening your khata…</p>
+        <p>Opening your notebook…</p>
       </main>
     );
   }
@@ -156,12 +166,14 @@ export default function App() {
         <PageNavigator notebook={notebook} />
         <main className="canvas-scroll" aria-label="Notebook workspace">
           <div className="page-frame">
-            <NotebookPage page={currentPage} />
+            <NotebookPage page={currentPage} writingMode={writingMode} />
             <span className="page-foot">{pageNumber}</span>
           </div>
         </main>
       </div>
       <ToolDock
+        writingMode={writingMode}
+        onWritingModeChange={setWritingMode}
         onOpenResearch={() => {
           window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'research-tools' }));
           setResearchOpen(true);

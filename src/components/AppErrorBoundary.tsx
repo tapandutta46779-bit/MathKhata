@@ -16,7 +16,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('MathKhata renderer failure', error, info.componentStack);
+    console.error('Math Notebook renderer failure', error, info.componentStack);
   }
 
   render() {
@@ -25,13 +25,13 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
       <main className="recovery-screen" role="alert">
         <span className="recovery-screen__mark" aria-hidden="true">∫</span>
         <p className="eyebrow">Protected recovery</p>
-        <h1>MathKhata needs a restart.</h1>
+        <h1>Math Notebook needs a restart.</h1>
         <p>
           Your last locally saved notebook remains on this device. Restart the app, then use the notebook menu to
           export a structured backup if the problem repeats.
         </p>
         <button type="button" className="primary-button" onClick={() => window.location.reload()}>
-          Restart MathKhata
+          Restart Math Notebook
         </button>
       </main>
     );

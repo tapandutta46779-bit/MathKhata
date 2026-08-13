@@ -1,6 +1,6 @@
 {
-  "name": "MathKhata",
-  "short_name": "MathKhata",
+  "name": "Math Notebook",
+  "short_name": "Math Notebook",
   "description": "A local-first mathematical notebook and research workspace.",
   "id": "./",
   "start_url": "./",

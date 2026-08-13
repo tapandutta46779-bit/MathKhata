@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { Notebook, PageObject, Point } from '../domain/model';
+import type { DrawingElement, Notebook, PageObject, Point } from '../domain/model';
 import {
+  addDrawing as addDrawingToNotebook,
   addObject as addObjectToNotebook,
   addPage as addPageToNotebook,
   clampObjectToPage,
@@ -14,6 +15,7 @@ import {
   getPage,
   movePage as moveNotebookPage,
   removeObject,
+  removeDrawing as removeDrawingFromNotebook,
   renameNotebook as renameNotebookDomain,
   updateObject,
 } from '../domain/notebook';
@@ -22,7 +24,9 @@ import {
   flowObjectHeight,
   nextWritingPoint,
   WRITING_CONTENT_WIDTH,
+  WRITING_LEFT,
   WRITING_LINE_HEIGHT,
+  WRITING_TOP,
   type FlowObjectInput,
 } from '../domain/writingFlow';
 import {
@@ -35,7 +39,7 @@ import {
 } from '../persistence/database';
 
 export type SaveStatus = 'loading' | 'unsaved' | 'saving' | 'saved' | 'error';
-export type NotebookTool = 'select' | 'math' | 'text' | 'voice';
+export type NotebookTool = 'select' | 'math' | 'text' | 'voice' | 'draw';
 
 interface HistoryEntry {
   notebook: Notebook;
@@ -78,6 +82,9 @@ interface NotebookState {
   createObject: (type: 'math' | 'text', point?: Point, initialContent?: string) => string | null;
   createFlowObjects: (items: FlowObjectInput[]) => string[];
   createMixedLine: (items: FlowObjectInput[]) => string[];
+  addDrawing: (drawing: DrawingElement) => void;
+  removeDrawing: (drawingId: string) => void;
+  undoLastDrawing: () => void;
   convertMathObjectToText: (objectId: string, text: string) => void;
   updateMath: (objectId: string, latex: string) => void;
   updateText: (objectId: string, text: string) => void;
@@ -176,12 +183,13 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         try {
           let notebook = await loadMostRecentNotebook();
           if (!notebook) {
-            notebook = createNotebook('My MathKhata');
+            notebook = createNotebook('My Math Notebook');
             await saveNotebook(notebook);
           }
           set({
             notebook,
             currentPageId: notebook.pages[0]?.id ?? null,
+            insertionPoint: notebook.pages[0] ? nextWritingPoint(notebook.pages[0]) : { x: 82, y: 20 },
             selectedObjectId: null,
             editingObjectId: null,
             saveStatus: 'saved',
@@ -225,6 +233,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         set({
           notebook,
           currentPageId: notebook.pages[0].id,
+          insertionPoint: nextWritingPoint(notebook.pages[0]),
           selectedObjectId: null,
           editingObjectId: null,
           undoStack: [],
@@ -247,6 +256,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         set({
           notebook,
           currentPageId: notebook.pages[0].id,
+          insertionPoint: nextWritingPoint(notebook.pages[0]),
           selectedObjectId: null,
           editingObjectId: null,
           undoStack: [],
@@ -277,6 +287,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         set({
           notebook,
           currentPageId: notebook.pages[0].id,
+          insertionPoint: nextWritingPoint(notebook.pages[0]),
           selectedObjectId: null,
           editingObjectId: null,
           undoStack: [],
@@ -297,12 +308,13 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     },
 
     setCurrentPage(pageId) {
-      if (!get().notebook?.pages.some((page) => page.id === pageId)) return;
+      const page = get().notebook?.pages.find((candidate) => candidate.id === pageId);
+      if (!page) return;
       set({
         currentPageId: pageId,
         selectedObjectId: null,
         editingObjectId: null,
-        insertionPoint: { x: 82, y: 20 },
+        insertionPoint: nextWritingPoint(page),
         lastHistoryGroup: null,
       });
     },
@@ -423,7 +435,11 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       let page = getPage(workingNotebook, pageId);
       if (!page) return [];
 
-      const proposed = nextWritingPoint(page);
+      const requested = {
+        x: WRITING_LEFT,
+        y: Math.max(WRITING_TOP, Math.min(page.height - WRITING_LINE_HEIGHT, state.insertionPoint.y)),
+      };
+      const proposed = requested;
       const lastLine = page.height - WRITING_LINE_HEIGHT;
       const lastLineOccupied = page.objects.some((object) => {
         const content = object.type === 'math' ? object.latex : object.text;
@@ -436,13 +452,15 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         if (!page || !pageId) return [];
       }
 
-      const start = nextWritingPoint(page);
+      const start = page.id === state.currentPageId ? requested : nextWritingPoint(page);
       let x = start.x;
       let y = start.y;
       const objects = items.map((item) => {
-        const estimatedWidth = item.type === 'math'
-          ? Math.max(92, Math.min(360, item.content.length * 12 + 34))
-          : Math.max(96, Math.min(430, item.content.length * 8.2 + 24));
+        const estimatedWidth = items.length === 1
+          ? Math.min(WRITING_CONTENT_WIDTH, page.width - start.x - 42)
+          : item.type === 'math'
+            ? Math.max(92, Math.min(360, item.content.length * 12 + 34))
+            : Math.max(96, Math.min(430, item.content.length * 8.2 + 24));
         if (x + estimatedWidth > page.width - 42 && x > start.x) {
           x = start.x;
           y += WRITING_LINE_HEIGHT;
@@ -475,6 +493,27 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         lastHistoryGroup: null,
       });
       return objects.map((object) => object.id);
+    },
+
+    addDrawing(drawing) {
+      const pageId = get().currentPageId;
+      if (!pageId) return;
+      commit('Draw on page', (notebook) => addDrawingToNotebook(notebook, pageId, drawing));
+    },
+
+    removeDrawing(drawingId) {
+      const pageId = get().currentPageId;
+      if (!pageId) return;
+      commit('Erase drawing', (notebook) => removeDrawingFromNotebook(notebook, pageId, drawingId));
+    },
+
+    undoLastDrawing() {
+      const state = get();
+      if (!state.currentPageId || !state.notebook) return;
+      const page = getPage(state.notebook, state.currentPageId);
+      const drawingId = page?.drawings.at(-1)?.id;
+      if (!drawingId) return;
+      commit('Undo last drawing', (notebook) => removeDrawingFromNotebook(notebook, state.currentPageId!, drawingId));
     },
 
     convertMathObjectToText(objectId, text) {

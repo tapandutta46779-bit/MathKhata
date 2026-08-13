@@ -38,7 +38,7 @@ describe('desktop public-release boundary', () => {
     render(<AppErrorBoundary><BrokenView /></AppErrorBoundary>);
 
     expect(screen.getByRole('alert')).toHaveTextContent('Your last locally saved notebook remains on this device');
-    expect(screen.getByRole('button', { name: 'Restart MathKhata' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Restart Math Notebook' })).toBeEnabled();
   });
 
   it('uses the narrow desktop AION bridge instead of a renderer network request', async () => {

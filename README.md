@@ -1,6 +1,6 @@
-# MathKhata
+# Math Notebook
 
-MathKhata is a local-first mathematical notebook and research workspace for laptops. Its page is the interface: write structured mathematics and ordinary notes directly on ruled lines, then return later without losing layout or mathematical editability.
+Math Notebook is a local-first mathematical notebook and research workspace for laptops. Its page is the interface: write structured mathematics and ordinary notes directly on ruled lines, then return later without losing layout or mathematical editability.
 
 Version 1.0 public beta runs as an installable macOS, Windows, or Linux desktop application and as a browser/PWA build. It supports a physical keyboard, trackpad or mouse, and optional microphone access. It has no account, cloud notebook database, personal tracking, or API-key requirement. The public website uses cookie-free aggregate Cloudflare Web Analytics; the desktop application does not. The desktop speech model is downloaded once on first use and cached locally; recorded audio is then transcribed on-device.
 
@@ -76,4 +76,4 @@ Chrome Web Speech support is used in Chrome when genuinely available. Electron d
 
 ## Product scope
 
-The app includes an always-available ruled-line composer with Auto/Math/Text intent, structured multiline MathLive editing, optional spatial placement, full on-demand keyboard/symbol controls, mixed voice dictation, quick arithmetic, advanced local CAS actions, whole-page deterministic analysis, and optional AION assistance. A separate research workspace provides local interactive 2D graphs, 3D surfaces, dynamic geometry, and scientific calculation, while a floating calculator stays available over every section. MathKhata follows the familiar expression-list and direct-manipulation workflow, but it does not claim proprietary Desmos code or complete one-for-one Desmos feature parity; the verified remaining gaps are recorded in [docs/audits/desmos-workspace-2026-08-09/README.md](docs/audits/desmos-workspace-2026-08-09/README.md).
+The app includes an always-available ruled-line composer with Auto/Math/Text intent, structured multiline MathLive editing, full on-demand keyboard/symbol controls, mixed voice dictation, mouse/trackpad page drawing, geometric drawing tools, quick arithmetic, advanced local CAS actions, whole-page deterministic analysis, and optional AION assistance. A separate research workspace provides local interactive 2D graphs, 3D surfaces, dynamic geometry, and scientific calculation, while a floating calculator stays available over every section. Math Notebook follows the familiar expression-list and direct-manipulation workflow, but it does not claim proprietary Desmos code or complete one-for-one Desmos feature parity; the verified remaining gaps are recorded in [docs/audits/desmos-workspace-2026-08-09/README.md](docs/audits/desmos-workspace-2026-08-09/README.md).

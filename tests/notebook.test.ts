@@ -9,6 +9,8 @@ import {
   deletePage,
   duplicateObject,
   movePage,
+  addDrawing,
+  removeDrawing,
   removeObject,
   updateObject,
 } from '../src/domain/notebook';
@@ -104,5 +106,25 @@ describe('notebook domain', () => {
       y: 20,
     });
     expect(withMath.pages[0].objects[0].type).toBe('math');
+  });
+
+  it('persists and removes page drawings without changing notebook objects', () => {
+    const factories = deterministicFactories();
+    const initial = createNotebook('Sketch', factories);
+    const pageId = initial.pages[0].id;
+    const drawing = {
+      id: 'stroke-1',
+      kind: 'pen' as const,
+      color: '#2f2d29',
+      width: 3,
+      opacity: 1,
+      points: [{ x: 90, y: 90 }, { x: 130, y: 120 }],
+      createdAt: factories.now(),
+      updatedAt: factories.now(),
+    };
+    const withDrawing = addDrawing(initial, pageId, drawing, factories.now);
+    expect(withDrawing.pages[0].drawings).toEqual([drawing]);
+    expect(withDrawing.pages[0].objects).toEqual([]);
+    expect(removeDrawing(withDrawing, pageId, drawing.id, factories.now).pages[0].drawings).toEqual([]);
   });
 });

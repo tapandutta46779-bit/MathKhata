@@ -116,7 +116,7 @@ export class DesktopSpeechProvider implements SpeechProvider {
     } catch (error) {
       const denied = error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
       this.fail(denied
-        ? 'Microphone access was denied. Enable MathKhata in System Settings › Privacy & Security › Microphone, then try again.'
+        ? 'Microphone access was denied. Enable Math Notebook in System Settings › Privacy & Security › Microphone, then try again.'
         : `Microphone could not start: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
   }

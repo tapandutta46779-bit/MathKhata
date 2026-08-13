@@ -76,7 +76,7 @@ describe('public web replica boundary', () => {
     expect(topBar).toContain('void prepareOfflineAION();');
     expect(webGPUProvider).toContain('prepareAIONWebGPU');
     expect(webGPUProvider).toContain('hasModelInCache');
-    expect(topBar).toContain('MathKhata offline app');
+    expect(topBar).toContain('Math Notebook offline app');
     expect(topBar).toContain('Private AION offline');
     expect(topBar).toContain('checkOfflineAppReady');
     expect(serviceWorker).toContain("const CACHE_PREFIX = 'mathkhata-public-beta-'");

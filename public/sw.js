@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'mathkhata-public-beta-';
-const CACHE_NAME = `${CACHE_PREFIX}v5`;
+const CACHE_NAME = `${CACHE_PREFIX}v6`;
 const OFFLINE_READY_PATH = './offline-ready.json';
 const CORE_ASSETS = [
   './offline-assets.json',
@@ -38,14 +38,14 @@ async function precacheBuild() {
   const cache = await caches.open(CACHE_NAME);
   const indexUrl = new URL('./index.html', self.registration.scope);
   const response = await fetch(indexUrl, { cache: 'reload' });
-  if (!response.ok) throw new Error(`Cannot cache MathKhata shell: ${response.status}`);
+  if (!response.ok) throw new Error(`Cannot cache Math Notebook shell: ${response.status}`);
   const html = await response.text();
   await cache.put(indexUrl, new Response(html, { headers: response.headers }));
   const assetUrls = [...html.matchAll(/(?:src|href)="([^"#]+)"/g)]
     .map((match) => new URL(match[1], indexUrl).href)
     .filter((url) => new URL(url).origin === indexUrl.origin);
   const manifestResponse = await fetch(new URL('./offline-assets.json', indexUrl), { cache: 'reload' });
-  if (!manifestResponse.ok) throw new Error(`Cannot cache MathKhata asset manifest: ${manifestResponse.status}`);
+  if (!manifestResponse.ok) throw new Error(`Cannot cache Math Notebook asset manifest: ${manifestResponse.status}`);
   const manifest = await manifestResponse.json();
   const buildAssets = Array.isArray(manifest.assets)
     ? manifest.assets.map((asset) => new URL(asset, indexUrl).href)

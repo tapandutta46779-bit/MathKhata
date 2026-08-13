@@ -1,4 +1,4 @@
-# MathKhata web release
+# Math Notebook web release
 
 ## Public beta
 

@@ -13,7 +13,7 @@ describe('structured notebook serialization', () => {
     expect(restored).toEqual(notebook);
     expect(JSON.parse(json)).toMatchObject({
       format: 'mathkhata-notebook',
-      schemaVersion: 1,
+      schemaVersion: 2,
       notebook: { title: 'Exact work' },
     });
   });
@@ -21,7 +21,7 @@ describe('structured notebook serialization', () => {
   it('rejects malformed input and unsupported future schema versions', () => {
     expect(() => deserializeNotebook('{broken')).toThrow(NotebookValidationError);
     expect(() => deserializeNotebook(JSON.stringify({ format: 'mathkhata-notebook' }))).toThrow(
-      'valid MathKhata notebook export',
+      'valid Math Notebook export',
     );
     expect(() => validateNotebook({ ...createNotebook(), schemaVersion: 99 })).toThrow(
       'Unsupported notebook schema version 99',
@@ -29,6 +29,26 @@ describe('structured notebook serialization', () => {
     expect(() => validateNotebook({ ...createNotebook(), schemaVersion: 0 })).toThrow(
       'has no safe migration',
     );
+  });
+
+  it('migrates schema 1 notebooks by adding an empty persistent drawing layer', () => {
+    const notebook = createNotebook('Legacy');
+    const legacy = {
+      ...notebook,
+      schemaVersion: 1,
+      pages: notebook.pages.map((page) => ({
+        id: page.id,
+        order: page.order,
+        width: page.width,
+        height: page.height,
+        createdAt: page.createdAt,
+        updatedAt: page.updatedAt,
+        objects: page.objects,
+      })),
+    };
+    const restored = validateNotebook(legacy);
+    expect(restored.schemaVersion).toBe(2);
+    expect(restored.pages[0].drawings).toEqual([]);
   });
 
   it('rejects duplicate object identifiers', () => {

@@ -10,7 +10,7 @@ export class DesktopSpeechProvider implements SpeechProvider {
 
   start(callbacks: SpeechProviderCallbacks): void {
     callbacks.onState('unsupported');
-    callbacks.onError('Desktop speech recognition is available only in the packaged MathKhata app.');
+    callbacks.onError('Desktop speech recognition is available only in the packaged Math Notebook app.');
     callbacks.onEnd();
   }
 
