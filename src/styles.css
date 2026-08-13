@@ -599,6 +599,7 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 }
 .page-drawing-layer.is-active { pointer-events: auto; touch-action: none; }
 .page-drawing-layer__marks { mix-blend-mode: multiply; }
+.page-eraser-cursor { fill: rgba(255,255,255,.55); stroke: #7c321e; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .drawing-toolbar { width: min(650px, calc(100vw - 28px)); }
 .drawing-toolbar__tools { display: grid; grid-template-columns: repeat(9, minmax(38px, 1fr)); gap: 4px; }
 .drawing-toolbar__tools button { display: grid; place-items: center; min-width: 0; height: 34px; border-radius: 7px; color: #6c665d; background: #f1eee6; font-size: 17px; }
@@ -610,6 +611,9 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .drawing-colors { display: flex; gap: 5px; }
 .drawing-colors button { width: 22px; height: 22px; padding: 0; border: 2px solid #fffefa; border-radius: 50%; background: var(--drawing-color); box-shadow: 0 0 0 1px rgba(55,51,42,.18); }
 .drawing-colors button.is-active { box-shadow: 0 0 0 2px var(--accent); }
+.eraser-presets { display: flex; gap: 4px; }
+.eraser-presets button { min-height: 28px; padding: 5px 8px; border-radius: 7px; color: #686258; background: #f1eee6; font-size: 8px; font-weight: 700; }
+.eraser-presets button.is-active { color: #743a27; background: var(--accent-soft); }
 .drawing-undo:disabled { opacity: .4; }
 
 .research-tools-panel {

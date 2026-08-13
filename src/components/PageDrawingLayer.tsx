@@ -23,6 +23,63 @@ function pathData(points: Point[], close = false): string {
   return `${commands.join(' ')}${close ? ' Z' : ''}`;
 }
 
+function pointToSegmentDistance(point: Point, start: Point, end: Point): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+  const position = Math.max(0, Math.min(1,
+    ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - (start.x + position * dx), point.y - (start.y + position * dy));
+}
+
+function drawingSegments(drawing: DrawingElement): Array<[Point, Point]> {
+  const start = drawing.points[0];
+  const end = drawing.points.at(-1) ?? start;
+  if (!start || !end) return [];
+  if (drawing.kind === 'rectangle') {
+    const corners: Point[] = [
+      { x: start.x, y: start.y }, { x: end.x, y: start.y },
+      { x: end.x, y: end.y }, { x: start.x, y: end.y },
+    ];
+    return corners.map((corner, index) => [corner, corners[(index + 1) % corners.length]]);
+  }
+  if (drawing.kind === 'ellipse') {
+    const center = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const rx = Math.abs(end.x - start.x) / 2;
+    const ry = Math.abs(end.y - start.y) / 2;
+    const points = Array.from({ length: 49 }, (_, index) => {
+      const angle = index / 48 * Math.PI * 2;
+      return { x: center.x + Math.cos(angle) * rx, y: center.y + Math.sin(angle) * ry };
+    });
+    return points.slice(1).map((point, index) => [points[index], point]);
+  }
+  if (drawing.kind === 'perpendicular') {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.max(24, Math.hypot(dx, dy));
+    const half = Math.max(20, length * 0.36);
+    const middle = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    const normal = { x: -dy / length, y: dx / length };
+    return [
+      [start, end],
+      [
+        { x: middle.x - normal.x * half, y: middle.y - normal.y * half },
+        { x: middle.x + normal.x * half, y: middle.y + normal.y * half },
+      ],
+    ];
+  }
+  const points = drawing.kind === 'polygon' && drawing.points.length > 2
+    ? [...drawing.points, drawing.points[0]]
+    : drawing.points;
+  return points.slice(1).map((point, index) => [points[index], point]);
+}
+
+function drawingTouchesPoint(drawing: DrawingElement, point: Point, radius: number): boolean {
+  return drawingSegments(drawing).some(([start, end]) =>
+    pointToSegmentDistance(point, start, end) <= radius + drawing.width / 2);
+}
+
 function DrawingMark({ drawing, hitTarget = false }: { drawing: DrawingElement; hitTarget?: boolean }) {
   const [start, end] = [drawing.points[0], drawing.points.at(-1) ?? drawing.points[0]];
   const common = {
@@ -80,14 +137,20 @@ export function PageDrawingLayer({ page }: { page: Page }) {
   const active = useNotebookStore((state) => state.tool === 'draw');
   const setTool = useNotebookStore((state) => state.setTool);
   const addDrawing = useNotebookStore((state) => state.addDrawing);
-  const removeDrawing = useNotebookStore((state) => state.removeDrawing);
+  const removeDrawings = useNotebookStore((state) => state.removeDrawings);
   const undoLastDrawing = useNotebookStore((state) => state.undoLastDrawing);
   const [tool, setDrawingTool] = useState<DrawingTool>('pen');
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(3);
+  const [eraserSize, setEraserSize] = useState(30);
+  const [eraserCursor, setEraserCursor] = useState<Point | null>(null);
+  const [erasedIds, setErasedIds] = useState<Set<string>>(() => new Set());
   const [draft, setDraft] = useState<DrawingElement | null>(null);
   const draftRef = useRef<DrawingElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
+  const erasedIdsRef = useRef<Set<string>>(new Set());
+  const lastEraserPointRef = useRef<Point | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const markerId = useMemo(() => `page-arrowhead-${page.id.replace(/[^a-zA-Z0-9_-]/g, '')}`, [page.id]);
 
   useEffect(() => {
@@ -102,14 +165,37 @@ export function PageDrawingLayer({ page }: { page: Page }) {
     };
   }
 
+  function eraserRadiusInPage(): number {
+    const bounds = svgRef.current?.getBoundingClientRect();
+    return bounds?.width ? eraserSize / 2 * page.width / bounds.width : eraserSize / 2;
+  }
+
+  function eraseAt(point: Point) {
+    const next = new Set(erasedIdsRef.current);
+    for (const drawing of page.drawings) {
+      if (!next.has(drawing.id) && drawingTouchesPoint(drawing, point, eraserRadiusInPage())) {
+        next.add(drawing.id);
+      }
+    }
+    if (next.size !== erasedIdsRef.current.size) {
+      erasedIdsRef.current = next;
+      setErasedIds(next);
+    }
+  }
+
   function start(event: ReactPointerEvent<SVGSVGElement>) {
     if (!active || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     if (tool === 'eraser') {
-      const target = event.target as SVGElement;
-      const id = target.closest<SVGElement>('[data-drawing-id]')?.dataset.drawingId;
-      if (id) removeDrawing(id);
+      const point = eventPoint(event);
+      pointerIdRef.current = event.pointerId;
+      lastEraserPointRef.current = point;
+      erasedIdsRef.current = new Set();
+      setErasedIds(new Set());
+      setEraserCursor(point);
+      eraseAt(point);
+      event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
     const next = createDraft(tool, color, width, eventPoint(event));
@@ -120,9 +206,25 @@ export function PageDrawingLayer({ page }: { page: Page }) {
   }
 
   function move(event: ReactPointerEvent<SVGSVGElement>) {
-    if (pointerIdRef.current !== event.pointerId || !draftRef.current) return;
-    event.preventDefault();
     const point = eventPoint(event);
+    if (tool === 'eraser') setEraserCursor(point);
+    if (pointerIdRef.current !== event.pointerId) return;
+    event.preventDefault();
+    if (tool === 'eraser') {
+      const previous = lastEraserPointRef.current ?? point;
+      const distance = Math.hypot(point.x - previous.x, point.y - previous.y);
+      const step = Math.max(2, eraserRadiusInPage() * 0.55);
+      const samples = Math.max(1, Math.ceil(distance / step));
+      for (let index = 1; index <= samples; index += 1) {
+        eraseAt({
+          x: previous.x + (point.x - previous.x) * index / samples,
+          y: previous.y + (point.y - previous.y) * index / samples,
+        });
+      }
+      lastEraserPointRef.current = point;
+      return;
+    }
+    if (!draftRef.current) return;
     const current = draftRef.current;
     const freehand = current.kind === 'pen' || current.kind === 'highlighter' || current.kind === 'polygon';
     const points = freehand ? [...current.points, point] : [current.points[0], point];
@@ -135,6 +237,15 @@ export function PageDrawingLayer({ page }: { page: Page }) {
     if (pointerIdRef.current !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
+    if (tool === 'eraser') {
+      const ids = [...erasedIdsRef.current];
+      pointerIdRef.current = null;
+      lastEraserPointRef.current = null;
+      erasedIdsRef.current = new Set();
+      setErasedIds(new Set());
+      if (ids.length > 0) removeDrawings(ids);
+      return;
+    }
     const completed = draftRef.current;
     pointerIdRef.current = null;
     draftRef.current = null;
@@ -148,6 +259,7 @@ export function PageDrawingLayer({ page }: { page: Page }) {
   return (
     <>
       <svg
+        ref={svgRef}
         className={`page-drawing-layer${active ? ' is-active' : ''}`}
         viewBox={`0 0 ${page.width} ${page.height}`}
         aria-label={active ? 'Page drawing canvas' : 'Saved page drawings'}
@@ -155,6 +267,9 @@ export function PageDrawingLayer({ page }: { page: Page }) {
         onPointerMove={move}
         onPointerUp={finish}
         onPointerCancel={finish}
+        onPointerLeave={() => {
+          if (pointerIdRef.current === null) setEraserCursor(null);
+        }}
       >
         <defs>
           <marker id="page-arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
@@ -165,13 +280,17 @@ export function PageDrawingLayer({ page }: { page: Page }) {
           </marker>
         </defs>
         <g className="page-drawing-layer__marks">
-          {page.drawings.map((drawing) => <DrawingMark key={drawing.id} drawing={drawing} />)}
+          {page.drawings.filter((drawing) => !erasedIds.has(drawing.id)).map((drawing) => <DrawingMark key={drawing.id} drawing={drawing} />)}
           {draft && <DrawingMark drawing={draft} />}
         </g>
-        {active && tool === 'eraser' && (
-          <g className="page-drawing-layer__hit-targets">
-            {page.drawings.map((drawing) => <DrawingMark key={drawing.id} drawing={drawing} hitTarget />)}
-          </g>
+        {active && tool === 'eraser' && eraserCursor && (
+          <circle
+            className="page-eraser-cursor"
+            cx={eraserCursor.x}
+            cy={eraserCursor.y}
+            r={eraserRadiusInPage()}
+            aria-hidden="true"
+          />
         )}
       </svg>
       {active && (
@@ -196,22 +315,38 @@ export function PageDrawingLayer({ page }: { page: Page }) {
             ))}
           </div>
           <div className="drawing-toolbar__settings">
-            <div className="drawing-colors" aria-label="Pen color">
-              {COLORS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={color === option ? 'is-active' : ''}
-                  aria-label={`Use color ${option}`}
-                  style={{ '--drawing-color': option } as React.CSSProperties}
-                  onClick={() => setColor(option)}
-                />
-              ))}
-            </div>
-            <label>
-              Nib <input aria-label="Pen nib width" type="range" min="1" max="18" step="1" value={width} onChange={(event) => setWidth(Number(event.target.value))} />
-              <output>{width}px</output>
-            </label>
+            {tool === 'eraser' ? (
+              <>
+                <div className="eraser-presets" aria-label="Eraser sizes">
+                  <button type="button" className={eraserSize === 14 ? 'is-active' : ''} onClick={() => setEraserSize(14)}>Small</button>
+                  <button type="button" className={eraserSize === 30 ? 'is-active' : ''} onClick={() => setEraserSize(30)}>Medium</button>
+                  <button type="button" className={eraserSize === 60 ? 'is-active' : ''} onClick={() => setEraserSize(60)}>Large</button>
+                </div>
+                <label>
+                  Eraser <input aria-label="Eraser size" type="range" min="8" max="80" step="2" value={eraserSize} onChange={(event) => setEraserSize(Number(event.target.value))} />
+                  <output>{eraserSize}px</output>
+                </label>
+              </>
+            ) : (
+              <>
+                <div className="drawing-colors" aria-label="Pen color">
+                  {COLORS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={color === option ? 'is-active' : ''}
+                      aria-label={`Use color ${option}`}
+                      style={{ '--drawing-color': option } as React.CSSProperties}
+                      onClick={() => setColor(option)}
+                    />
+                  ))}
+                </div>
+                <label>
+                  Nib <input aria-label="Pen nib width" type="range" min="1" max="18" step="1" value={width} onChange={(event) => setWidth(Number(event.target.value))} />
+                  <output>{width}px</output>
+                </label>
+              </>
+            )}
             <button type="button" className="drawing-undo" disabled={page.drawings.length === 0} onClick={undoLastDrawing}>Undo stroke</button>
           </div>
         </aside>

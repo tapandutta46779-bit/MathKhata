@@ -84,6 +84,7 @@ interface NotebookState {
   createMixedLine: (items: FlowObjectInput[]) => string[];
   addDrawing: (drawing: DrawingElement) => void;
   removeDrawing: (drawingId: string) => void;
+  removeDrawings: (drawingIds: string[]) => void;
   undoLastDrawing: () => void;
   convertMathObjectToText: (objectId: string, text: string) => void;
   updateMath: (objectId: string, latex: string) => void;
@@ -505,6 +506,16 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       const pageId = get().currentPageId;
       if (!pageId) return;
       commit('Erase drawing', (notebook) => removeDrawingFromNotebook(notebook, pageId, drawingId));
+    },
+
+    removeDrawings(drawingIds) {
+      const pageId = get().currentPageId;
+      const uniqueIds = [...new Set(drawingIds)];
+      if (!pageId || uniqueIds.length === 0) return;
+      commit('Erase drawings', (notebook) => uniqueIds.reduce(
+        (next, drawingId) => removeDrawingFromNotebook(next, pageId, drawingId),
+        notebook,
+      ));
     },
 
     undoLastDrawing() {

@@ -100,19 +100,37 @@ test('central math controls retain keyboard, insertion menu, symbols, and struct
   await page.getByRole('button', { name: 'Close math keyboard' }).click();
   await expect.poll(() => page.evaluate(() => window.mathVirtualKeyboard.visible)).toBe(false);
 
+  await page.getByRole('button', { name: 'Open writing and math controls' }).click();
+  await expect(tools).toBeVisible();
   await tools.getByRole('button', { name: '⌨ Math keyboard' }).click();
   await expect(page.getByRole('button', { name: 'Close math keyboard' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect.poll(() => page.evaluate(() => window.mathVirtualKeyboard.visible)).toBe(false);
 
+  await page.getByRole('button', { name: 'Open writing and math controls' }).click();
+  await expect(tools).toBeVisible();
   await tools.getByRole('button', { name: '☰ Insert structures' }).click();
   await expect(page.getByRole('menu')).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Insert Matrix' })).toBeVisible();
+  await tools.getByRole('button', { name: '☰ Insert structures' }).click();
+  await expect(page.getByRole('menu')).toBeHidden();
+
+  await tools.getByRole('button', { name: '☰ Insert structures' }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
   await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
 
   await tools.getByRole('button', { name: 'Ω Symbols' }).click();
   const palette = page.getByTestId('math-palette');
   await expect(palette).toBeVisible();
+  await expect(tools).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Close math keyboard' })).toBeHidden();
+  await page.getByRole('button', { name: 'Open writing and math controls' }).click();
+  await expect(tools).toBeVisible();
+  await expect(palette).toBeHidden();
+  await tools.getByRole('button', { name: 'Ω Symbols' }).click();
+  await expect(palette).toBeVisible();
+  await expect(tools).toBeHidden();
   await palette.getByRole('button', { name: 'Insert Square root' }).click();
   await page.keyboard.type('x+1');
   await page.keyboard.press('Tab');
@@ -132,6 +150,8 @@ test('central math controls retain keyboard, insertion menu, symbols, and struct
 
 test('Pen draws with an ordinary mouse or trackpad pointer and geometry strokes persist', async ({ page }) => {
   await page.goto('/');
+  await writeTextLine(page, 'Eraser must protect this typed note.');
+  await writeMathLine(page, String.raw`x^2+1`);
   await page.getByRole('button', { name: 'Draw on page' }).click();
   const canvas = page.getByLabel('Page drawing canvas');
   const toolbar = page.getByRole('complementary', { name: 'Drawing tools' });
@@ -176,6 +196,36 @@ test('Pen draws with an ordinary mouse or trackpad pointer and geometry strokes 
   await expect(page.getByRole('button', { name: /Saved locally/ })).toBeVisible({ timeout: 10_000 });
   await page.reload();
   await expect(page.getByLabel('Saved page drawings').locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(3);
+
+  // Erasing is also an ordinary mouse/trackpad gesture. One drag is committed
+  // as one history action and cannot touch text, math, or the ruled paper.
+  await page.getByRole('button', { name: 'Draw on page' }).click();
+  const activeCanvas = page.getByLabel('Page drawing canvas');
+  const activeToolbar = page.getByRole('complementary', { name: 'Drawing tools' });
+  await activeToolbar.getByRole('button', { name: 'Eraser', exact: true }).click();
+  await activeToolbar.getByRole('button', { name: 'Small', exact: true }).click();
+  const eraserSlider = activeToolbar.getByRole('slider', { name: 'Eraser size' });
+  await expect(eraserSlider).toHaveValue('14');
+  await eraserSlider.fill('52');
+  await expect(eraserSlider).toHaveValue('52');
+  const eraseBounds = await activeCanvas.boundingBox();
+  if (!eraseBounds) throw new Error('Eraser canvas has no visible bounds');
+  await page.mouse.move(eraseBounds.x + 155, eraseBounds.y + 150);
+  await expect(activeCanvas.locator('.page-eraser-cursor')).toBeVisible();
+  await page.mouse.down();
+  await page.mouse.move(eraseBounds.x + 300, eraseBounds.y + 205, { steps: 12 });
+  await page.mouse.up();
+  await expect(activeCanvas.locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(2);
+  await expect(page.getByTestId('page-object-text')).toHaveCount(1);
+  await expect(page.getByTestId('page-object-math')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(activeCanvas.locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect(activeCanvas.locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: /Saved locally/ })).toBeVisible({ timeout: 10_000 });
+  await page.reload();
+  await expect(page.getByLabel('Saved page drawings').locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(2);
 });
 
 test('integrals calculate from structured lines and notebook operations remain available', async ({ page }) => {

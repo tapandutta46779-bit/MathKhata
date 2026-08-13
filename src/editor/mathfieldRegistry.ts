@@ -61,7 +61,11 @@ export function dismissMathfieldMenuFromOutsidePointer(
   const belongsToMenu = path.some((node) =>
     node instanceof Element && (
       node.matches('menu[role="menu"]') ||
-      node.matches('[part~="menu-toggle"]')
+      node.matches('[part~="menu-toggle"]') ||
+      // The notebook's central Insert button owns the same menu. Let its
+      // click handler perform the toggle instead of closing on pointer-down
+      // and immediately reopening on click.
+      node.matches('[data-math-menu-toggle="true"]')
     ));
   if (belongsToMenu) return false;
   return dismissMathfieldMenu(element);

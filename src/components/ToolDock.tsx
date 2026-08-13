@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import { focusActiveMathfield, showActiveMathfieldMenu } from '../editor/mathfieldRegistry';
+import {
+  dismissActiveMathfieldMenu,
+  focusActiveMathfield,
+  showActiveMathfieldMenu,
+} from '../editor/mathfieldRegistry';
 import { useNotebookStore } from '../store/notebookStore';
 import type { WritingMode } from './ContinuousLineComposer';
 
@@ -19,8 +23,13 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
   const setPaletteOpen = useNotebookStore((state) => state.setPaletteOpen);
 
   useEffect(() => {
-    if (activeTool === 'draw' || activeTool === 'voice') setWritingToolsOpen(false);
-  }, [activeTool]);
+    if (activeTool === 'draw' || activeTool === 'voice') {
+      setWritingToolsOpen(false);
+      setPaletteOpen(false);
+      dismissActiveMathfieldMenu();
+      if (window.mathVirtualKeyboard.visible) window.mathVirtualKeyboard.hide();
+    }
+  }, [activeTool, setPaletteOpen]);
 
   useEffect(() => {
     const update = () => setKeyboardVisible(window.mathVirtualKeyboard.visible);
@@ -38,10 +47,22 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
   }
 
   function targetMathComposer(command: 'keyboard' | 'menu') {
-    if (command === 'menu' && showActiveMathfieldMenu()) return;
+    if (command === 'menu') {
+      setPaletteOpen(false);
+      // The same button is a true toggle. MathLive's showMenu() does not
+      // reliably toggle an already-open Insert submenu by itself.
+      if (dismissActiveMathfieldMenu()) return;
+      if (showActiveMathfieldMenu()) return;
+    }
     if (command === 'keyboard' && focusActiveMathfield()) {
-      if (window.mathVirtualKeyboard.visible) window.mathVirtualKeyboard.hide();
-      else window.mathVirtualKeyboard.show();
+      const wasVisible = window.mathVirtualKeyboard.visible;
+      setPaletteOpen(false);
+      dismissActiveMathfieldMenu();
+      if (wasVisible) window.mathVirtualKeyboard.hide();
+      else {
+        window.mathVirtualKeyboard.show();
+        setWritingToolsOpen(false);
+      }
       return;
     }
     onWritingModeChange('math');
@@ -77,11 +98,25 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
             <button type="button" onClick={() => targetMathComposer('keyboard')}>
               {keyboardVisible ? '⌄ Close keyboard' : '⌨ Math keyboard'}
             </button>
-            <button type="button" onClick={() => targetMathComposer('menu')}>☰ Insert structures</button>
+            <button
+              type="button"
+              data-math-menu-toggle="true"
+              onClick={() => targetMathComposer('menu')}
+            >
+              ☰ Insert structures
+            </button>
             <button
               type="button"
               className={paletteOpen ? 'is-active' : ''}
-              onClick={() => setPaletteOpen(!paletteOpen)}
+              onClick={() => {
+                const opening = !paletteOpen;
+                if (opening) {
+                  dismissActiveMathfieldMenu();
+                  if (window.mathVirtualKeyboard.visible) window.mathVirtualKeyboard.hide();
+                  setWritingToolsOpen(false);
+                }
+                setPaletteOpen(opening);
+              }}
             >
               Ω Symbols
             </button>
@@ -105,7 +140,15 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
           aria-expanded={writingToolsOpen}
           aria-label="Open writing and math controls"
           title="Writing and math controls"
-          onClick={() => setWritingToolsOpen((open) => !open)}
+          onClick={() => {
+            const opening = !writingToolsOpen;
+            if (opening) {
+              setPaletteOpen(false);
+              dismissActiveMathfieldMenu();
+              if (window.mathVirtualKeyboard.visible) window.mathVirtualKeyboard.hide();
+            }
+            setWritingToolsOpen(opening);
+          }}
         >
           <span className="tool-icon" aria-hidden="true">∑</span><span>Math tools</span>
         </button>
