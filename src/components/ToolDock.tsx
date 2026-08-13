@@ -12,6 +12,7 @@ interface ToolDockProps {
 
 export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onToggleCalculator }: ToolDockProps) {
   const [writingToolsOpen, setWritingToolsOpen] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(() => window.mathVirtualKeyboard.visible);
   const activeTool = useNotebookStore((state) => state.tool);
   const setTool = useNotebookStore((state) => state.setTool);
   const paletteOpen = useNotebookStore((state) => state.paletteOpen);
@@ -20,6 +21,16 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
   useEffect(() => {
     if (activeTool === 'draw' || activeTool === 'voice') setWritingToolsOpen(false);
   }, [activeTool]);
+
+  useEffect(() => {
+    const update = () => setKeyboardVisible(window.mathVirtualKeyboard.visible);
+    window.mathVirtualKeyboard.addEventListener('virtual-keyboard-toggle', update);
+    window.mathVirtualKeyboard.addEventListener('geometrychange', update);
+    return () => {
+      window.mathVirtualKeyboard.removeEventListener('virtual-keyboard-toggle', update);
+      window.mathVirtualKeyboard.removeEventListener('geometrychange', update);
+    };
+  }, []);
 
   function focusWriter() {
     setTool('select');
@@ -63,7 +74,9 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
             ))}
           </div>
           <div className="writing-math-actions">
-            <button type="button" onClick={() => targetMathComposer('keyboard')}>⌨ Math keyboard</button>
+            <button type="button" onClick={() => targetMathComposer('keyboard')}>
+              {keyboardVisible ? '⌄ Close keyboard' : '⌨ Math keyboard'}
+            </button>
             <button type="button" onClick={() => targetMathComposer('menu')}>☰ Insert structures</button>
             <button
               type="button"

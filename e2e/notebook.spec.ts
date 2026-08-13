@@ -96,7 +96,14 @@ test('central math controls retain keyboard, insertion menu, symbols, and struct
   await expect.poll(() => page.evaluate(() => window.mathVirtualKeyboard.layouts)).toEqual([
     'numeric', 'symbols', 'alphabetic', 'greek',
   ]);
-  await page.evaluate(() => window.mathVirtualKeyboard.hide());
+  await expect(page.getByRole('button', { name: 'Close math keyboard' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close math keyboard' }).click();
+  await expect.poll(() => page.evaluate(() => window.mathVirtualKeyboard.visible)).toBe(false);
+
+  await tools.getByRole('button', { name: '⌨ Math keyboard' }).click();
+  await expect(page.getByRole('button', { name: 'Close math keyboard' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => page.evaluate(() => window.mathVirtualKeyboard.visible)).toBe(false);
 
   await tools.getByRole('button', { name: '☰ Insert structures' }).click();
   await expect(page.getByRole('menu')).toBeVisible();

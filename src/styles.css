@@ -568,6 +568,26 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 }
 .writing-mode-buttons button.is-active, .writing-math-actions button.is-active { color: #743a27; background: var(--accent-soft); }
 
+.math-keyboard-dismiss {
+  position: fixed;
+  z-index: 1000000;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 9px;
+  color: #fff;
+  background: #312f2c;
+  box-shadow: 0 7px 22px rgba(0,0,0,.3);
+  font-size: 11px;
+  font-weight: 750;
+}
+.math-keyboard-dismiss:hover { background: #151515; }
+.math-keyboard-dismiss span { font-size: 17px; line-height: 1; }
+
 .page-drawing-layer {
   position: absolute;
   z-index: 22;

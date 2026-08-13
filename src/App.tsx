@@ -13,6 +13,7 @@ import { TopBar } from './components/TopBar';
 import { VoicePanel } from './components/VoicePanel';
 import { FloatingCalculator } from './components/FloatingCalculator';
 import { ResearchToolsPanel } from './components/ResearchToolsPanel';
+import { MathKeyboardDismiss } from './components/MathKeyboardDismiss';
 import type { WritingMode } from './components/ContinuousLineComposer';
 import { useNotebookStore } from './store/notebookStore';
 
@@ -93,6 +94,10 @@ export default function App() {
         event.preventDefault();
         event.stopPropagation();
         if (dismissActiveMathfieldMenu()) return;
+        if (window.mathVirtualKeyboard.visible) {
+          window.mathVirtualKeyboard.hide();
+          return;
+        }
         if (liveState.editingObjectId || editingTarget) {
           blurActiveMathfield();
           if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -180,6 +185,7 @@ export default function App() {
         }}
         onToggleCalculator={() => setCalculatorOpen((open) => !open)}
       />
+      <MathKeyboardDismiss />
       <MathPalette />
       {tool === 'voice' && <VoicePanel />}
       <PageAssistantRail />
