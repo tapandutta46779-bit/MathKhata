@@ -38,6 +38,7 @@ import {
   type FlowObjectInput,
 } from '../domain/writingFlow';
 import {
+  deleteStoredNotebook,
   hasNotebook,
   listNotebooks,
   loadMostRecentNotebook,
@@ -77,6 +78,7 @@ interface NotebookState {
   initialize: () => Promise<void>;
   refreshLibrary: () => Promise<void>;
   createNewNotebook: () => Promise<void>;
+  deleteNotebook: (id: string) => Promise<void>;
   openNotebook: (id: string) => Promise<void>;
   importNotebook: (notebook: Notebook) => Promise<void>;
   renameNotebook: (title: string) => void;
@@ -309,6 +311,47 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         set({
           errorMessage: `Could not create notebook: ${error instanceof Error ? error.message : 'Unknown error'}`,
         });
+      }
+    },
+
+    async deleteNotebook(id: string) {
+      const state = get();
+      const deletingCurrent = state.notebook?.id === id;
+      try {
+        if (deletingCurrent) {
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = undefined;
+          saveRevision += 1;
+        }
+        await deleteStoredNotebook(id);
+        let library = await listNotebooks();
+        if (!deletingCurrent) {
+          set({ library, errorMessage: null });
+          return;
+        }
+        let notebook = library[0] ? await loadNotebook(library[0].id) : null;
+        if (!notebook) {
+          notebook = createNotebook('Untitled notebook');
+          await saveNotebook(notebook);
+          library = await listNotebooks();
+        }
+        set({
+          notebook,
+          library,
+          currentPageId: notebook.pages[0]?.id ?? null,
+          insertionPoint: notebook.pages[0] ? nextWritingPoint(notebook.pages[0]) : { x: 82, y: 20 },
+          selectedObjectId: null,
+          editingObjectId: null,
+          undoStack: [],
+          redoStack: [],
+          saveStatus: 'saved',
+          errorMessage: null,
+        });
+      } catch (error) {
+        set({
+          errorMessage: `Could not delete notebook: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+        await get().refreshLibrary();
       }
     },
 

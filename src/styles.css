@@ -1166,8 +1166,11 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 .dialog-heading h2 { margin: 2px 0 14px; font: 27px/1.2 Georgia, serif; }
 .eyebrow { color: var(--accent); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
 .library-list { display: grid; gap: 7px; }
-.library-list > button { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: #fff; text-align: left; }
-.library-list > button:hover, .library-list > button.is-current { border-color: rgba(154,72,44,.45); background: #fffaf3; }
+.library-list > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; border: 1px solid var(--border); border-radius: 10px; background: #fff; overflow: hidden; }
+.library-list > div:hover, .library-list > div.is-current { border-color: rgba(154,72,44,.45); background: #fffaf3; }
+.library-open-notebook { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; min-width: 0; padding: 12px; border: 0; background: transparent; text-align: left; }
+.library-delete-notebook { align-self: center; margin-right: 10px; padding: 7px 9px; border: 1px solid rgba(163,51,41,.22); border-radius: 8px; background: #fff4f1; color: #9c352c; font-size: 10px; font-weight: 700; }
+.library-delete-notebook:hover { background: #fde7e2; }
 .library-list strong { font-size: 13px; }
 .library-list span, .library-list time { color: var(--muted); font-size: 10px; }
 .library-list time { grid-column: 1 / -1; }

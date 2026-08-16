@@ -433,6 +433,28 @@ test('page selection manages favorites, highlights, printing, deletion, and undo
   await expect(page.locator('.thumbnail-favorite')).toHaveCount(2);
 });
 
+test('notebook library deletes stored notebooks and keeps one usable notebook', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Notebook menu' }).click();
+  await page.getByRole('menuitem', { name: 'New notebook' }).click();
+  await expect(page.getByLabel('Notebook title')).toHaveValue('Untitled notebook');
+
+  await page.getByRole('button', { name: 'Notebook menu' }).click();
+  await page.getByRole('menuitem', { name: 'Open notebook…' }).click();
+  const library = page.getByRole('dialog', { name: 'Notebooks' });
+  await expect(library.getByRole('button', { name: /^Delete notebook / })).toHaveCount(2);
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await library.getByRole('button', { name: 'Delete notebook Untitled notebook' }).click();
+  await expect(library.getByRole('button', { name: 'Delete notebook Untitled notebook' })).toHaveCount(0);
+  await expect(page.getByLabel('Notebook title')).toHaveValue('My Math Notebook');
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await library.getByRole('button', { name: 'Delete notebook My Math Notebook' }).click();
+  await expect(page.getByLabel('Notebook title')).toHaveValue('Untitled notebook');
+  await expect(library.getByRole('button', { name: 'Delete notebook Untitled notebook' })).toHaveCount(1);
+});
+
 test('page remains viewport-safe at laptop and narrow widths', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 659 });
   await page.goto('/');

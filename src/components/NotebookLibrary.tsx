@@ -7,6 +7,7 @@ export function NotebookLibrary() {
   const currentId = useNotebookStore((state) => state.notebook?.id);
   const openNotebook = useNotebookStore((state) => state.openNotebook);
   const createNewNotebook = useNotebookStore((state) => state.createNewNotebook);
+  const deleteNotebook = useNotebookStore((state) => state.deleteNotebook);
   if (!open) return null;
 
   return (
@@ -27,18 +28,27 @@ export function NotebookLibrary() {
         </div>
         <div className="library-list">
           {library.map((item) => (
-            <button
-              type="button"
+            <div
               className={item.id === currentId ? 'is-current' : ''}
               key={item.id}
-              onClick={() => void openNotebook(item.id)}
             >
-              <strong>{item.title}</strong>
-              <span>{item.pageCount} {item.pageCount === 1 ? 'page' : 'pages'}</span>
-              <time dateTime={item.updatedAt}>
-                {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.updatedAt))}
-              </time>
-            </button>
+              <button type="button" className="library-open-notebook" onClick={() => void openNotebook(item.id)}>
+                <strong>{item.title}</strong>
+                <span>{item.pageCount} {item.pageCount === 1 ? 'page' : 'pages'}</span>
+                <time dateTime={item.updatedAt}>
+                  {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.updatedAt))}
+                </time>
+              </button>
+              <button
+                type="button"
+                className="library-delete-notebook"
+                aria-label={`Delete notebook ${item.title}`}
+                onClick={() => {
+                  if (!window.confirm(`Delete notebook “${item.title}”? Its locally stored pages will be removed from this browser.`)) return;
+                  void deleteNotebook(item.id);
+                }}
+              >Delete</button>
+            </div>
           ))}
         </div>
         <button type="button" className="primary-button new-notebook" onClick={() => void createNewNotebook()}>
@@ -48,4 +58,3 @@ export function NotebookLibrary() {
     </div>
   );
 }
-
