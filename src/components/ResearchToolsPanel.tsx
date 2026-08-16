@@ -207,6 +207,14 @@ function slugifyResearchFilename(value: string): string {
 }
 
 const GRAPH_COLORS = ['#9a482c', '#3777a5', '#6b8e4e', '#8e5aa4', '#d18425', '#258f87'];
+const LOG_LOG_STROKE_COLORS: Record<string, string> = {
+  '#9a482c': '#71351f',
+  '#3777a5': '#245a82',
+  '#6b8e4e': '#486a32',
+  '#8e5aa4': '#653d78',
+  '#d18425': '#995a10',
+  '#258f87': '#146860',
+};
 
 function isResearchCalculationLatex(latex: string): boolean {
   return /\\(?:int|iint|iiint|oint|sum|prod|lim|det|frac\s*\{(?:d|\\partial))|\\begin\{(?:matrix|bmatrix|pmatrix|vmatrix|Vmatrix)\}/.test(latex);
@@ -1076,9 +1084,11 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
             const logValue = decade + Math.log10(multiplier);
             if (logValue < minimum || logValue > maximum) continue;
             const pixel = vertical ? height / 2 - (logValue - viewport.centerY) * viewport.scale : width / 2 + (logValue - viewport.centerX) * viewport.scale;
-            context.strokeStyle = multiplier === 1 ? '#c5cdd1' : '#e8edef'; context.lineWidth = multiplier === 1 ? 1.3 : .7;
+            const unitAxis = multiplier === 1 && decade === 0;
+            context.strokeStyle = unitAxis ? '#596267' : multiplier === 1 ? '#aeb8bc' : '#e5eaec';
+            context.lineWidth = unitAxis ? 2 : multiplier === 1 ? 1.5 : .65;
             context.beginPath(); if (vertical) { context.moveTo(0, pixel); context.lineTo(width, pixel); } else { context.moveTo(pixel, 0); context.lineTo(pixel, height); } context.stroke();
-            if (multiplier === 1) { context.fillStyle = '#777168'; context.font = '9px ui-monospace, monospace'; context.fillText(`10^${decade}`, vertical ? 5 : pixel + 3, vertical ? pixel - 4 : height - 8); }
+            if (multiplier === 1) { context.fillStyle = '#4d565b'; context.font = 'bold 10px ui-monospace, monospace'; context.fillText(`10^${decade}`, vertical ? 5 : pixel + 3, vertical ? pixel - 5 : height - 10); }
           }
         }
       };
@@ -1098,7 +1108,7 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
       if (cancelled) return;
       evaluatorsRef.current = compiled.map((entry) => ({ ...entry, evaluate: (values) => entry.evaluate({ ...parameters, ...values }) }));
       for (const entry of evaluatorsRef.current) {
-        context.strokeStyle = entry.color; context.lineWidth = 2.65; context.lineJoin = 'round'; context.beginPath(); let drawing = false;
+        context.strokeStyle = LOG_LOG_STROKE_COLORS[entry.color.toLowerCase()] ?? entry.color; context.lineWidth = 3.25; context.lineCap = 'round'; context.lineJoin = 'round'; context.beginPath(); let drawing = false;
         for (let pixel = 0; pixel <= width; pixel += 2) {
           const x = 10 ** (logLeft + pixel / viewport.scale); const y = entry.evaluate({ x }); const py = y > 0 ? screenY(y) : Number.NaN;
           if (!Number.isFinite(py) || py < -height * 3 || py > height * 4) drawing = false;

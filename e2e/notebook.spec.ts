@@ -495,6 +495,15 @@ test('research exports PDFs, splits signed integral shading, and marks 2D/log-lo
   await research.getByLabel('Zoom log-log graph in').evaluate((element: HTMLButtonElement) => { element.click(); element.click(); element.click(); });
   await expect.poll(() => logCanvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(223);
   await expect.poll(() => logCanvas.evaluate((element: HTMLCanvasElement) => element.toDataURL().length)).toBeGreaterThan(10_000);
+  await expect.poll(() => logCanvas.evaluate((element: HTMLCanvasElement) => {
+    const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
+    let strongCurvePixels = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index]; const green = pixels[index + 1]; const blue = pixels[index + 2];
+      if ((red > 80 && red < 145 && green < 80 && blue < 70) || (blue > red + 20 && blue > green + 10 && blue < 155)) strongCurvePixels += 1;
+    }
+    return strongCurvePixels;
+  })).toBeGreaterThan(30);
   await research.getByRole('button', { name: 'Guide', exact: true }).click();
   await expect(research.getByLabel('Log-Log Graph guide complete supported features')).toContainText('base-10 logarithmic');
 });
