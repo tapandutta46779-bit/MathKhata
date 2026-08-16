@@ -378,6 +378,27 @@ interface ResearchViewport {
   scale: number;
 }
 
+const SCIENTIFIC_VIEW_MIN_SCALE = .001;
+const SCIENTIFIC_VIEW_MAX_SCALE = 100_000_000;
+const SCIENTIFIC_OVERVIEW_HALF_RANGE = 100_000;
+const SCIENTIFIC_DETAIL_STEP = .00001;
+
+function clampScientificScale(scale: number) {
+  return Math.max(SCIENTIFIC_VIEW_MIN_SCALE, Math.min(SCIENTIFIC_VIEW_MAX_SCALE, scale));
+}
+
+function scientificOverviewScale(width: number, height: number) {
+  return clampScientificScale(Math.min(width, height) / (SCIENTIFIC_OVERVIEW_HALF_RANGE * 2));
+}
+
+function formatGraphNumber(value: number) {
+  if (!Number.isFinite(value)) return '—';
+  if (Math.abs(value) < Number.EPSILON) return '0';
+  const absolute = Math.abs(value);
+  if (absolute <= 1e-4 || absolute >= 1e5) return value.toExponential(3).replace('e+', 'e');
+  return Number(value.toPrecision(6)).toString();
+}
+
 function useSmoothViewportZoom(
   viewport: ResearchViewport,
   setViewport: Dispatch<SetStateAction<ResearchViewport>>,
@@ -496,7 +517,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   const evaluatorsRef = useRef<Array<{ id: number; color: string; evaluate: (values: Record<string, number>) => number }>>([]);
   const intersectionCandidatesRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
   const compiledCacheRef = useRef<{ key: string; expressions: Compiled2DGraphExpression[]; issues: string[] } | null>(null);
-  const { animateScale, cancelAnimation } = useSmoothViewportZoom(viewport, setViewport, 12, 300);
+  const { animateScale, cancelAnimation } = useSmoothViewportZoom(viewport, setViewport, SCIENTIFIC_VIEW_MIN_SCALE, SCIENTIFIC_VIEW_MAX_SCALE);
 
   useEffect(() => {
     if (!settingsOpen) return undefined;
@@ -580,7 +601,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           context.beginPath(); context.moveTo(px, 0); context.lineTo(px, height); context.stroke();
           if (settings.showNumbers && settings.showAxes && !axis) {
             context.fillStyle = '#565c60';
-            context.fillText(Number(x.toPrecision(5)).toString(), px, Math.min(height - 14, Math.max(3, screenY(0) + 4)));
+            context.fillText(formatGraphNumber(x), px, Math.min(height - 14, Math.max(3, screenY(0) + 4)));
           }
         }
         context.textAlign = 'left';
@@ -593,7 +614,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           context.beginPath(); context.moveTo(0, py); context.lineTo(width, py); context.stroke();
           if (settings.showNumbers && settings.showAxes && !axis) {
             context.fillStyle = '#565c60';
-            context.fillText(Number(y.toPrecision(5)).toString(), Math.min(width - 35, Math.max(4, screenX(0) + 5)), py);
+            context.fillText(formatGraphNumber(y), Math.min(width - 48, Math.max(4, screenX(0) + 5)), py);
           }
         }
         if (settings.showAxes) {
@@ -848,7 +869,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
     setViewport({
       centerX: (settings.xMin + settings.xMax) / 2,
       centerY: (settings.yMin + settings.yMax) / 2,
-      scale: Math.max(12, Math.min(300, Math.min(900 / xRange, 500 / yRange))),
+      scale: clampScientificScale(Math.min(canvasSize.width / xRange, canvasSize.height / yRange)),
     });
   };
 
@@ -935,11 +956,15 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
               <label>Grid<select aria-label="2D grid type" value={settings.gridMode} onChange={(event) => setSettings((current) => ({ ...current, gridMode: event.target.value as Graph2DSettings['gridMode'] }))}><option value="cartesian">Cartesian</option><option value="polar">Polar</option></select></label>
               <div className="graph-axis-settings"><strong>x axis</strong><label>min<input type="number" value={settings.xMin} onChange={(event) => setSettings((current) => ({ ...current, xMin: Number(event.target.value) }))} /></label><label>max<input type="number" value={settings.xMax} onChange={(event) => setSettings((current) => ({ ...current, xMax: Number(event.target.value) }))} /></label><label>step<input type="number" min="0" step="0.1" value={settings.xStep} onChange={(event) => setSettings((current) => ({ ...current, xStep: Number(event.target.value) }))} /></label><label>label<input value={settings.xLabel} onChange={(event) => setSettings((current) => ({ ...current, xLabel: event.target.value }))} /></label></div>
               <div className="graph-axis-settings"><strong>y axis</strong><label>min<input type="number" value={settings.yMin} onChange={(event) => setSettings((current) => ({ ...current, yMin: Number(event.target.value) }))} /></label><label>max<input type="number" value={settings.yMax} onChange={(event) => setSettings((current) => ({ ...current, yMax: Number(event.target.value) }))} /></label><label>step<input type="number" min="0" step="0.1" value={settings.yStep} onChange={(event) => setSettings((current) => ({ ...current, yStep: Number(event.target.value) }))} /></label><label>label<input value={settings.yLabel} onChange={(event) => setSettings((current) => ({ ...current, yLabel: event.target.value }))} /></label></div>
+              <div className="graph-scale-presets" aria-label="Scientific zoom presets">
+                <button type="button" disabled={settings.lockViewport} onClick={() => { cancelAnimation(); setViewport({ centerX: 0, centerY: 0, scale: scientificOverviewScale(canvasSize.width, canvasSize.height) }); }}>Show ±10⁵ range</button>
+                <button type="button" disabled={settings.lockViewport} onClick={() => { cancelAnimation(); setViewport((current) => ({ ...current, scale: clampScientificScale(64 / SCIENTIFIC_DETAIL_STEP) })); }}>Show 10⁻⁵ detail</button>
+              </div>
               <button type="button" className="research-primary" onClick={applyAxisBounds}>Apply bounds</button>
             </section>}
           </div>
-          <button type="button" aria-label="Zoom in" disabled={settings.lockViewport} onClick={() => animateScale(1.18)}>+</button>
-          <button type="button" aria-label="Zoom out" disabled={settings.lockViewport} onClick={() => animateScale(1 / 1.18)}>−</button>
+          <button type="button" aria-label="Zoom in" disabled={settings.lockViewport} onClick={() => animateScale(2)}>+</button>
+          <button type="button" aria-label="Zoom out" disabled={settings.lockViewport} onClick={() => animateScale(.5)}>−</button>
           <button type="button" aria-label="Reset graph view" onClick={() => { cancelAnimation(); setViewport({ centerX: 0, centerY: 0, scale: 52 }); }}>⌂</button>
         </div>
         <canvas
@@ -1001,7 +1026,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
             setViewport((view) => {
               const worldX = view.centerX + (px - canvas.width / 2) / view.scale;
               const worldY = view.centerY - (py - canvas.height / 2) / view.scale;
-              const scale = Math.max(12, Math.min(300, view.scale * Math.exp(-event.deltaY * .0015)));
+              const scale = clampScientificScale(view.scale * Math.exp(-event.deltaY * .0015));
               return {
                 centerX: worldX - (px - canvas.width / 2) / scale,
                 centerY: worldY + (py - canvas.height / 2) / scale,
@@ -1010,7 +1035,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
             });
           }}
         />
-        {(hoverIntersection || trace) && <output className="graph-trace" style={{ '--graph-color': (hoverIntersection ?? trace)!.color } as React.CSSProperties}>{hoverIntersection ? <>Intersection: x = {hoverIntersection.x.toFixed(5)} · y = {hoverIntersection.y.toFixed(5)} · click to mark</> : <>x = {trace!.x.toFixed(4)} · y = {trace!.y.toFixed(4)}</>}</output>}
+        {(hoverIntersection || trace) && <output className="graph-trace" style={{ '--graph-color': (hoverIntersection ?? trace)!.color } as React.CSSProperties}>{hoverIntersection ? <>Intersection: x = {formatGraphNumber(hoverIntersection.x)} · y = {formatGraphNumber(hoverIntersection.y)} · click to mark</> : <>x = {formatGraphNumber(trace!.x)} · y = {formatGraphNumber(trace!.y)}</>}</output>}
         {error && <p className="research-tool-error graph-error">{error}</p>}
       </div>
     </section>
@@ -1019,7 +1044,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
 
 function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
   const [expressions, setExpressions] = usePersistentResearchState<GraphExpression[]>(`${storagePrefix}:loglog:expressions`, []);
-  const [viewport, setViewport] = usePersistentResearchState(`${storagePrefix}:loglog:viewport`, { centerX: .5, centerY: .5, scale: 92 });
+  const [viewport, setViewport] = usePersistentResearchState(`${storagePrefix}:loglog:viewport`, { centerX: 0, centerY: 0, scale: 28 });
   const [markers, setMarkers] = usePersistentResearchState<GraphIntersectionMarker[]>(`${storagePrefix}:loglog:intersection-markers`, []);
   const [hover, setHover] = useState<GraphIntersectionMarker | null>(null);
   const [trace, setTrace] = useState<{ x: number; y: number; color: string } | null>(null);
@@ -1029,7 +1054,7 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
   const dragRef = useRef<{ x: number; y: number; centerX: number; centerY: number } | null>(null);
   const evaluatorsRef = useRef<Array<{ id: number; color: string; evaluate: (values: Record<string, number>) => number }>>([]);
   const crossingsRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
-  const { animateScale, cancelAnimation } = useSmoothViewportZoom(viewport, setViewport, 28, 360);
+  const { animateScale, cancelAnimation } = useSmoothViewportZoom(viewport, setViewport, 2, SCIENTIFIC_VIEW_MAX_SCALE);
 
   useEffect(() => {
     let cancelled = false;
@@ -1110,12 +1135,12 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
       {markers.length > 0 && <section className="research-marker-list" aria-label="Saved log-log intersections"><header><strong>Marked intersections</strong><span>{markers.length}</span></header><ul>{markers.map((marker) => <li key={marker.id}><span>({Number(marker.x.toPrecision(6))}, {Number(marker.y.toPrecision(6))})</span><button type="button" aria-label={`Delete log-log intersection ${marker.id}`} onClick={() => setMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
       <p>Both axes require positive values. Try <b>y=x^2</b>, <b>y=3x^.5</b>, and <b>a=2</b>.</p>
     </aside>
-    <div className="graph-stage"><div className="graph-controls" aria-label="Log-log graph view controls"><button type="button" aria-label="Zoom log-log graph in" onClick={() => animateScale(1.18)}>+</button><button type="button" aria-label="Zoom log-log graph out" onClick={() => animateScale(1 / 1.18)}>−</button><button type="button" aria-label="Reset log-log graph" onClick={() => { cancelAnimation(); setViewport({ centerX: .5, centerY: .5, scale: 92 }); }}>⌂</button></div>
+    <div className="graph-stage"><div className="graph-controls" aria-label="Log-log graph view controls"><button type="button" aria-label="Zoom log-log graph in" onClick={() => animateScale(2)}>+</button><button type="button" aria-label="Zoom log-log graph out" onClick={() => animateScale(.5)}>−</button><button type="button" aria-label="Reset log-log graph to 10^-5 through 10^5" onClick={() => { cancelAnimation(); setViewport({ centerX: 0, centerY: 0, scale: 28 }); }}>⌂</button></div>
       <canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} aria-label="Interactive log-log graph" data-viewport-scale={viewport.scale}
         onPointerDown={(event) => { cancelAnimation(); const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const x = (event.clientX - bounds.left) * canvas.width / bounds.width; const y = (event.clientY - bounds.top) * canvas.height / bounds.height; const crossing = crossingsRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - x, candidate.screenY - y) })).sort((a, b) => a.distance - b.distance)[0]; if (crossing && crossing.distance <= 15) { const marker: GraphIntersectionMarker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, color: crossing.candidate.color, label: crossing.candidate.label }; setMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); return; } event.currentTarget.setPointerCapture(event.pointerId); dragRef.current = { x: event.clientX, y: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY }; }}
         onPointerMove={(event) => { const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const pixelX = (event.clientX - bounds.left) * canvas.width / bounds.width; const pixelY = (event.clientY - bounds.top) * canvas.height / bounds.height; if (dragRef.current) { const drag = dragRef.current; setViewport((view) => ({ ...view, centerX: drag.centerX - (event.clientX - drag.x) * canvas.width / bounds.width / view.scale, centerY: drag.centerY + (event.clientY - drag.y) * canvas.height / bounds.height / view.scale })); setHover(null); setTrace(null); return; } const crossing = crossingsRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0]; if (crossing && crossing.distance <= 15) { setHover(crossing.candidate); setTrace(null); return; } setHover(null); const x = 10 ** (viewport.centerX + (pixelX - canvas.width / 2) / viewport.scale); const mouseLogY = viewport.centerY - (pixelY - canvas.height / 2) / viewport.scale; const candidates = evaluatorsRef.current.map((entry) => ({ x, y: entry.evaluate({ x }), color: entry.color })).filter((point) => point.y > 0).sort((a, b) => Math.abs(Math.log10(a.y) - mouseLogY) - Math.abs(Math.log10(b.y) - mouseLogY)); setTrace(candidates[0] ?? null); }}
         onPointerUp={(event) => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { dragRef.current = null; }} onPointerLeave={() => { if (!dragRef.current) { setHover(null); setTrace(null); } }}
-        onWheel={(event) => { event.preventDefault(); cancelAnimation(); const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const px = (event.clientX - bounds.left) * canvas.width / bounds.width; const py = (event.clientY - bounds.top) * canvas.height / bounds.height; setViewport((view) => { const anchorX = view.centerX + (px - canvas.width / 2) / view.scale; const anchorY = view.centerY - (py - canvas.height / 2) / view.scale; const scale = Math.max(28, Math.min(360, view.scale * Math.exp(-event.deltaY * .0015))); return { centerX: anchorX - (px - canvas.width / 2) / scale, centerY: anchorY + (py - canvas.height / 2) / scale, scale }; }); }} />
+        onWheel={(event) => { event.preventDefault(); cancelAnimation(); const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const px = (event.clientX - bounds.left) * canvas.width / bounds.width; const py = (event.clientY - bounds.top) * canvas.height / bounds.height; setViewport((view) => { const anchorX = view.centerX + (px - canvas.width / 2) / view.scale; const anchorY = view.centerY - (py - canvas.height / 2) / view.scale; const scale = Math.max(2, Math.min(SCIENTIFIC_VIEW_MAX_SCALE, view.scale * Math.exp(-event.deltaY * .0015))); return { centerX: anchorX - (px - canvas.width / 2) / scale, centerY: anchorY + (py - canvas.height / 2) / scale, scale }; }); }} />
       {(hover || trace) && <output className="graph-trace" style={{ '--graph-color': (hover ?? trace)!.color } as React.CSSProperties}>{hover ? <>Intersection: x = {hover.x.toPrecision(6)} · y = {hover.y.toPrecision(6)} · click to mark</> : <>x = {trace!.x.toPrecision(6)} · y = {trace!.y.toPrecision(6)}</>}</output>}{error && <p className="research-tool-error graph-error">{error}</p>}
     </div>
   </section>;
@@ -1881,8 +1906,8 @@ const GEOMETRY_TOOLS: Array<{ id: GeometryTool; label: string; symbol: string }>
   { id: 'delete', label: 'Delete object or point', symbol: '⌫' },
 ];
 
-const GEOMETRY_MIN_SCALE = .02;
-const GEOMETRY_MAX_SCALE = 200_000;
+const GEOMETRY_MIN_SCALE = SCIENTIFIC_VIEW_MIN_SCALE;
+const GEOMETRY_MAX_SCALE = SCIENTIFIC_VIEW_MAX_SCALE;
 
 function clampGeometryScale(scale: number) {
   return Math.max(GEOMETRY_MIN_SCALE, Math.min(GEOMETRY_MAX_SCALE, scale));
@@ -1923,6 +1948,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     anchorWorldY: number;
   } | null>(null);
   const geometryIntersectionCandidatesRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
+  const { animateScale: animateGeometryScale, cancelAnimation: cancelGeometryZoom } = useSmoothViewportZoom(viewport, setViewport, GEOMETRY_MIN_SCALE, GEOMETRY_MAX_SCALE);
   const dragRef = useRef<
     | { kind: 'point'; pointId: number }
     | { kind: 'object'; objectId: number; startWorld: { x: number; y: number }; points: Array<{ id: number; x: number; y: number }> }
@@ -2020,7 +2046,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = '#fffefa';
+    context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     const screenX = (x: number) => canvas.width / 2 + (x - viewport.centerX) * viewport.scale;
     const screenY = (y: number) => canvas.height / 2 - (y - viewport.centerY) * viewport.scale;
@@ -2032,7 +2058,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     if (showGrid && showMinorGrid) {
       const minor = step / 5;
       if (minor * viewport.scale >= 7) {
-        context.strokeStyle = '#f0ede6'; context.lineWidth = .65;
+        context.strokeStyle = '#e7ebed'; context.lineWidth = .8;
         for (let x = Math.ceil(worldLeft / minor) * minor; x <= worldRight; x += minor) {
           if (Math.abs(x / step - Math.round(x / step)) < 1e-7) continue;
           const px = screenX(x); context.beginPath(); context.moveTo(px, 0); context.lineTo(px, canvas.height); context.stroke();
@@ -2050,10 +2076,10 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       const px = screenX(x);
       const axis = Math.abs(x) < step / 100;
       if (!showGrid && !(showAxes && axis)) continue;
-      context.strokeStyle = axis ? '#8a857b' : '#dedad1';
-      context.lineWidth = axis ? 1.5 : 1;
+      context.strokeStyle = axis ? '#555d62' : '#c8ced1';
+      context.lineWidth = axis ? 2 : 1.15;
       context.beginPath(); context.moveTo(px, 0); context.lineTo(px, canvas.height); context.stroke();
-      if (showAxes && !axis) { context.fillStyle = '#8a857b'; context.fillText(Number(x.toPrecision(4)).toString(), px, Math.max(3, Math.min(canvas.height - 15, screenY(0) + 4))); }
+      if (showAxes && !axis) { context.fillStyle = '#4f575b'; context.fillText(formatGraphNumber(x), px, Math.max(3, Math.min(canvas.height - 15, screenY(0) + 4))); }
     }
     context.textAlign = 'left';
     context.textBaseline = 'middle';
@@ -2061,10 +2087,10 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       const py = screenY(y);
       const axis = Math.abs(y) < step / 100;
       if (!showGrid && !(showAxes && axis)) continue;
-      context.strokeStyle = axis ? '#8a857b' : '#dedad1';
-      context.lineWidth = axis ? 1.5 : 1;
+      context.strokeStyle = axis ? '#555d62' : '#c8ced1';
+      context.lineWidth = axis ? 2 : 1.15;
       context.beginPath(); context.moveTo(0, py); context.lineTo(canvas.width, py); context.stroke();
-      if (showAxes && !axis) { context.fillStyle = '#8a857b'; context.fillText(Number(y.toPrecision(4)).toString(), Math.max(4, Math.min(canvas.width - 35, screenX(0) + 5)), py); }
+      if (showAxes && !axis) { context.fillStyle = '#4f575b'; context.fillText(formatGraphNumber(y), Math.max(4, Math.min(canvas.width - 48, screenX(0) + 5)), py); }
     }
     const pointsById = new Map(points.map((point) => [point.id, point]));
     const getPoint = (id: number) => pointsById.get(id);
@@ -2092,7 +2118,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       const selected = selectedObjectIds.includes(object.id);
       context.strokeStyle = selected ? '#c05c32' : (object.color ?? '#9a482c');
       context.fillStyle = selected ? 'rgba(192,92,50,.13)' : 'rgba(154,72,44,.09)';
-      context.lineWidth = selected ? 3 : 2;
+      context.lineWidth = selected ? 3.6 : 2.5;
       context.setLineDash([]);
       if (object.type === 'segment' || object.type === 'vector' || object.type === 'line' || object.type === 'ray') {
         const first = getPoint(object.points[0]);
@@ -2111,21 +2137,21 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           const ux = dx / length; const uy = dy / length;
           context.beginPath(); context.moveTo(bx, by); context.lineTo(bx - ux * 12 - uy * 6, by - uy * 12 + ux * 6); context.moveTo(bx, by); context.lineTo(bx - ux * 12 + uy * 6, by - uy * 12 - ux * 6); context.stroke();
         }
-        if (object.type === 'segment' || object.type === 'vector') drawMeasurement(geometryDistance(first, last).toFixed(2), (ax + bx) / 2, (ay + by) / 2 - 11);
+        if (object.type === 'segment' || object.type === 'vector') drawMeasurement(formatGraphNumber(geometryDistance(first, last)), (ax + bx) / 2, (ay + by) / 2 - 11);
       } else if (object.type === 'circle') {
         const center = getPoint(object.points[0]);
         const edge = getPoint(object.points[1]);
         if (!center || !edge) continue;
         const radius = geometryDistance(center, edge);
         context.beginPath(); context.arc(screenX(center.x), screenY(center.y), radius * viewport.scale, 0, Math.PI * 2); context.fill(); context.stroke();
-        drawMeasurement(`r = ${radius.toFixed(2)}`, screenX(center.x), screenY(center.y) - radius * viewport.scale - 12);
+        drawMeasurement(`r = ${formatGraphNumber(radius)}`, screenX(center.x), screenY(center.y) - radius * viewport.scale - 12);
       } else if (object.type === 'polygon') {
         const resolved = pathTo(object.points, true);
         context.fill(); context.stroke();
         if (resolved.length) {
           const centerX = resolved.reduce((sum, point) => sum + screenX(point.x), 0) / resolved.length;
           const centerY = resolved.reduce((sum, point) => sum + screenY(point.y), 0) / resolved.length;
-          drawMeasurement(`A ${polygonArea(resolved).toFixed(2)} · P ${polygonPerimeter(resolved).toFixed(2)}`, centerX, centerY);
+          drawMeasurement(`A ${formatGraphNumber(polygonArea(resolved))} · P ${formatGraphNumber(polygonPerimeter(resolved))}`, centerX, centerY);
         }
       } else {
         const first = getPoint(object.points[0]); const vertex = getPoint(object.points[1]); const last = getPoint(object.points[2]!);
@@ -2189,8 +2215,8 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       geometryIntersectionCandidatesRef.current = candidates;
       for (const marker of geometryIntersectionMarkers) {
         const x = screenX(marker.x); const y = screenY(marker.y);
-        context.fillStyle = marker.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2; context.beginPath(); context.arc(x, y, 5.5, 0, Math.PI * 2); context.fill(); context.stroke();
-        drawMeasurement(`(${marker.x.toFixed(3)}, ${marker.y.toFixed(3)})`, x, y + 15);
+        context.fillStyle = marker.color; context.strokeStyle = '#ffffff'; context.lineWidth = 2; context.beginPath(); context.arc(x, y, 5.5, 0, Math.PI * 2); context.fill(); context.stroke();
+        drawMeasurement(`(${formatGraphNumber(marker.x)}, ${formatGraphNumber(marker.y)})`, x, y + 15);
       }
       if (hoverGeometryIntersection) {
         context.save(); context.strokeStyle = '#3f315c'; context.lineWidth = 2; context.setLineDash([3, 2]); context.beginPath(); context.arc(screenX(hoverGeometryIntersection.x), screenY(hoverGeometryIntersection.y), 8, 0, Math.PI * 2); context.stroke(); context.restore();
@@ -2210,7 +2236,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       const pending = pendingPointIds.includes(point.id);
       context.fillStyle = pending ? '#c05c32' : '#3777a5';
       context.beginPath(); context.arc(screenX(point.x), screenY(point.y), pending ? 6 : 5, 0, Math.PI * 2); context.fill();
-      context.strokeStyle = '#fffefa'; context.lineWidth = 2; context.stroke();
+      context.strokeStyle = '#ffffff'; context.lineWidth = 2; context.stroke();
       context.fillStyle = '#292821'; context.font = 'bold 11px ui-monospace, monospace'; context.textAlign = 'left'; context.textBaseline = 'bottom';
       context.fillText(point.label, screenX(point.x) + 7, screenY(point.y) - 6);
     });
@@ -2277,15 +2303,15 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     const labels = object.points.map((id) => pointById(id)?.label ?? '?').join('');
     if (object.type === 'segment' || object.type === 'vector') {
       const first = pointById(object.points[0]); const last = pointById(object.points[1]);
-      return `${object.type === 'vector' ? 'Vector' : 'Segment'} ${labels}${first && last ? ` · ${geometryDistance(first, last).toFixed(2)}` : ''}`;
+      return `${object.type === 'vector' ? 'Vector' : 'Segment'} ${labels}${first && last ? ` · ${formatGraphNumber(geometryDistance(first, last))}` : ''}`;
     }
     if (object.type === 'circle') {
       const center = pointById(object.points[0]); const edge = pointById(object.points[1]);
-      return `Circle ${labels}${center && edge ? ` · r ${geometryDistance(center, edge).toFixed(2)}` : ''}`;
+      return `Circle ${labels}${center && edge ? ` · r ${formatGraphNumber(geometryDistance(center, edge))}` : ''}`;
     }
     if (object.type === 'polygon') {
       const vertices = object.points.map(pointById).filter((point): point is GeometryPoint => Boolean(point));
-      return `Polygon ${labels} · area ${polygonArea(vertices).toFixed(2)}`;
+      return `Polygon ${labels} · area ${formatGraphNumber(polygonArea(vertices))}`;
     }
     if (object.type === 'angle') {
       const [first, vertex, last] = object.points.map(pointById);
@@ -2469,8 +2495,8 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           </div>
           {selectedCircle && selectedCircleCenter && selectedCircleEdge && <div className="geometry-circle-editor" aria-label="Selected circle radius controls">
             <strong>Circle center and radius</strong>
-            <div><label>center x<input type="number" step="0.25" aria-label="Selected circle center x" disabled={Boolean(selectedCircleCenter.constraint)} value={Number(selectedCircleCenter.x.toFixed(4))} onChange={(event) => setPoints((current) => current.map((point) => point.id === selectedCircleCenter.id ? { ...point, x: Number(event.target.value) } : point))} /></label><label>center y<input type="number" step="0.25" aria-label="Selected circle center y" disabled={Boolean(selectedCircleCenter.constraint)} value={Number(selectedCircleCenter.y.toFixed(4))} onChange={(event) => setPoints((current) => current.map((point) => point.id === selectedCircleCenter.id ? { ...point, y: Number(event.target.value) } : point))} /></label></div>
-            <label>radius<input type="number" min="0.001" step="0.1" aria-label="Selected circle radius" disabled={radiusComesFromCompass} value={Number(selectedCircleRadius.toFixed(4))} onChange={(event) => updateSelectedCircleRadius(Number(event.target.value))} /></label>
+            <div><label>center x<input type="number" step="any" aria-label="Selected circle center x" disabled={Boolean(selectedCircleCenter.constraint)} value={selectedCircleCenter.x} onChange={(event) => setPoints((current) => current.map((point) => point.id === selectedCircleCenter.id ? { ...point, x: Number(event.target.value) } : point))} /></label><label>center y<input type="number" step="any" aria-label="Selected circle center y" disabled={Boolean(selectedCircleCenter.constraint)} value={selectedCircleCenter.y} onChange={(event) => setPoints((current) => current.map((point) => point.id === selectedCircleCenter.id ? { ...point, y: Number(event.target.value) } : point))} /></label></div>
+            <label>radius<input type="number" min="0.000000001" step="any" aria-label="Selected circle radius" disabled={radiusComesFromCompass} value={selectedCircleRadius} onChange={(event) => updateSelectedCircleRadius(Number(event.target.value))} /></label>
             <input type="range" min="0.1" max={Math.max(10, selectedCircleRadius * 2)} step="0.1" aria-label="Selected circle radius slider" disabled={radiusComesFromCompass} value={selectedCircleRadius} onChange={(event) => updateSelectedCircleRadius(Number(event.target.value))} />
             {radiusComesFromCompass && <small>This radius follows the source segment. Edit that segment to preserve the compass constraint.</small>}
           </div>}
@@ -2488,9 +2514,9 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
         </section>}
         <div className="geometry-point-list" aria-label="Editable geometry points">
           <strong>Points</strong>
-          {points.map((point) => <div key={point.id} title={point.constraint ? `Constrained: ${point.constraint.type}` : 'Free point'}><b>{point.label}{point.constraint ? '◇' : ''}</b><label>x <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} x coordinate`} value={Number(point.x.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, x: Number(event.target.value) } : entry))} /></label><label>y <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} y coordinate`} value={Number(point.y.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, y: Number(event.target.value) } : entry))} /></label></div>)}
+          {points.map((point) => <div key={point.id} title={point.constraint ? `Constrained: ${point.constraint.type}` : 'Free point'}><b>{point.label}{point.constraint ? '◇' : ''}</b><label>x <input type="number" step="any" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} x coordinate`} value={point.x} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, x: Number(event.target.value) } : entry))} /></label><label>y <input type="number" step="any" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} y coordinate`} value={point.y} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, y: Number(event.target.value) } : entry))} /></label></div>)}
         </div>
-        {geometryIntersectionMarkers.length > 0 && <section className="research-marker-list" aria-label="Saved geometry intersections"><header><strong>Marked intersections</strong><span>{geometryIntersectionMarkers.length}</span></header><ul>{geometryIntersectionMarkers.map((marker) => <li key={marker.id}><span>({marker.x.toFixed(4)}, {marker.y.toFixed(4)})</span><button type="button" aria-label={`Delete geometry intersection ${marker.id}`} onClick={() => setGeometryIntersectionMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
+        {geometryIntersectionMarkers.length > 0 && <section className="research-marker-list" aria-label="Saved geometry intersections"><header><strong>Marked intersections</strong><span>{geometryIntersectionMarkers.length}</span></header><ul>{geometryIntersectionMarkers.map((marker) => <li key={marker.id}><span>({formatGraphNumber(marker.x)}, {formatGraphNumber(marker.y)})</span><button type="button" aria-label={`Delete geometry intersection ${marker.id}`} onClick={() => setGeometryIntersectionMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
         <details className="geometry-settings-panel">
           <summary>Graph paper settings</summary>
           <div className="geometry-options">
@@ -2527,8 +2553,10 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           }}><span>{entry.symbol}</span><span>{entry.label.replace(/ and .*/, '').replace(/Construct /, '').replace(/Add /, '')}</span></button>)}
         </div>
         <div className="graph-controls" aria-label="Geometry view controls">
-          <button type="button" aria-label="Zoom geometry in" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: clampGeometryScale(view.scale * 1.4) }))}>+</button>
-          <button type="button" aria-label="Zoom geometry out" disabled={lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: clampGeometryScale(view.scale / 1.4) }))}>−</button>
+          <button type="button" aria-label="Zoom geometry in" disabled={lockViewport} onClick={() => animateGeometryScale(2)}>+</button>
+          <button type="button" aria-label="Zoom geometry out" disabled={lockViewport} onClick={() => animateGeometryScale(.5)}>−</button>
+          <button type="button" className="geometry-view-action" aria-label="Show geometry plus or minus 10^5 range" disabled={lockViewport} onClick={() => { cancelGeometryZoom(); setViewport({ centerX: 0, centerY: 0, scale: scientificOverviewScale(canvasSize.width, canvasSize.height) }); }}>±10⁵</button>
+          <button type="button" className="geometry-view-action" aria-label="Show geometry 10^-5 detail" disabled={lockViewport} onClick={() => { cancelGeometryZoom(); setViewport((current) => ({ ...current, scale: clampGeometryScale(64 / SCIENTIFIC_DETAIL_STEP) })); }}>10⁻⁵</button>
           <button type="button" className="geometry-view-action" aria-label="Fit all geometry objects" onClick={fitGeometryObjects}>Fit</button>
           <button type="button" className="geometry-view-action" aria-label="Reset geometry view" onClick={() => { setViewport({ centerX: 0, centerY: 0, scale: 42 }); setInteractionNotice('View reset to the origin without changing the construction.'); }}>Reset</button>
         </div>
@@ -2538,6 +2566,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           height={canvasSize.height}
           aria-label="Interactive geometry canvas"
           data-tool={tool}
+          data-viewport-scale={viewport.scale}
           onPointerDown={(event) => {
             const canvas = event.currentTarget;
             const bounds = canvas.getBoundingClientRect();
@@ -2570,7 +2599,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             const crossing = geometryIntersectionCandidatesRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0];
             if (showIntersections && crossing && crossing.distance <= 15) {
               const marker: GraphIntersectionMarker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, color: crossing.candidate.color, label: crossing.candidate.label };
-              setGeometryIntersectionMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); setHoverGeometryIntersection(marker); setInteractionNotice(`Marked intersection (${marker.x.toFixed(3)}, ${marker.y.toFixed(3)}).`); return;
+              setGeometryIntersectionMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); setHoverGeometryIntersection(marker); setInteractionNotice(`Marked intersection (${formatGraphNumber(marker.x)}, ${formatGraphNumber(marker.y)}).`); return;
             }
             const snapStep = Math.max(Number.EPSILON, gridStep(viewport.scale) / 4);
             const snapped = snap ? { x: Math.round(world.x / snapStep) * snapStep, y: Math.round(world.y / snapStep) * snapStep } : world;
@@ -2779,7 +2808,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             });
           }}
         />
-        {hoverPoint && <output className="geometry-coordinates">{hoverGeometryIntersection ? 'Intersection · click to mark · ' : ''}x = {hoverPoint.x.toFixed(3)} · y = {hoverPoint.y.toFixed(3)}</output>}
+        {hoverPoint && <output className="geometry-coordinates">{hoverGeometryIntersection ? 'Intersection · click to mark · ' : ''}x = {formatGraphNumber(hoverPoint.x)} · y = {formatGraphNumber(hoverPoint.y)}</output>}
         <output className="geometry-interaction-notice" aria-live="polite">{interactionNotice}</output>
       </div>
     </section>

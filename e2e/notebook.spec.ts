@@ -354,7 +354,14 @@ test('voice, research tools, and floating calculator remain available', async ({
   await expect(research.getByLabel('3D Surface guide complete supported features')).toContainText('triple numerical integral');
 
   await research.getByRole('button', { name: 'Geometry', exact: true }).click();
-  await expect(research.getByLabel('Interactive geometry canvas')).toBeVisible();
+  const geometryCanvas = research.getByLabel('Interactive geometry canvas');
+  await expect(geometryCanvas).toBeVisible();
+  await expect(geometryCanvas).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await research.getByLabel('Show geometry plus or minus 10^5 range').click();
+  await expect.poll(() => geometryCanvas.getAttribute('data-viewport-scale').then(Number)).toBeLessThanOrEqual(.005);
+  await research.getByLabel('Show geometry 10^-5 detail').click();
+  await expect.poll(() => geometryCanvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(6_399_999);
+  await research.getByLabel('Reset geometry view').click();
   await research.getByLabel('Geometry construction expression').fill('circle((0,0),3)');
   await research.getByLabel('Geometry construction expression').press('Enter');
   await expect(research.getByLabel('Geometry objects', { exact: true })).toContainText('Circle');
@@ -433,9 +440,16 @@ test('research exports PDFs, splits signed integral shading, and marks 2D/log-lo
   await expect(canvas).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await research.getByLabel('Reset graph view').click();
   await research.getByLabel('Zoom in').evaluate((element: HTMLButtonElement) => { element.click(); element.click(); element.click(); });
-  await expect.poll(() => canvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(84);
+  await expect.poll(() => canvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(415);
   await research.getByLabel('Zoom out').evaluate((element: HTMLButtonElement) => { element.click(); element.click(); element.click(); });
   await expect.poll(() => canvas.getAttribute('data-viewport-scale').then((value) => Math.abs(Number(value) - 52))).toBeLessThan(.1);
+  await research.getByLabel('2D graph settings').click();
+  await research.getByRole('button', { name: 'Show ±10⁵ range' }).click();
+  await expect.poll(() => canvas.getAttribute('data-viewport-scale').then(Number)).toBeLessThanOrEqual(.005);
+  await research.getByRole('button', { name: 'Show 10⁻⁵ detail' }).click();
+  await expect.poll(() => canvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(6_399_999);
+  await research.getByLabel('Close 2D graph settings').click();
+  await research.getByLabel('Reset graph view').click();
   await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
     const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
     let positive = 0; let negative = 0;
@@ -476,8 +490,10 @@ test('research exports PDFs, splits signed integral shading, and marks 2D/log-lo
   await research.getByLabel('Log-log expression 2', { exact: true }).fill('y=x^2');
   const logCanvas = research.getByLabel('Interactive log-log graph');
   await expect(logCanvas).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await research.getByLabel('Reset log-log graph to 10^-5 through 10^5').click();
+  await expect.poll(() => logCanvas.getAttribute('data-viewport-scale').then(Number)).toBe(28);
   await research.getByLabel('Zoom log-log graph in').evaluate((element: HTMLButtonElement) => { element.click(); element.click(); element.click(); });
-  await expect.poll(() => logCanvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(145);
+  await expect.poll(() => logCanvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(223);
   await expect.poll(() => logCanvas.evaluate((element: HTMLCanvasElement) => element.toDataURL().length)).toBeGreaterThan(10_000);
   await research.getByRole('button', { name: 'Guide', exact: true }).click();
   await expect(research.getByLabel('Log-Log Graph guide complete supported features')).toContainText('base-10 logarithmic');
