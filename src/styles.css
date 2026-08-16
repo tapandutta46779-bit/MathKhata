@@ -804,12 +804,15 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .graph-slider input { width: 100%; accent-color: var(--accent); }
 .graph-stage { position: relative; min-width: 0; min-height: 350px; overflow: hidden; border: 0; border-radius: 0; background: #fffefa; }
 .graph-stage canvas { display: block; width: 100%; height: 100%; min-height: 350px; background: #fffefa; cursor: crosshair; touch-action: none; }
+.research-graph-lab--2d .graph-stage, .research-graph-lab--2d .graph-stage canvas,
+.research-graph-lab--loglog .graph-stage, .research-graph-lab--loglog .graph-stage canvas { background: #fff; }
 .research-graph-lab--3d .graph-stage canvas { cursor: grab; }
 .research-graph-lab--3d .graph-stage canvas:active { cursor: grabbing; }
 .graph-controls { position: absolute; z-index: 6; top: 10px; right: 10px; display: grid; gap: 2px; padding: 3px; border: 1px solid rgba(55,51,42,.15); border-radius: 8px; background: rgba(255,254,250,.94); box-shadow: 0 4px 15px rgba(49,44,36,.13); }
 .graph-controls button { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 6px; color: #4f4a42; background: transparent; font-size: 16px; }
 .graph-controls > button { justify-self: end; }
-.graph-controls button:hover { color: #713c2a; background: #eee9df; }
+.graph-controls button:hover { color: #713c2a; background: #e8edf0; }
+.graph-controls button:active { color: #fff; background: #84503d; transform: scale(.92); }
 .graph-controls button:disabled { opacity: .38; }
 .graph-settings-anchor { position: relative; display: grid; }
 .graph-settings-anchor > button { width: auto; min-width: 54px; padding-inline: 7px; font-size: 8px; font-weight: 750; }

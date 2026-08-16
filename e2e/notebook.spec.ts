@@ -417,15 +417,25 @@ test('research exports PDFs, splits signed integral shading, and marks 2D/log-lo
   await page.goto('/');
   await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
   const research = page.getByTestId('research-tools-panel');
+  page.once('dialog', (dialog) => dialog.accept());
+  await research.getByRole('button', { name: 'Reset data', exact: true }).click();
   await research.getByRole('button', { name: '+ Add expression' }).click();
   await research.getByLabel('Expression 1', { exact: true }).fill('y=x');
   await research.getByRole('button', { name: '+ Add expression' }).click();
   await research.getByLabel('Expression 2', { exact: true }).fill('y=-x');
+  await expect.poll(() => research.getByLabel('Expression 1', { exact: true }).evaluate((element: any) => element.value)).toBe('y=x');
+  await expect.poll(() => research.getByLabel('Expression 2', { exact: true }).evaluate((element: any) => element.value)).toBe('y=-x');
   await research.getByLabel('Graph calculus function').selectOption('1');
   await research.getByLabel('Lower a').fill('-1');
   await research.getByLabel('Upper b').fill('1');
   await research.getByRole('button', { name: 'Measure definite integral' }).click();
   const canvas = research.getByLabel('Interactive 2D graph');
+  await expect(canvas).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await research.getByLabel('Reset graph view').click();
+  await research.getByLabel('Zoom in').evaluate((element: HTMLButtonElement) => { element.click(); element.click(); element.click(); });
+  await expect.poll(() => canvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(84);
+  await research.getByLabel('Zoom out').evaluate((element: HTMLButtonElement) => { element.click(); element.click(); element.click(); });
+  await expect.poll(() => canvas.getAttribute('data-viewport-scale').then((value) => Math.abs(Number(value) - 52))).toBeLessThan(.1);
   await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
     const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
     let positive = 0; let negative = 0;
@@ -465,6 +475,9 @@ test('research exports PDFs, splits signed integral shading, and marks 2D/log-lo
   await research.getByRole('button', { name: '+ Add expression' }).click();
   await research.getByLabel('Log-log expression 2', { exact: true }).fill('y=x^2');
   const logCanvas = research.getByLabel('Interactive log-log graph');
+  await expect(logCanvas).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await research.getByLabel('Zoom log-log graph in').evaluate((element: HTMLButtonElement) => { element.click(); element.click(); element.click(); });
+  await expect.poll(() => logCanvas.getAttribute('data-viewport-scale').then(Number)).toBeGreaterThan(145);
   await expect.poll(() => logCanvas.evaluate((element: HTMLCanvasElement) => element.toDataURL().length)).toBeGreaterThan(10_000);
   await research.getByRole('button', { name: 'Guide', exact: true }).click();
   await expect(research.getByLabel('Log-Log Graph guide complete supported features')).toContainText('base-10 logarithmic');

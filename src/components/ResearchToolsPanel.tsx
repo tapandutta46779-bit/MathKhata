@@ -372,6 +372,58 @@ function useResponsiveCanvasSize(ref: React.RefObject<HTMLCanvasElement | null>)
   return size;
 }
 
+interface ResearchViewport {
+  centerX: number;
+  centerY: number;
+  scale: number;
+}
+
+function useSmoothViewportZoom(
+  viewport: ResearchViewport,
+  setViewport: Dispatch<SetStateAction<ResearchViewport>>,
+  minimumScale: number,
+  maximumScale: number,
+) {
+  const viewportRef = useRef(viewport);
+  const targetScaleRef = useRef(viewport.scale);
+  const animationRef = useRef<number | null>(null);
+  viewportRef.current = viewport;
+
+  const cancelAnimation = useCallback(() => {
+    if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
+    animationRef.current = null;
+    targetScaleRef.current = viewportRef.current.scale;
+  }, []);
+
+  const animateScale = useCallback((factor: number) => {
+    targetScaleRef.current = Math.max(minimumScale, Math.min(maximumScale, targetScaleRef.current * factor));
+    if (animationRef.current !== null) return;
+    const step = () => {
+      const currentScale = viewportRef.current.scale;
+      const targetScale = targetScaleRef.current;
+      const remaining = targetScale - currentScale;
+      const nextScale = Math.abs(remaining) < .08 ? targetScale : currentScale + remaining * .34;
+      setViewport((current) => {
+        const next = { ...current, scale: nextScale };
+        viewportRef.current = next;
+        return next;
+      });
+      if (nextScale === targetScale) {
+        animationRef.current = null;
+        return;
+      }
+      animationRef.current = requestAnimationFrame(step);
+    };
+    animationRef.current = requestAnimationFrame(step);
+  }, [maximumScale, minimumScale, setViewport]);
+
+  useEffect(() => () => {
+    if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
+  }, []);
+
+  return { animateScale, cancelAnimation };
+}
+
 interface GraphExpression {
   id: number;
   expression: string;
@@ -403,6 +455,13 @@ interface GraphIntersectionMarker {
   color: string;
   label: string;
 }
+
+type Compiled2DGraphExpression =
+  | { id: number; kind: 'y'; color: string; evaluate: (values: Record<string, number>) => number }
+  | { id: number; kind: 'x'; color: string; evaluate: (values: Record<string, number>) => number }
+  | { id: number; kind: 'implicit'; color: string; evaluate: (values: Record<string, number>) => number }
+  | { id: number; kind: 'point'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number }
+  | { id: number; kind: 'parametric'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number };
 
 function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   const [expressions, setExpressions] = usePersistentResearchState<GraphExpression[]>(`${storagePrefix}:2d:expressions`, []);
@@ -436,6 +495,8 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   const dragRef = useRef<{ pointerX: number; pointerY: number; centerX: number; centerY: number } | null>(null);
   const evaluatorsRef = useRef<Array<{ id: number; color: string; evaluate: (values: Record<string, number>) => number }>>([]);
   const intersectionCandidatesRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
+  const compiledCacheRef = useRef<{ key: string; expressions: Compiled2DGraphExpression[]; issues: string[] } | null>(null);
+  const { animateScale, cancelAnimation } = useSmoothViewportZoom(viewport, setViewport, 12, 300);
 
   useEffect(() => {
     if (!settingsOpen) return undefined;
@@ -467,7 +528,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
       if (!context) return;
       const width = canvas.width;
       const height = canvas.height;
-      context.fillStyle = '#fffefa';
+      context.fillStyle = '#ffffff';
       context.fillRect(0, 0, width, height);
       try {
         const step = gridStep(viewport.scale);
@@ -484,14 +545,14 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           const minorX = xStep / 5;
           const minorY = yStep / 5;
           if (minorX * viewport.scale >= 7) {
-            context.strokeStyle = '#f0ede6'; context.lineWidth = .65;
+            context.strokeStyle = '#e9edef'; context.lineWidth = .7;
             for (let x = Math.ceil(worldLeft / minorX) * minorX; x <= worldRight; x += minorX) {
               if (Math.abs(x / xStep - Math.round(x / xStep)) < 1e-7) continue;
               const px = screenX(x); context.beginPath(); context.moveTo(px, 0); context.lineTo(px, height); context.stroke();
             }
           }
           if (minorY * viewport.scale >= 7) {
-            context.strokeStyle = '#f0ede6'; context.lineWidth = .65;
+            context.strokeStyle = '#e9edef'; context.lineWidth = .7;
             for (let y = Math.ceil(worldBottom / minorY) * minorY; y <= worldTop; y += minorY) {
               if (Math.abs(y / yStep - Math.round(y / yStep)) < 1e-7) continue;
               const py = screenY(y); context.beginPath(); context.moveTo(0, py); context.lineTo(width, py); context.stroke();
@@ -501,7 +562,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         if (settings.showGrid && settings.gridMode === 'polar') {
           const originX = screenX(0); const originY = screenY(0);
           const maxRadius = Math.hypot(Math.max(Math.abs(worldLeft), Math.abs(worldRight)), Math.max(Math.abs(worldBottom), Math.abs(worldTop)));
-          context.strokeStyle = '#e4e0d7'; context.lineWidth = 1;
+          context.strokeStyle = '#d6dcdf'; context.lineWidth = 1;
           for (let radius = xStep; radius <= maxRadius; radius += xStep) { context.beginPath(); context.arc(originX, originY, radius * viewport.scale, 0, Math.PI * 2); context.stroke(); }
           for (let angle = 0; angle < Math.PI; angle += Math.PI / 12) {
             const reach = maxRadius * viewport.scale;
@@ -514,11 +575,11 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         for (let x = Math.ceil(worldLeft / xStep) * xStep; x <= worldRight; x += xStep) {
           const px = screenX(x); const axis = Math.abs(x) < xStep / 100;
           if (!settings.showGrid && !(settings.showAxes && axis)) continue;
-          context.strokeStyle = axis ? '#77736b' : '#d9d5cc';
-          context.lineWidth = axis ? 1.6 : 1;
+          context.strokeStyle = axis ? '#5d6266' : '#cbd2d6';
+          context.lineWidth = axis ? 1.8 : 1.05;
           context.beginPath(); context.moveTo(px, 0); context.lineTo(px, height); context.stroke();
           if (settings.showNumbers && settings.showAxes && !axis) {
-            context.fillStyle = '#77736b';
+            context.fillStyle = '#565c60';
             context.fillText(Number(x.toPrecision(5)).toString(), px, Math.min(height - 14, Math.max(3, screenY(0) + 4)));
           }
         }
@@ -527,16 +588,16 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         for (let y = Math.ceil(worldBottom / yStep) * yStep; y <= worldTop; y += yStep) {
           const py = screenY(y); const axis = Math.abs(y) < yStep / 100;
           if (!settings.showGrid && !(settings.showAxes && axis)) continue;
-          context.strokeStyle = axis ? '#77736b' : '#d9d5cc';
-          context.lineWidth = axis ? 1.6 : 1;
+          context.strokeStyle = axis ? '#5d6266' : '#cbd2d6';
+          context.lineWidth = axis ? 1.8 : 1.05;
           context.beginPath(); context.moveTo(0, py); context.lineTo(width, py); context.stroke();
           if (settings.showNumbers && settings.showAxes && !axis) {
-            context.fillStyle = '#77736b';
+            context.fillStyle = '#565c60';
             context.fillText(Number(y.toPrecision(5)).toString(), Math.min(width - 35, Math.max(4, screenX(0) + 5)), py);
           }
         }
         if (settings.showAxes) {
-          context.fillStyle = '#4f4b44'; context.font = 'bold 11px ui-monospace, monospace';
+          context.fillStyle = '#41474b'; context.font = 'bold 11px ui-monospace, monospace';
           context.textAlign = 'right'; context.textBaseline = 'top'; context.fillText(settings.xLabel || 'x', width - 8, Math.max(4, Math.min(height - 16, screenY(0) + 5)));
           context.textAlign = 'left'; context.textBaseline = 'top'; context.fillText(settings.yLabel || 'y', Math.max(5, Math.min(width - 18, screenX(0) + 6)), 6);
         }
@@ -547,15 +608,12 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           const parameter = entry.expression.trim().match(/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/);
           if (parameter && !['x', 'y'].includes(parameter[1])) parameterValues[parameter[1]] = Number(parameter[2]);
         });
-        type Compiled2D =
-          | { id: number; kind: 'y'; color: string; evaluate: (values: Record<string, number>) => number }
-          | { id: number; kind: 'x'; color: string; evaluate: (values: Record<string, number>) => number }
-          | { id: number; kind: 'implicit'; color: string; evaluate: (values: Record<string, number>) => number }
-          | { id: number; kind: 'point'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number }
-          | { id: number; kind: 'parametric'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number };
         const issues: string[] = [];
         const allowedSymbols = [...Object.keys(parameterValues), 'x', 'y', 't'];
-        const compiled = (await Promise.all(active.map(async (entry, index): Promise<Compiled2D | null> => {
+        const cacheKey = JSON.stringify(active.map((entry) => [entry.id, entry.expression, entry.color]));
+        let compiled = compiledCacheRef.current?.key === cacheKey ? compiledCacheRef.current.expressions : null;
+        if (compiledCacheRef.current?.key === cacheKey) issues.push(...compiledCacheRef.current.issues);
+        if (!compiled) compiled = (await Promise.all(active.map(async (entry, index): Promise<Compiled2DGraphExpression | null> => {
           try {
             const source = entry.expression.trim();
             if (isResearchCalculationLatex(source)) return null;
@@ -588,17 +646,18 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
             issues.push(`Line ${index + 1} is not graphable yet; other valid lines remain active.`);
             return null;
           }
-        }))).filter((entry): entry is Compiled2D => Boolean(entry));
+        }))).filter((entry): entry is Compiled2DGraphExpression => Boolean(entry));
         if (cancelled) return;
-        evaluatorsRef.current = compiled.filter((entry): entry is Extract<Compiled2D, { kind: 'y' }> => entry.kind === 'y').map((entry) => ({ id: entry.id, color: entry.color, evaluate: (values) => entry.evaluate({ ...parameterValues, ...values }) }));
+        compiledCacheRef.current = { key: cacheKey, expressions: compiled, issues: [...issues] };
+        evaluatorsRef.current = compiled.filter((entry): entry is Extract<Compiled2DGraphExpression, { kind: 'y' }> => entry.kind === 'y').map((entry) => ({ id: entry.id, color: entry.color, evaluate: (values) => entry.evaluate({ ...parameterValues, ...values }) }));
         for (const entry of compiled) {
           context.strokeStyle = entry.color;
-          context.lineWidth = 2.25;
+          context.lineWidth = 2.65;
           context.lineJoin = 'round';
           if (entry.kind === 'point') {
             const x = entry.evaluateX(parameterValues); const y = entry.evaluateY(parameterValues);
             if (Number.isFinite(x) && Number.isFinite(y)) {
-              context.fillStyle = entry.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
+              context.fillStyle = entry.color; context.strokeStyle = '#ffffff'; context.lineWidth = 2;
               context.beginPath(); context.arc(screenX(x), screenY(y), 6, 0, Math.PI * 2); context.fill(); context.stroke();
             }
             continue;
@@ -705,7 +764,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         }
         intersectionCandidatesRef.current = intersectionCandidates;
         for (const marker of intersectionMarkers) {
-          context.save(); context.fillStyle = marker.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
+          context.save(); context.fillStyle = marker.color; context.strokeStyle = '#ffffff'; context.lineWidth = 2;
           context.beginPath(); context.arc(screenX(marker.x), screenY(marker.y), 6, 0, Math.PI * 2); context.fill(); context.stroke();
           context.fillStyle = '#3f315c'; context.font = 'bold 10px ui-monospace, monospace'; context.fillText(`(${Number(marker.x.toPrecision(5))}, ${Number(marker.y.toPrecision(5))})`, screenX(marker.x) + 8, screenY(marker.y) - 8); context.restore();
         }
@@ -794,7 +853,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   };
 
   return (
-    <section className="research-graph-lab">
+    <section className="research-graph-lab research-graph-lab--2d">
       <aside className="graph-expression-list" aria-label="2D graph expressions">
         <header><strong>Expressions</strong><span>{expressions.length}/12</span></header>
         {expressions.map((entry, index) => {
@@ -879,16 +938,18 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
               <button type="button" className="research-primary" onClick={applyAxisBounds}>Apply bounds</button>
             </section>}
           </div>
-          <button type="button" aria-label="Zoom in" disabled={settings.lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.min(300, view.scale * 1.25) }))}>+</button>
-          <button type="button" aria-label="Zoom out" disabled={settings.lockViewport} onClick={() => setViewport((view) => ({ ...view, scale: Math.max(12, view.scale / 1.25) }))}>−</button>
-          <button type="button" aria-label="Reset graph view" onClick={() => setViewport({ centerX: 0, centerY: 0, scale: 52 })}>⌂</button>
+          <button type="button" aria-label="Zoom in" disabled={settings.lockViewport} onClick={() => animateScale(1.18)}>+</button>
+          <button type="button" aria-label="Zoom out" disabled={settings.lockViewport} onClick={() => animateScale(1 / 1.18)}>−</button>
+          <button type="button" aria-label="Reset graph view" onClick={() => { cancelAnimation(); setViewport({ centerX: 0, centerY: 0, scale: 52 }); }}>⌂</button>
         </div>
         <canvas
           ref={canvasRef}
           width={canvasSize.width}
           height={canvasSize.height}
           aria-label="Interactive 2D graph"
+          data-viewport-scale={viewport.scale}
           onPointerDown={(event) => {
+            cancelAnimation();
             const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect();
             const pixelX = (event.clientX - bounds.left) * canvas.width / bounds.width; const pixelY = (event.clientY - bounds.top) * canvas.height / bounds.height;
             const crossing = intersectionCandidatesRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0];
@@ -932,6 +993,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           onWheel={(event) => {
             event.preventDefault();
             if (settings.lockViewport) return;
+            cancelAnimation();
             const canvas = event.currentTarget;
             const bounds = canvas.getBoundingClientRect();
             const px = (event.clientX - bounds.left) * canvas.width / bounds.width;
@@ -967,6 +1029,7 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
   const dragRef = useRef<{ x: number; y: number; centerX: number; centerY: number } | null>(null);
   const evaluatorsRef = useRef<Array<{ id: number; color: string; evaluate: (values: Record<string, number>) => number }>>([]);
   const crossingsRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
+  const { animateScale, cancelAnimation } = useSmoothViewportZoom(viewport, setViewport, 28, 360);
 
   useEffect(() => {
     let cancelled = false;
@@ -974,7 +1037,7 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
       const canvas = canvasRef.current; const context = canvas?.getContext('2d');
       if (!canvas || !context) return;
       const width = canvas.width; const height = canvas.height;
-      context.fillStyle = '#fffefa'; context.fillRect(0, 0, width, height);
+      context.fillStyle = '#ffffff'; context.fillRect(0, 0, width, height);
       const logLeft = viewport.centerX - width / (2 * viewport.scale); const logRight = viewport.centerX + width / (2 * viewport.scale);
       const logBottom = viewport.centerY - height / (2 * viewport.scale); const logTop = viewport.centerY + height / (2 * viewport.scale);
       const screenX = (x: number) => width / 2 + (Math.log10(x) - viewport.centerX) * viewport.scale;
@@ -985,7 +1048,7 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
             const logValue = decade + Math.log10(multiplier);
             if (logValue < minimum || logValue > maximum) continue;
             const pixel = vertical ? height / 2 - (logValue - viewport.centerY) * viewport.scale : width / 2 + (logValue - viewport.centerX) * viewport.scale;
-            context.strokeStyle = multiplier === 1 ? '#d0cbc1' : '#eeebe4'; context.lineWidth = multiplier === 1 ? 1.2 : .65;
+            context.strokeStyle = multiplier === 1 ? '#c5cdd1' : '#e8edef'; context.lineWidth = multiplier === 1 ? 1.3 : .7;
             context.beginPath(); if (vertical) { context.moveTo(0, pixel); context.lineTo(width, pixel); } else { context.moveTo(pixel, 0); context.lineTo(pixel, height); } context.stroke();
             if (multiplier === 1) { context.fillStyle = '#777168'; context.font = '9px ui-monospace, monospace'; context.fillText(`10^${decade}`, vertical ? 5 : pixel + 3, vertical ? pixel - 4 : height - 8); }
           }
@@ -1007,7 +1070,7 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
       if (cancelled) return;
       evaluatorsRef.current = compiled.map((entry) => ({ ...entry, evaluate: (values) => entry.evaluate({ ...parameters, ...values }) }));
       for (const entry of evaluatorsRef.current) {
-        context.strokeStyle = entry.color; context.lineWidth = 2.25; context.lineJoin = 'round'; context.beginPath(); let drawing = false;
+        context.strokeStyle = entry.color; context.lineWidth = 2.65; context.lineJoin = 'round'; context.beginPath(); let drawing = false;
         for (let pixel = 0; pixel <= width; pixel += 2) {
           const x = 10 ** (logLeft + pixel / viewport.scale); const y = entry.evaluate({ x }); const py = y > 0 ? screenY(y) : Number.NaN;
           if (!Number.isFinite(py) || py < -height * 3 || py > height * 4) drawing = false;
@@ -1047,12 +1110,12 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
       {markers.length > 0 && <section className="research-marker-list" aria-label="Saved log-log intersections"><header><strong>Marked intersections</strong><span>{markers.length}</span></header><ul>{markers.map((marker) => <li key={marker.id}><span>({Number(marker.x.toPrecision(6))}, {Number(marker.y.toPrecision(6))})</span><button type="button" aria-label={`Delete log-log intersection ${marker.id}`} onClick={() => setMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
       <p>Both axes require positive values. Try <b>y=x^2</b>, <b>y=3x^.5</b>, and <b>a=2</b>.</p>
     </aside>
-    <div className="graph-stage"><div className="graph-controls" aria-label="Log-log graph view controls"><button type="button" aria-label="Zoom log-log graph in" onClick={() => setViewport((view) => ({ ...view, scale: Math.min(360, view.scale * 1.25) }))}>+</button><button type="button" aria-label="Zoom log-log graph out" onClick={() => setViewport((view) => ({ ...view, scale: Math.max(28, view.scale / 1.25) }))}>−</button><button type="button" aria-label="Reset log-log graph" onClick={() => setViewport({ centerX: .5, centerY: .5, scale: 92 })}>⌂</button></div>
-      <canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} aria-label="Interactive log-log graph"
-        onPointerDown={(event) => { const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const x = (event.clientX - bounds.left) * canvas.width / bounds.width; const y = (event.clientY - bounds.top) * canvas.height / bounds.height; const crossing = crossingsRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - x, candidate.screenY - y) })).sort((a, b) => a.distance - b.distance)[0]; if (crossing && crossing.distance <= 15) { const marker: GraphIntersectionMarker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, color: crossing.candidate.color, label: crossing.candidate.label }; setMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); return; } event.currentTarget.setPointerCapture(event.pointerId); dragRef.current = { x: event.clientX, y: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY }; }}
+    <div className="graph-stage"><div className="graph-controls" aria-label="Log-log graph view controls"><button type="button" aria-label="Zoom log-log graph in" onClick={() => animateScale(1.18)}>+</button><button type="button" aria-label="Zoom log-log graph out" onClick={() => animateScale(1 / 1.18)}>−</button><button type="button" aria-label="Reset log-log graph" onClick={() => { cancelAnimation(); setViewport({ centerX: .5, centerY: .5, scale: 92 }); }}>⌂</button></div>
+      <canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} aria-label="Interactive log-log graph" data-viewport-scale={viewport.scale}
+        onPointerDown={(event) => { cancelAnimation(); const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const x = (event.clientX - bounds.left) * canvas.width / bounds.width; const y = (event.clientY - bounds.top) * canvas.height / bounds.height; const crossing = crossingsRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - x, candidate.screenY - y) })).sort((a, b) => a.distance - b.distance)[0]; if (crossing && crossing.distance <= 15) { const marker: GraphIntersectionMarker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, color: crossing.candidate.color, label: crossing.candidate.label }; setMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); return; } event.currentTarget.setPointerCapture(event.pointerId); dragRef.current = { x: event.clientX, y: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY }; }}
         onPointerMove={(event) => { const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const pixelX = (event.clientX - bounds.left) * canvas.width / bounds.width; const pixelY = (event.clientY - bounds.top) * canvas.height / bounds.height; if (dragRef.current) { const drag = dragRef.current; setViewport((view) => ({ ...view, centerX: drag.centerX - (event.clientX - drag.x) * canvas.width / bounds.width / view.scale, centerY: drag.centerY + (event.clientY - drag.y) * canvas.height / bounds.height / view.scale })); setHover(null); setTrace(null); return; } const crossing = crossingsRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0]; if (crossing && crossing.distance <= 15) { setHover(crossing.candidate); setTrace(null); return; } setHover(null); const x = 10 ** (viewport.centerX + (pixelX - canvas.width / 2) / viewport.scale); const mouseLogY = viewport.centerY - (pixelY - canvas.height / 2) / viewport.scale; const candidates = evaluatorsRef.current.map((entry) => ({ x, y: entry.evaluate({ x }), color: entry.color })).filter((point) => point.y > 0).sort((a, b) => Math.abs(Math.log10(a.y) - mouseLogY) - Math.abs(Math.log10(b.y) - mouseLogY)); setTrace(candidates[0] ?? null); }}
         onPointerUp={(event) => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { dragRef.current = null; }} onPointerLeave={() => { if (!dragRef.current) { setHover(null); setTrace(null); } }}
-        onWheel={(event) => { event.preventDefault(); const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const px = (event.clientX - bounds.left) * canvas.width / bounds.width; const py = (event.clientY - bounds.top) * canvas.height / bounds.height; setViewport((view) => { const anchorX = view.centerX + (px - canvas.width / 2) / view.scale; const anchorY = view.centerY - (py - canvas.height / 2) / view.scale; const scale = Math.max(28, Math.min(360, view.scale * Math.exp(-event.deltaY * .0015))); return { centerX: anchorX - (px - canvas.width / 2) / scale, centerY: anchorY + (py - canvas.height / 2) / scale, scale }; }); }} />
+        onWheel={(event) => { event.preventDefault(); cancelAnimation(); const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const px = (event.clientX - bounds.left) * canvas.width / bounds.width; const py = (event.clientY - bounds.top) * canvas.height / bounds.height; setViewport((view) => { const anchorX = view.centerX + (px - canvas.width / 2) / view.scale; const anchorY = view.centerY - (py - canvas.height / 2) / view.scale; const scale = Math.max(28, Math.min(360, view.scale * Math.exp(-event.deltaY * .0015))); return { centerX: anchorX - (px - canvas.width / 2) / scale, centerY: anchorY + (py - canvas.height / 2) / scale, scale }; }); }} />
       {(hover || trace) && <output className="graph-trace" style={{ '--graph-color': (hover ?? trace)!.color } as React.CSSProperties}>{hover ? <>Intersection: x = {hover.x.toPrecision(6)} · y = {hover.y.toPrecision(6)} · click to mark</> : <>x = {trace!.x.toPrecision(6)} · y = {trace!.y.toPrecision(6)}</>}</output>}{error && <p className="research-tool-error graph-error">{error}</p>}
     </div>
   </section>;
