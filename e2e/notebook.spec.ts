@@ -275,8 +275,19 @@ test('voice, research tools, and floating calculator remain available', async ({
   const research = page.getByTestId('research-tools-panel');
   await expect(research).toBeVisible();
   await expect(research.getByLabel('Interactive 2D graph')).toBeVisible();
+  await expect(research.getByLabel('Expression 1', { exact: true })).toHaveCount(0);
+  await research.getByRole('button', { name: '+ Add expression' }).click();
   const researchExpression = research.getByLabel('Expression 1', { exact: true });
   await researchExpression.fill('y=sin(x)');
+  const graph2d = research.getByLabel('Interactive 2D graph');
+  await expect.poll(() => graph2d.evaluate((canvas: HTMLCanvasElement) => {
+    const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let colored = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 125 && pixels[index] < 185 && pixels[index + 1] > 45 && pixels[index + 1] < 105 && pixels[index + 2] < 80) colored += 1;
+    }
+    return colored;
+  })).toBeGreaterThan(40);
   await researchExpression.click();
   await research.getByRole('button', { name: 'Ω Symbols' }).click();
   const researchPalette = page.getByTestId('math-palette');
@@ -285,7 +296,10 @@ test('voice, research tools, and floating calculator remain available', async ({
   await researchPalette.getByRole('button', { name: 'Insert Integral' }).click();
   await expect.poll(() => researchExpression.evaluate((element: any) => element.value)).toContain('\\int');
   await researchPalette.getByRole('button', { name: 'Close symbol palette' }).click();
-  await researchExpression.fill('y=sin(x)');
+  await researchExpression.evaluate((element: any) => {
+    element.value = String.raw`y=\sin(x)`;
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
+  });
   const researchInsert = research.getByRole('button', { name: '☰ Insert structures' });
   await researchInsert.click();
   await expect(page.getByRole('menu')).toBeVisible();
@@ -297,23 +311,62 @@ test('voice, research tools, and floating calculator remain available', async ({
   );
   await expect(page.getByRole('menu')).toBeHidden();
   await research.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await research.getByLabel('Graph calculus function').selectOption('1');
+  await research.getByRole('button', { name: 'Measure definite integral' }).click();
+  await expect(research.getByLabel('Graph calculus measurements')).toContainText('Integral');
+
+  await research.getByRole('button', { name: '+ Add expression' }).click();
+  const integralExpression = research.getByLabel('Expression 2', { exact: true });
+  await integralExpression.evaluate((element: any) => {
+    element.value = String.raw`\int_{0}^{1}x\,dx`;
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
+  });
+  await expect.poll(() => research.getByLabel('Research expression result').evaluate((element: any) => element.value)).toBe(String.raw`\frac{1}{2}`);
+  await expect.poll(() => graph2d.evaluate((canvas: HTMLCanvasElement) => {
+    const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let colored = 0;
+    for (let index = 0; index < pixels.length; index += 4) if (pixels[index] > 125 && pixels[index] < 185 && pixels[index + 1] > 45 && pixels[index + 1] < 105 && pixels[index + 2] < 80) colored += 1;
+    return colored;
+  })).toBeGreaterThan(40);
+
+  await research.getByRole('button', { name: 'Guide', exact: true }).click();
+  await expect(research.getByLabel('2D Graph guide complete supported features')).toContainText('Measure from graph');
 
   await research.getByRole('button', { name: '3D Surface', exact: true }).click();
   await expect(research.getByLabel('Interactive 3D graph')).toBeVisible();
-  await research.getByLabel('3D surface expression 1').fill('sin(x)+cos(y)');
+  await expect(research.getByLabel('3D surface expression 1')).toHaveCount(0);
+  const blank3D = await research.getByLabel('Interactive 3D graph').evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+  await research.getByRole('button', { name: '+ Add surface' }).click();
+  await research.getByRole('button', { name: '+ Add slider' }).click();
+  await research.getByLabel('3D surface expression 1').evaluate((element: any) => {
+    element.value = String.raw`\sin(x)\cos(y)e^{a x}`;
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
+  });
+  await expect.poll(() => research.getByLabel('Interactive 3D graph').evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())).not.toBe(blank3D);
+  await expect(research.getByText(/Surface 1: check/)).toHaveCount(0);
   await research.getByRole('button', { name: 'Zoom 3D view in' }).click();
+  await research.getByLabel('Double or triple integral integrand').fill('x*y');
+  await research.getByRole('button', { name: 'Calculate numerical double integral' }).click();
+  await expect(research.getByLabel('2D and 3D numerical integration')).toContainText('0.25');
+  await research.getByRole('button', { name: 'Guide', exact: true }).click();
+  await expect(research.getByLabel('3D Surface guide complete supported features')).toContainText('triple numerical integral');
 
   await research.getByRole('button', { name: 'Geometry', exact: true }).click();
   await expect(research.getByLabel('Interactive geometry canvas')).toBeVisible();
   await research.getByLabel('Geometry construction expression').fill('circle((0,0),3)');
   await research.getByLabel('Geometry construction expression').press('Enter');
   await expect(research.getByLabel('Geometry objects', { exact: true })).toContainText('Circle');
+  await research.getByRole('button', { name: 'Guide', exact: true }).click();
+  await expect(research.getByLabel('2D Geometry guide complete supported features')).toContainText('Perpendicular');
 
   await research.getByRole('button', { name: '3D Geometry', exact: true }).click();
   await expect(research.getByLabel('Interactive 3D geometry canvas')).toBeVisible();
   await research.getByLabel('3D geometry construction expression').fill('point(1,2,3)');
   await research.getByLabel('3D geometry construction expression').press('Enter');
   await expect(research.getByText('Point created.')).toBeVisible();
+  await research.getByRole('button', { name: 'Guide', exact: true }).click();
+  await expect(research.getByLabel('3D Geometry guide complete supported features')).toContainText('sphere(A,r)');
+  await research.getByRole('button', { name: '3D Geometry', exact: true }).click();
   await research.getByRole('button', { name: 'Copy to notebook' }).click();
   await expect(research.getByRole('dialog', { name: 'Copy research to notebook' })).toBeVisible();
   await research.getByRole('button', { name: 'Copy and open page' }).click();
@@ -331,6 +384,28 @@ test('voice, research tools, and floating calculator remain available', async ({
   await calculator.getByLabel('Calculator expression').fill('6*4');
   await calculator.getByLabel('Calculator expression').press('Enter');
   await expect(calculator).toContainText('24');
+});
+
+test('new research workspaces and Reset all contain no sample equations', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
+  const research = page.getByTestId('research-tools-panel');
+  await expect(research.getByLabel('Expression 1', { exact: true })).toHaveCount(0);
+  await research.getByRole('button', { name: '+ Add expression' }).click();
+  await research.getByLabel('Expression 1', { exact: true }).fill('y=x^2');
+  await research.getByRole('button', { name: '3D Surface', exact: true }).click();
+  await expect(research.getByLabel('3D surface expression 1')).toHaveCount(0);
+  await research.getByRole('button', { name: '+ Add surface' }).click();
+  await research.getByLabel('3D surface expression 1').fill('x*y');
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await research.getByRole('button', { name: 'Reset all', exact: true }).click();
+  await expect(research).toContainText('All research sections reset.');
+  await expect(research.getByLabel('3D surface expression 1')).toHaveCount(0);
+  await research.getByRole('button', { name: '2D Graph', exact: true }).click();
+  await expect(research.getByLabel('Expression 1', { exact: true })).toHaveCount(0);
+  await research.getByRole('button', { name: 'Scientific', exact: true }).click();
+  await expect.poll(() => research.getByLabel('Scientific expression').evaluate((element: any) => element.value)).toBe('');
 });
 
 test('page selection manages favorites, highlights, printing, deletion, and undo without reordering', async ({ page }) => {

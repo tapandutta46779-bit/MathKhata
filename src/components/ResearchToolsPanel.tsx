@@ -29,6 +29,12 @@ import {
   rotateCoordinate,
   translateCoordinate,
 } from '../research/geometry';
+import {
+  createNumericEvaluator,
+  evaluateResearchLatex,
+  separateGraphRestrictions,
+  simpsonIntegral,
+} from '../research/expressionEvaluator';
 
 export type ResearchTool = ResearchToolKind;
 
@@ -40,26 +46,64 @@ const TABS: Array<{ id: ResearchTool; label: string }> = [
   { id: 'scientific', label: 'Scientific' },
 ];
 
-async function numericEvaluator(expression: string) {
-  const { default: nerdamer } = await import('nerdamer-prime');
-  nerdamer.set('SILENCE_WARNINGS', true);
-  const source = expression.includes('\\')
-    ? nerdamer.convertFromLaTeX(expression).toString()
-    : expression;
-  const parsed = nerdamer(source);
-  return (substitutions: Record<string, number>) => {
-    const value = Number(parsed.evaluate(substitutions).text('decimals'));
-    return Number.isFinite(value) ? value : Number.NaN;
-  };
+const RESEARCH_GUIDES: Record<ResearchTool, { title: string; sections: Array<{ heading: string; items: string[] }> }> = {
+  '2d': {
+    title: '2D Graph guide',
+    sections: [
+      { heading: 'Plot', items: ['Functions: y=sin(x), y=x^2+1, or just sin(x)', 'Vertical lines: x=2', 'Implicit relations: (x-2)^2+(y+1)^2=9', 'Points and parametric curves: (1,3) or (cos(t),sin(t))', 'One-letter sliders: a=2, then y=a sin(x)', 'Restrictions: y=x^2 {x>0}'] },
+      { heading: 'Calculate', items: ['Insert a definite integral, derivative, finite sum/product, or determinant as its own expression line for a checked result.', 'Measure from graph selects a plotted y-function, shades a definite integral, or draws the numerical tangent at x.', 'An unsupported calculation never disables other valid graph lines.'] },
+      { heading: 'Navigate', items: ['Drag blank graph paper to pan.', 'Wheel or +/− zooms around the pointer.', 'Move over a curve to inspect x and y; Settings controls axes, grid, labels, and bounds.'] },
+    ],
+  },
+  '3d': {
+    title: '3D Surface guide',
+    sections: [
+      { heading: 'Plot', items: ['Explicit surface: add a surface, then enter sin(x) cos(y) or e^(a x).', 'Implicit surface: add F(x,y,z)=0, then enter x^2+y^2+z^2-9.', 'Add points, parametric curves, parametric surfaces, and sliders from the expression rail.', 'Use one-letter multiplication explicitly when helpful: a x or a*x.'] },
+      { heading: 'Calculate', items: ['Measure integral evaluates a double or triple numerical integral over rectangular bounds.', 'For a surface z=f(x,y), a double integral gives signed volume over the chosen x-y rectangle.', 'Expression-line calculus results remain independent from rendering errors.'] },
+      { heading: 'Navigate', items: ['Drag to orbit; Shift-drag pans; wheel or +/− zooms.', 'Settings includes axes, cube, projection, mesh resolution, bounds, and camera presets.', 'Hover samples to inspect x, y, and z.'] },
+    ],
+  },
+  geometry: {
+    title: '2D Geometry guide',
+    sections: [
+      { heading: 'Construct', items: ['Choose Move, Point, Segment, Line, Ray, Vector, Circle, Polygon, Perpendicular, or Delete.', 'The command field accepts circle((0,0),3) and other supported construction commands.', 'Drag free points and radius handles; constrained points clearly remain constrained.'] },
+      { heading: 'Measure and transform', items: ['Toggle measurements and intersections in Settings.', 'Select objects to style, label, translate, rotate, reflect, or dilate where available.', 'Escape returns to Move so reopening Geometry is non-destructive.'] },
+      { heading: 'Navigate', items: ['Move mode drags blank space to pan.', 'Wheel/pinch or +/− performs pointer-anchored continuous zoom.', 'Fit objects and Reset view do not delete constructions.'] },
+    ],
+  },
+  geometry3d: {
+    title: '3D Geometry guide',
+    sections: [
+      { heading: 'Construct', items: ['Commands: point(x,y,z), segment(A,B), vector(A,B), triangle(A,B,C), sphere(A,r), and midpoint(A,B).', 'Create points first; their labels are then available to segments, vectors, triangles, spheres, and transforms.', 'Select an object to change visibility, label, color, or delete it.'] },
+      { heading: 'Measure and transform', items: ['Distance, vector magnitude, triangle angles, and triangle area are shown for supported selections.', 'Translate, rotate, reflect, and dilate-copy use explicit numeric parameters.', 'Move a selected point on screen or constrain dragging to the x, y, or z axis.'] },
+      { heading: 'Navigate', items: ['Drag blank space to orbit; Shift-drag pans; wheel or +/− zooms.', 'Perspective, Top, Front, and Side camera presets are available.', 'Reset view preserves constructions; Reset data clears this section with Restore/Undo.'] },
+    ],
+  },
+  scientific: {
+    title: 'Scientific guide',
+    sections: [
+      { heading: 'Enter mathematics', items: ['Use the Math keyboard, Insert structures, Symbols, or the scientific keypad.', 'Fractions, roots, powers, trigonometry, logarithms, constants, matrices, and ans are structured MathLive notation.', 'Choose radians or degrees before evaluating trigonometric expressions.'] },
+      { heading: 'Results', items: ['Calculate returns exact and decimal local CAS results where supported.', 'History is stored in the notebook and ans uses the previous exact result.', 'Unsupported or incomplete input is reported without inventing a value.'] },
+    ],
+  },
+};
+
+function ResearchGuide({ tool }: { tool: ResearchTool }) {
+  const guide = RESEARCH_GUIDES[tool];
+  return <section className="research-guide" aria-label={`${guide.title} complete supported features`}>
+    <header><div><strong>{guide.title}</strong><span>Complete guide to currently supported features</span></div><kbd>Esc</kbd></header>
+    <div>{guide.sections.map((section) => <article key={section.heading}><h3>{section.heading}</h3><ul>{section.items.map((item) => <li key={item}>{item}</li>)}</ul></article>)}</div>
+    <p>Start with <b>+ Add expression/object</b>. New and reset research sections intentionally contain no sample equations.</p>
+  </section>;
 }
 
-async function numericEvaluatorWithRestrictions(expression: string) {
-  const restrictions: string[] = [];
-  const baseExpression = expression.replace(/\{([^{}]+)\}/g, (_match, restriction: string) => {
-    restrictions.push(restriction.trim());
-    return '';
-  }).trim();
-  const evaluate = await numericEvaluator(baseExpression);
+async function numericEvaluator(expression: string, allowedSymbols: readonly string[] = []) {
+  return createNumericEvaluator(expression, allowedSymbols);
+}
+
+async function numericEvaluatorWithRestrictions(expression: string, allowedSymbols: readonly string[] = []) {
+  const { base: baseExpression, restrictions } = separateGraphRestrictions(expression);
+  const evaluate = await numericEvaluator(baseExpression, allowedSymbols);
   const compileComparison = async (source: string) => {
     const chained = source.match(/^(.+?)(<=|>=|<|>)(.+?)(<=|>=|<|>)(.+)$/);
     const pairs = chained
@@ -69,11 +113,11 @@ async function numericEvaluatorWithRestrictions(expression: string) {
         return match ? [[match[1], match[2], match[3]]] : [];
       })();
     if (!pairs.length) {
-      const condition = await numericEvaluator(source);
+      const condition = await numericEvaluator(source, allowedSymbols);
       return (values: Record<string, number>) => Boolean(condition(values));
     }
     const evaluators = await Promise.all(pairs.map(async ([left, operator, right]) => ({
-      left: await numericEvaluator(left.trim()), operator, right: await numericEvaluator(right.trim()),
+      left: await numericEvaluator(left.trim(), allowedSymbols), operator, right: await numericEvaluator(right.trim(), allowedSymbols),
     })));
     return (values: Record<string, number>) => evaluators.every((entry) => {
       const left = entry.left(values); const right = entry.right(values);
@@ -117,6 +161,10 @@ function captureResearchPreview(panel: HTMLElement | null): string | null {
 }
 
 const GRAPH_COLORS = ['#9a482c', '#3777a5', '#6b8e4e', '#8e5aa4', '#d18425', '#258f87'];
+
+function isResearchCalculationLatex(latex: string): boolean {
+  return /\\(?:int|iint|iiint|oint|sum|prod|lim|det|frac\s*\{(?:d|\\partial))|\\begin\{(?:matrix|bmatrix|pmatrix|vmatrix|Vmatrix)\}/.test(latex);
+}
 
 function usePersistentResearchState<T>(key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] {
   const objectMatch = key.match(/^mathkhata:research-object:([^:]+):(.+)$/);
@@ -234,28 +282,21 @@ function ResearchMathField({
 }
 
 function ResearchExpressionResult({ latex }: { latex: string }) {
-  const [result, setResult] = useState<{ latex: string; verified: boolean; message?: string } | null>(null);
+  const [result, setResult] = useState<{ latex: string; verified: boolean; message?: string; method?: string; decimal?: string } | null>(null);
   const isCalculation = /\\(?:int|iint|iiint|oint|sum|prod|lim|det|frac\s*\{d)|\\begin\{(?:matrix|bmatrix|pmatrix|vmatrix|Vmatrix)\}/.test(latex);
   useEffect(() => {
     let active = true;
     if (!isCalculation || !latex.trim()) { setResult(null); return () => { active = false; }; }
-    void import('nerdamer-prime').then(({ default: nerdamer }) => {
-      try {
-        const source = nerdamer.convertFromLaTeX(latex).toString();
-        const answer = nerdamer(source);
-        const exact = answer.toString();
-        if (!active) return;
-        if (!exact || exact === source) setResult({ latex: '', verified: false, message: 'Complete notation recognized, but this local operation is not yet supported.' });
-        else setResult({ latex: answer.toTeX(), verified: true });
-      } catch {
-        if (active) setResult({ latex: '', verified: false, message: 'Incomplete or unsupported expression. Nothing was calculated silently.' });
-      }
+    void evaluateResearchLatex(latex).then((answer) => {
+      if (active) setResult({ latex: answer.latex, verified: answer.verified, method: answer.method, decimal: answer.decimal });
+    }).catch((error: unknown) => {
+      if (active) setResult({ latex: '', verified: false, message: error instanceof Error ? error.message : 'Incomplete or unsupported expression. Nothing was calculated silently.' });
     });
     return () => { active = false; };
   }, [isCalculation, latex]);
   if (!isCalculation || !result) return null;
   return <div className="research-expression-result">
-    {result.latex ? <><span>{result.verified ? 'Checked locally' : 'Result'}</span><ScientificMath latex={result.latex} label="Research expression result" /></> : <p>{result.message}</p>}
+    {result.latex ? <><span>{result.method ?? (result.verified ? 'Checked locally' : 'Result')}</span><ScientificMath latex={result.latex} label="Research expression result" />{result.decimal && result.decimal !== result.latex && <small>Numerical check: {result.decimal}</small>}</> : <p>{result.message}</p>}
     <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('mathnotebook:aion-question', { detail: `Show complete, rigorous steps for this research expression. Preserve the notation and verify the final result where possible:\n${latex}` }))}>Show steps in AION</button>
   </div>;
 }
@@ -305,10 +346,7 @@ interface Graph2DSettings {
 }
 
 function Graph2D({ storagePrefix }: { storagePrefix: string }) {
-  const [expressions, setExpressions] = usePersistentResearchState<GraphExpression[]>(`${storagePrefix}:2d:expressions`, [
-    { id: 1, expression: 'sin(x)', color: GRAPH_COLORS[0], visible: true },
-    { id: 2, expression: 'x^2/8-2', color: GRAPH_COLORS[1], visible: true },
-  ]);
+  const [expressions, setExpressions] = usePersistentResearchState<GraphExpression[]>(`${storagePrefix}:2d:expressions`, []);
   const [viewport, setViewport] = usePersistentResearchState(`${storagePrefix}:2d:viewport`, { centerX: 0, centerY: 0, scale: 52 });
   const [settings, setSettings] = usePersistentResearchState<Graph2DSettings>(`${storagePrefix}:2d:settings`, {
     showGrid: true,
@@ -329,11 +367,13 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
   const [trace, setTrace] = useState<{ x: number; y: number; color: string } | null>(null);
+  const [calculus, setCalculus] = useState({ expressionId: 0, lower: 0, upper: 1, point: 0 });
+  const [calculusOverlay, setCalculusOverlay] = useState<null | { kind: 'integral' | 'derivative'; expressionId: number; value: number; lower?: number; upper?: number; point?: number; slope?: number; y?: number }>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasSize = useResponsiveCanvasSize(canvasRef);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerX: number; pointerY: number; centerX: number; centerY: number } | null>(null);
-  const evaluatorsRef = useRef<Array<{ color: string; evaluate: (values: Record<string, number>) => number }>>([]);
+  const evaluatorsRef = useRef<Array<{ id: number; color: string; evaluate: (values: Record<string, number>) => number }>>([]);
 
   useEffect(() => {
     if (!settingsOpen) return undefined;
@@ -446,40 +486,49 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           if (parameter && !['x', 'y'].includes(parameter[1])) parameterValues[parameter[1]] = Number(parameter[2]);
         });
         type Compiled2D =
-          | { kind: 'y'; color: string; evaluate: (values: Record<string, number>) => number }
-          | { kind: 'x'; color: string; evaluate: (values: Record<string, number>) => number }
-          | { kind: 'implicit'; color: string; evaluate: (values: Record<string, number>) => number }
-          | { kind: 'point'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number }
-          | { kind: 'parametric'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number };
-        const compiled = (await Promise.all(active.map(async (entry): Promise<Compiled2D | null> => {
-          const source = entry.expression.trim();
-          if (/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/.test(source) && !/^[xy]\s*=/.test(source)) return null;
-          const restrictions = (source.match(/\{[^{}]+\}/g) ?? []).join('');
-          const base = source.replace(/\{[^{}]+\}/g, '').trim();
-          const tuple = base.match(/^\((.*)\)$/);
-          const coordinates = tuple ? splitTopLevelComma(tuple[1]) : null;
-          if (coordinates) {
-            const isParametric = /\bt\b/.test(coordinates[0]) || /\bt\b/.test(coordinates[1]);
-            return {
-              kind: isParametric ? 'parametric' : 'point',
-              color: entry.color,
-              evaluateX: await numericEvaluatorWithRestrictions(`${coordinates[0]}${restrictions}`),
-              evaluateY: await numericEvaluatorWithRestrictions(`${coordinates[1]}${restrictions}`),
-            };
+          | { id: number; kind: 'y'; color: string; evaluate: (values: Record<string, number>) => number }
+          | { id: number; kind: 'x'; color: string; evaluate: (values: Record<string, number>) => number }
+          | { id: number; kind: 'implicit'; color: string; evaluate: (values: Record<string, number>) => number }
+          | { id: number; kind: 'point'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number }
+          | { id: number; kind: 'parametric'; color: string; evaluateX: (values: Record<string, number>) => number; evaluateY: (values: Record<string, number>) => number };
+        const issues: string[] = [];
+        const allowedSymbols = [...Object.keys(parameterValues), 'x', 'y', 't'];
+        const compiled = (await Promise.all(active.map(async (entry, index): Promise<Compiled2D | null> => {
+          try {
+            const source = entry.expression.trim();
+            if (isResearchCalculationLatex(source)) return null;
+            if (/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/.test(source) && !/^[xy]\s*=/.test(source)) return null;
+            const { base, restrictions } = separateGraphRestrictions(source);
+            const restricted = (value: string) => `${value}${restrictions.map((condition) => `{${condition}}`).join('')}`;
+            const tuple = base.match(/^\((.*)\)$/);
+            const coordinates = tuple ? splitTopLevelComma(tuple[1]) : null;
+            if (coordinates) {
+              const isParametric = /\bt\b/.test(coordinates[0]) || /\bt\b/.test(coordinates[1]);
+              return {
+                id: entry.id,
+                kind: isParametric ? 'parametric' : 'point',
+                color: entry.color,
+                evaluateX: await numericEvaluatorWithRestrictions(restricted(coordinates[0]), allowedSymbols),
+                evaluateY: await numericEvaluatorWithRestrictions(restricted(coordinates[1]), allowedSymbols),
+              };
+            }
+            const yExplicit = base.match(/^y\s*=\s*(.+)$/i);
+            if (yExplicit) return { id: entry.id, kind: 'y', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(restricted(yExplicit[1]), allowedSymbols) };
+            const xExplicit = base.match(/^x\s*=\s*(.+)$/i);
+            if (xExplicit) return { id: entry.id, kind: 'x', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(restricted(xExplicit[1]), allowedSymbols) };
+            const equals = base.indexOf('=');
+            if (equals > 0) {
+              const left = base.slice(0, equals); const right = base.slice(equals + 1);
+              return { id: entry.id, kind: 'implicit', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(restricted(`(${left})-(${right})`), allowedSymbols) };
+            }
+            return { id: entry.id, kind: 'y', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(restricted(base), allowedSymbols) };
+          } catch {
+            issues.push(`Line ${index + 1} is not graphable yet; other valid lines remain active.`);
+            return null;
           }
-          const yExplicit = base.match(/^y\s*=\s*(.+)$/i);
-          if (yExplicit) return { kind: 'y', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`${yExplicit[1]}${restrictions}`) };
-          const xExplicit = base.match(/^x\s*=\s*(.+)$/i);
-          if (xExplicit) return { kind: 'x', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`${xExplicit[1]}${restrictions}`) };
-          const equals = base.indexOf('=');
-          if (equals > 0) {
-            const left = base.slice(0, equals); const right = base.slice(equals + 1);
-            return { kind: 'implicit', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`(${left})-(${right})${restrictions}`) };
-          }
-          return { kind: 'y', color: entry.color, evaluate: await numericEvaluatorWithRestrictions(`${base}${restrictions}`) };
         }))).filter((entry): entry is Compiled2D => Boolean(entry));
         if (cancelled) return;
-        evaluatorsRef.current = compiled.filter((entry): entry is Extract<Compiled2D, { kind: 'y' }> => entry.kind === 'y').map((entry) => ({ color: entry.color, evaluate: (values) => entry.evaluate({ ...parameterValues, ...values }) }));
+        evaluatorsRef.current = compiled.filter((entry): entry is Extract<Compiled2D, { kind: 'y' }> => entry.kind === 'y').map((entry) => ({ id: entry.id, color: entry.color, evaluate: (values) => entry.evaluate({ ...parameterValues, ...values }) }));
         for (const entry of compiled) {
           context.strokeStyle = entry.color;
           context.lineWidth = 2.25;
@@ -565,7 +614,37 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           }
           context.stroke();
         }
-        setError('');
+        if (calculusOverlay) {
+          const selected = evaluatorsRef.current.find((entry) => entry.id === calculusOverlay.expressionId);
+          if (selected && calculusOverlay.kind === 'integral' && calculusOverlay.lower !== undefined && calculusOverlay.upper !== undefined) {
+            const lower = Math.min(calculusOverlay.lower, calculusOverlay.upper);
+            const upper = Math.max(calculusOverlay.lower, calculusOverlay.upper);
+            context.save();
+            context.fillStyle = `${selected.color}33`;
+            context.beginPath();
+            context.moveTo(screenX(lower), screenY(0));
+            for (let index = 0; index <= 240; index += 1) {
+              const x = lower + (upper - lower) * index / 240;
+              const y = selected.evaluate({ x });
+              if (Number.isFinite(y)) context.lineTo(screenX(x), screenY(y));
+            }
+            context.lineTo(screenX(upper), screenY(0));
+            context.closePath();
+            context.fill();
+            context.restore();
+          }
+          if (selected && calculusOverlay.kind === 'derivative' && calculusOverlay.point !== undefined && calculusOverlay.slope !== undefined && calculusOverlay.y !== undefined) {
+            context.save();
+            context.strokeStyle = '#3f315c'; context.lineWidth = 1.7; context.setLineDash([7, 5]);
+            context.beginPath();
+            const leftY = calculusOverlay.y + calculusOverlay.slope * (worldLeft - calculusOverlay.point);
+            const rightY = calculusOverlay.y + calculusOverlay.slope * (worldRight - calculusOverlay.point);
+            context.moveTo(screenX(worldLeft), screenY(leftY)); context.lineTo(screenX(worldRight), screenY(rightY)); context.stroke();
+            context.setLineDash([]); context.fillStyle = '#3f315c'; context.beginPath(); context.arc(screenX(calculusOverlay.point), screenY(calculusOverlay.y), 4.5, 0, Math.PI * 2); context.fill();
+            context.restore();
+          }
+        }
+        setError(issues.join(' '));
       } catch {
         evaluatorsRef.current = [];
         setError('Check each visible line. Try y=sin(x), x=2, (x-2)^2+(y+1)^2=9, (cos(t),sin(t)), or a=2.');
@@ -573,7 +652,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
     };
     void draw();
     return () => { cancelled = true; };
-  }, [canvasSize.height, canvasSize.width, expressions, settings, viewport]);
+  }, [calculusOverlay, canvasSize.height, canvasSize.width, expressions, settings, viewport]);
 
   const updateExpression = (id: number, patch: Partial<GraphExpression>) => {
     setExpressions((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
@@ -624,6 +703,36 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         >
           + Add expression
         </button>
+        <section className="graph-calculus" aria-label="Graph calculus measurements">
+          <header><strong>Measure from graph</strong><span>Numerical check</span></header>
+          <label>Function<select aria-label="Graph calculus function" value={calculus.expressionId || ''} onChange={(event) => setCalculus((current) => ({ ...current, expressionId: Number(event.target.value) }))}>
+            <option value="">Choose a plotted y-function</option>
+            {expressions.filter((entry) => entry.expression.trim() && !isResearchCalculationLatex(entry.expression)).map((entry, index) => <option key={entry.id} value={entry.id}>Line {index + 1}: {entry.expression}</option>)}
+          </select></label>
+          <div className="graph-calculus__bounds"><label>Lower a<input type="number" step="any" value={calculus.lower} onChange={(event) => setCalculus((current) => ({ ...current, lower: Number(event.target.value) }))} /></label><label>Upper b<input type="number" step="any" value={calculus.upper} onChange={(event) => setCalculus((current) => ({ ...current, upper: Number(event.target.value) }))} /></label></div>
+          <button type="button" onClick={() => {
+            const selected = evaluatorsRef.current.find((entry) => entry.id === calculus.expressionId) ?? evaluatorsRef.current[0];
+            if (!selected) { setError('Choose a valid plotted y-function before measuring an integral.'); return; }
+            const value = simpsonIntegral((x) => selected.evaluate({ x }), calculus.lower, calculus.upper);
+            if (!Number.isFinite(value)) { setError('The numerical integral is undefined or discontinuous on these bounds.'); return; }
+            setCalculus((current) => ({ ...current, expressionId: selected.id }));
+            setCalculusOverlay({ kind: 'integral', expressionId: selected.id, value, lower: calculus.lower, upper: calculus.upper });
+            setError('');
+          }}>Measure definite integral</button>
+          <label>At x<input type="number" step="any" value={calculus.point} onChange={(event) => setCalculus((current) => ({ ...current, point: Number(event.target.value) }))} /></label>
+          <button type="button" onClick={() => {
+            const selected = evaluatorsRef.current.find((entry) => entry.id === calculus.expressionId) ?? evaluatorsRef.current[0];
+            if (!selected) { setError('Choose a valid plotted y-function before measuring a derivative.'); return; }
+            const h = Math.max(1e-6, Math.abs(calculus.point) * 1e-5);
+            const y = selected.evaluate({ x: calculus.point });
+            const slope = (selected.evaluate({ x: calculus.point + h }) - selected.evaluate({ x: calculus.point - h })) / (2 * h);
+            if (![y, slope].every(Number.isFinite)) { setError('The derivative is undefined at this point.'); return; }
+            setCalculus((current) => ({ ...current, expressionId: selected.id }));
+            setCalculusOverlay({ kind: 'derivative', expressionId: selected.id, value: slope, point: calculus.point, slope, y });
+            setError('');
+          }}>Measure derivative and tangent</button>
+          {calculusOverlay && <output><b>{calculusOverlay.kind === 'integral' ? 'Integral' : 'Derivative'}</b> ≈ {Number(calculusOverlay.value.toPrecision(12))}<button type="button" onClick={() => setCalculusOverlay(null)}>Clear overlay</button></output>}
+        </section>
         <p>Write complete lines: <b>y=sin(x)</b>, <b>x=2</b>, <b>(x-2)^2+(y+1)^2=9</b>, <b>(cos(t),sin(t))</b>, or <b>a=2</b>.</p>
       </aside>
       <div className="graph-stage">
@@ -761,12 +870,8 @@ type SurfaceRenderMode = 'solid' | 'mesh' | 'contours';
 type SurfaceProjection = 'perspective' | 'orthographic';
 
 function Graph3D({ storagePrefix }: { storagePrefix: string }) {
-  const [surfaces, setSurfaces] = usePersistentResearchState<SurfaceExpression[]>(`${storagePrefix}:3d:surfaces`, [
-    { id: 1, expression: 'a*sin(x)*cos(y)', color: GRAPH_COLORS[0], visible: true, opacity: .66 },
-  ]);
-  const [parameters, setParameters] = usePersistentResearchState<Graph3DParameter[]>(`${storagePrefix}:3d:parameters`, [
-    { id: 1, name: 'a', value: 1, min: -3, max: 3, step: .1 },
-  ]);
+  const [surfaces, setSurfaces] = usePersistentResearchState<SurfaceExpression[]>(`${storagePrefix}:3d:surfaces`, []);
+  const [parameters, setParameters] = usePersistentResearchState<Graph3DParameter[]>(`${storagePrefix}:3d:parameters`, []);
   const [points3D, setPoints3D] = usePersistentResearchState<Graph3DPointExpression[]>(`${storagePrefix}:3d:points`, []);
   const [curves3D, setCurves3D] = usePersistentResearchState<Graph3DCurveExpression[]>(`${storagePrefix}:3d:curves`, []);
   const [parametricSurfaces, setParametricSurfaces] = usePersistentResearchState<Graph3DParametricSurface[]>(`${storagePrefix}:3d:parametric-surfaces`, []);
@@ -787,6 +892,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
   const [trace, setTrace] = useState<{ x: number; y: number; z: number; color: string; expression: string } | null>(null);
+  const [volumeCalculation, setVolumeCalculation] = useState({ integrand: '', dimensions: 2 as 2 | 3, xMin: 0, xMax: 1, yMin: 0, yMax: 1, zMin: 0, zMax: 1 });
+  const [volumeResult, setVolumeResult] = useState<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasSize = useResponsiveCanvasSize(canvasRef);
   const settingsRef = useRef<HTMLDivElement | null>(null);
@@ -899,6 +1006,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         const parameterValues = Object.fromEntries(parameters
           .filter((parameter) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(parameter.name.trim()) && !reservedParameters.has(parameter.name.trim()))
           .map((parameter) => [parameter.name.trim(), parameter.value]));
+        const allowedSymbols = [...Object.keys(parameterValues), 'x', 'y', 'z', 't', 'u', 'v'];
         const cells: Array<{
           points: Array<{ x: number; y: number; z: number }>;
           depth: number;
@@ -916,7 +1024,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         const active = surfaces.filter((surface) => surface.visible && surface.expression.trim());
         for (const [surfaceIndex, surface] of active.entries()) {
           try {
-            const evaluate = await numericEvaluatorWithRestrictions(surface.expression);
+            const evaluate = await numericEvaluatorWithRestrictions(surface.expression, allowedSymbols);
             const surfaceGrid: Array<Array<{ x: number; y: number; z: number; depth: number; worldX: number; worldY: number; rawZ: number }>> = [];
             for (let row = 0; row < resolution; row += 1) {
               const points = [];
@@ -954,9 +1062,9 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         }
         for (const [surfaceIndex, surface] of parametricSurfaces.filter((entry) => entry.visible).entries()) {
           try {
-            const evaluateX = await numericEvaluator(surface.x);
-            const evaluateY = await numericEvaluator(surface.y);
-            const evaluateZ = await numericEvaluator(surface.z);
+            const evaluateX = await numericEvaluator(surface.x, allowedSymbols);
+            const evaluateY = await numericEvaluator(surface.y, allowedSymbols);
+            const evaluateZ = await numericEvaluator(surface.z, allowedSymbols);
             const sampleCount = Math.max(13, Math.min(35, resolution));
             const surfaceGrid: Array<Array<{ x: number; y: number; z: number; depth: number }>> = [];
             for (let row = 0; row < sampleCount; row += 1) {
@@ -995,7 +1103,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         }
         for (const [surfaceIndex, surface] of implicitSurfaces.filter((entry) => entry.visible && entry.expression.trim()).entries()) {
           try {
-            const evaluate = await numericEvaluatorWithRestrictions(surface.expression);
+            const evaluate = await numericEvaluatorWithRestrictions(surface.expression, allowedSymbols);
             const sampleCount = Math.max(11, Math.min(17, Math.round(resolution / 2)));
             const stepX = xRange / (sampleCount - 1);
             const stepY = yRange / (sampleCount - 1);
@@ -1113,9 +1221,9 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         }
         for (const [curveIndex, curve] of curves3D.filter((entry) => entry.visible).entries()) {
           try {
-            const evaluateX = await numericEvaluator(curve.x);
-            const evaluateY = await numericEvaluator(curve.y);
-            const evaluateZ = await numericEvaluator(curve.z);
+            const evaluateX = await numericEvaluator(curve.x, allowedSymbols);
+            const evaluateY = await numericEvaluator(curve.y, allowedSymbols);
+            const evaluateZ = await numericEvaluator(curve.z, allowedSymbols);
             context.save(); context.strokeStyle = curve.color; context.lineWidth = 3; context.beginPath();
             let drawing = false;
             for (let sample = 0; sample <= 180; sample += 1) {
@@ -1132,9 +1240,9 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         }
         for (const [pointIndex, entry] of points3D.filter((point) => point.visible).entries()) {
           try {
-            const x = (await numericEvaluator(entry.x))(parameterValues);
-            const y = (await numericEvaluator(entry.y))(parameterValues);
-            const z = (await numericEvaluator(entry.z))(parameterValues);
+            const x = (await numericEvaluator(entry.x, allowedSymbols))(parameterValues);
+            const y = (await numericEvaluator(entry.y, allowedSymbols))(parameterValues);
+            const z = (await numericEvaluator(entry.z, allowedSymbols))(parameterValues);
             const point = project(x, y, z);
             if (![x, y, z, point.x, point.y].every(Number.isFinite)) throw new Error('Non-finite point');
             context.save(); context.fillStyle = entry.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
@@ -1243,7 +1351,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           </div>
           <div className="surface-style-row"><label>Color <input type="color" aria-label={`Implicit surface ${index + 1} color`} value={surface.color} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, color: event.target.value } : entry))} /></label><label>Opacity <input type="range" aria-label={`Implicit surface ${index + 1} opacity`} min="0.18" max="1" step="0.05" value={surface.opacity} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, opacity: Number(event.target.value) } : entry))} /></label></div>
         </div>)}
-        <button type="button" className="graph-add-expression" disabled={implicitSurfaces.length >= 2} onClick={() => setImplicitSurfaces((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, expression: 'x^2+y^2+z^2-9', color: GRAPH_COLORS[(surfaces.length + current.length) % GRAPH_COLORS.length], visible: true, opacity: .72 }])}>+ Add implicit F(x,y,z)=0</button>
+        <button type="button" className="graph-add-expression" disabled={implicitSurfaces.length >= 2} onClick={() => setImplicitSurfaces((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, expression: '', color: GRAPH_COLORS[(surfaces.length + current.length) % GRAPH_COLORS.length], visible: true, opacity: .72 }])}>+ Add implicit F(x,y,z)=0</button>
         <section className="graph-parameter-section" aria-label="3D graph parameters">
           <header><strong>Parameters</strong><span>Use names in any expression</span></header>
           {parameters.map((parameter, index) => <div className="graph-parameter" key={parameter.id}>
@@ -1252,6 +1360,29 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             <div className="parameter-range"><label>min <input type="number" value={parameter.min} onChange={(event) => setParameters((current) => current.map((entry) => entry.id === parameter.id ? { ...entry, min: Number(event.target.value) } : entry))} /></label><label>max <input type="number" value={parameter.max} onChange={(event) => setParameters((current) => current.map((entry) => entry.id === parameter.id ? { ...entry, max: Number(event.target.value) } : entry))} /></label></div>
           </div>)}
           <button type="button" className="graph-add-expression" disabled={parameters.length >= 4} onClick={() => setParameters((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, name: ['a', 'b', 'c', 'd'].find((name) => !current.some((entry) => entry.name === name)) ?? `p${current.length + 1}`, value: 1, min: -5, max: 5, step: .1 }])}>+ Add slider</button>
+        </section>
+        <section className="graph-calculus graph-volume-calculus" aria-label="2D and 3D numerical integration">
+          <header><strong>Measure integral</strong><span>Rectangular bounds</span></header>
+          <label>Integrand<ResearchMathField id="research-3d-volume-integrand" label="Double or triple integral integrand" placeholder="x y or x y z" value={volumeCalculation.integrand} onChange={(integrand) => setVolumeCalculation((current) => ({ ...current, integrand }))} /></label>
+          <label>Integral type<select aria-label="Integral dimensions" value={volumeCalculation.dimensions} onChange={(event) => setVolumeCalculation((current) => ({ ...current, dimensions: Number(event.target.value) as 2 | 3 }))}><option value={2}>Double integral dx dy</option><option value={3}>Triple integral dx dy dz</option></select></label>
+          <div className="graph-calculus__bounds">{(['x', 'y', ...(volumeCalculation.dimensions === 3 ? ['z'] : [])] as Array<'x' | 'y' | 'z'>).map((axis) => <span key={axis}><label>{axis} min<input type="number" step="any" value={volumeCalculation[`${axis}Min`]} onChange={(event) => setVolumeCalculation((current) => ({ ...current, [`${axis}Min`]: Number(event.target.value) }))} /></label><label>{axis} max<input type="number" step="any" value={volumeCalculation[`${axis}Max`]} onChange={(event) => setVolumeCalculation((current) => ({ ...current, [`${axis}Max`]: Number(event.target.value) }))} /></label></span>)}</div>
+          <button type="button" onClick={() => {
+            void (async () => {
+              try {
+                const parameterValues = Object.fromEntries(parameters.filter((parameter) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(parameter.name)).map((parameter) => [parameter.name, parameter.value]));
+                const evaluate = await numericEvaluator(volumeCalculation.integrand, [...Object.keys(parameterValues), 'x', 'y', 'z']);
+                const integrateZ = (x: number, y: number) => volumeCalculation.dimensions === 3
+                  ? simpsonIntegral((z) => evaluate({ ...parameterValues, x, y, z }), volumeCalculation.zMin, volumeCalculation.zMax, 28)
+                  : evaluate({ ...parameterValues, x, y });
+                const value = simpsonIntegral((x) => simpsonIntegral((y) => integrateZ(x, y), volumeCalculation.yMin, volumeCalculation.yMax, 28), volumeCalculation.xMin, volumeCalculation.xMax, 28);
+                if (!Number.isFinite(value)) throw new Error('The integrand is undefined inside these bounds.');
+                setVolumeResult(value); setError('');
+              } catch (calculationError) {
+                setVolumeResult(null); setError(calculationError instanceof Error ? calculationError.message : 'The integral could not be evaluated.');
+              }
+            })();
+          }}>Calculate numerical {volumeCalculation.dimensions === 3 ? 'triple' : 'double'} integral</button>
+          {volumeResult !== null && <output><b>Checked numerical value</b> ≈ {Number(volumeResult.toPrecision(12))}</output>}
         </section>
         <section className="graph-3d-object-section" aria-label="3D points curves and parametric surfaces">
           <header><strong>Points · curves · parametric surfaces</strong><span>{points3D.length + curves3D.length + parametricSurfaces.length}</span></header>
@@ -2325,18 +2456,12 @@ type Geometry3DObject =
   | { id: number; type: 'sphere'; center: number; radius: number; color: string; visible: boolean; label: string };
 
 function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
-  const [points, setPoints] = usePersistentResearchState<Geometry3DPoint[]>(`${storagePrefix}:geometry3d:points`, [
-    { id: 1, label: 'A', x: 0, y: 0, z: 0, color: GRAPH_COLORS[0], visible: true },
-    { id: 2, label: 'B', x: 3, y: 0, z: 1, color: GRAPH_COLORS[1], visible: true },
-    { id: 3, label: 'C', x: 1, y: 3, z: 2, color: GRAPH_COLORS[2], visible: true },
-  ]);
-  const [objects, setObjects] = usePersistentResearchState<Geometry3DObject[]>(`${storagePrefix}:geometry3d:objects`, [
-    { id: 1, type: 'triangle', points: [1, 2, 3], color: GRAPH_COLORS[0], visible: true, label: '△ABC' },
-  ]);
+  const [points, setPoints] = usePersistentResearchState<Geometry3DPoint[]>(`${storagePrefix}:geometry3d:points`, []);
+  const [objects, setObjects] = usePersistentResearchState<Geometry3DObject[]>(`${storagePrefix}:geometry3d:objects`, []);
   const [camera, setCamera] = usePersistentResearchState(`${storagePrefix}:geometry3d:camera`, { yaw: -.72, pitch: -.52, zoom: 1, panX: 0, panY: 0 });
   const [command, setCommand] = useState('');
   const [message, setMessage] = useState('');
-  const [selectedPoint, setSelectedPoint] = useState<number | null>(1);
+  const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [selectedObject, setSelectedObject] = useState<number | null>(null);
   const [moveAxis, setMoveAxis] = useState<'screen' | 'x' | 'y' | 'z'>('screen');
   const [transform, setTransform] = useState({ dx: 1, dy: 0, dz: 0, angle: 30, scale: 2, axis: 'x' as 'x' | 'y' | 'z' });
@@ -2504,7 +2629,7 @@ function ScientificMath({ latex, label }: { latex: string; label: string }) {
 }
 
 function ScientificLab({ storagePrefix }: { storagePrefix: string }) {
-  const [expression, setExpression] = usePersistentResearchState(`${storagePrefix}:scientific:expression`, '\\sin\\left(\\frac{\\pi}{4}\\right)^2+\\cos\\left(\\frac{\\pi}{4}\\right)^2');
+  const [expression, setExpression] = usePersistentResearchState(`${storagePrefix}:scientific:expression`, '');
   const [history, setHistory] = usePersistentResearchState<ScientificHistoryEntry[]>(`${storagePrefix}:scientific:history`, []);
   const [angleUnit, setAngleUnit] = usePersistentResearchState<'radians' | 'degrees'>(`${storagePrefix}:scientific:angle-unit`, 'radians');
   const [keypad, setKeypad] = usePersistentResearchState<'main' | 'letters' | 'functions'>(`${storagePrefix}:scientific:keypad`, 'main');
@@ -2519,6 +2644,20 @@ function ScientificLab({ storagePrefix }: { storagePrefix: string }) {
       nerdamer.set('SILENCE_WARNINGS', true);
       const previousAnswerLatex = nerdamer(previousAnswer).toTeX();
       const expressionWithAnswer = expression.replace(/\\(?:operatorname|mathrm)\{ans\}|\bans\b/gi, `\\left(${previousAnswerLatex}\\right)`);
+      if (isResearchCalculationLatex(expressionWithAnswer)) {
+        const checked = await evaluateResearchLatex(expressionWithAnswer);
+        setHistory((current) => [...current.slice(-29), {
+          id: Math.max(0, ...current.map((entry) => entry.id)) + 1,
+          expressionLatex: expression,
+          resultLatex: checked.latex,
+          exact: checked.exact,
+          decimal: checked.decimal,
+        }]);
+        setExpression('');
+        if (fieldRef.current) fieldRef.current.value = '';
+        setError('');
+        return;
+      }
       let casExpression = String(nerdamer.convertFromLaTeX(expressionWithAnswer)).replace(/\bans\b/gi, `(${previousAnswer})`);
       if (angleUnit === 'degrees') {
         casExpression = casExpression.replace(/\b(sin|cos|tan)\(([^()]*)\)/g, '$1(($2)*pi/180)');
@@ -2617,6 +2756,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
   const undo = useNotebookStore((state) => state.undo);
   const panelRef = useRef<HTMLElement | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [destinationPageId, setDestinationPageId] = useState('');
   const [restoreMessage, setRestoreMessage] = useState('');
   useEffect(() => {
@@ -2626,6 +2766,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     if (!open) return undefined;
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (guideOpen) { event.preventDefault(); event.stopPropagation(); setGuideOpen(false); return; }
         if (document.querySelector('.graph-settings-popover')) return;
         const geometryCanvas = document.querySelector<HTMLCanvasElement>('canvas[aria-label="Interactive geometry canvas"]');
         if (geometryCanvas?.dataset.tool && geometryCanvas.dataset.tool !== 'move') return;
@@ -2634,8 +2775,10 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     };
     window.addEventListener('keydown', onEscape, true);
     return () => window.removeEventListener('keydown', onEscape, true);
-  }, [onClose, open]);
-  const footer = tool === '3d'
+  }, [guideOpen, onClose, open]);
+  const footer = guideOpen
+    ? 'This guide documents the current local implementation. Unsupported input is reported instead of being silently approximated.'
+    : tool === '3d'
     ? 'Local interactive 3D: explicit, parametric, and sampled implicit surfaces; sliders, points, curves, traces, viewport locks, and sampled intersections.'
     : tool === 'geometry'
       ? 'Local dynamic geometry: constructions, expressions, multi-select styling, transformations, dragging, measurements, and line/circle intersections.'
@@ -2669,19 +2812,21 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
         }}>Reset all</button>}
         <button type="button" aria-label="Close research tools" onClick={onClose}>×</button>
       </div></header>
-      <nav aria-label="Research tool sections">{TABS.map((tab) => <button type="button" key={tab.id} className={tool === tab.id ? 'is-active' : ''} onClick={() => setTool(tab.id)}>{tab.label}</button>)}</nav>
-      <div className="research-math-toolbar" aria-label="Research mathematics input tools">
+      <nav aria-label="Research tool sections">{TABS.map((tab) => <button type="button" key={tab.id} className={!guideOpen && tool === tab.id ? 'is-active' : ''} onClick={() => { setTool(tab.id); setGuideOpen(false); }}>{tab.label}</button>)}<button type="button" className={guideOpen ? 'is-active' : ''} aria-pressed={guideOpen} onClick={() => setGuideOpen((current) => !current)}>Guide</button></nav>
+      {!guideOpen && <div className="research-math-toolbar" aria-label="Research mathematics input tools">
         <button type="button" onClick={() => { if (!focusActiveMathfield()) return; if (window.mathVirtualKeyboard.visible) window.mathVirtualKeyboard.hide(); else window.mathVirtualKeyboard.show(); }}>⌨ Math keyboard</button>
         <button type="button" data-math-menu-toggle="true" onClick={() => { if (dismissActiveMathfieldMenu()) return; showActiveMathfieldMenu(); }}>☰ Insert structures</button>
         <button type="button" className={paletteOpen ? 'is-active' : ''} onClick={() => { dismissActiveMathfieldMenu(); setPaletteOpen(!paletteOpen); }}>Ω Symbols</button>
-      </div>
+      </div>}
       {restoreMessage && <div className="research-restore" role="status"><span>{restoreMessage}</span><button type="button" onClick={() => { undo(); setRestoreMessage('Research restored.'); }}>Restore</button><button type="button" aria-label="Dismiss restore message" onClick={() => setRestoreMessage('')}>×</button></div>}
       <div className="research-tools-panel__body">
-        {tool === '2d' && <Graph2D storagePrefix={storagePrefix} />}
-        {tool === '3d' && <Graph3D storagePrefix={storagePrefix} />}
-        {tool === 'geometry' && <GeometryLab storagePrefix={storagePrefix} />}
-        {tool === 'geometry3d' && <Geometry3DLab storagePrefix={storagePrefix} />}
-        {tool === 'scientific' && <ScientificLab storagePrefix={storagePrefix} />}
+        {guideOpen ? <ResearchGuide tool={tool} /> : <>
+          {tool === '2d' && <Graph2D storagePrefix={storagePrefix} />}
+          {tool === '3d' && <Graph3D storagePrefix={storagePrefix} />}
+          {tool === 'geometry' && <GeometryLab storagePrefix={storagePrefix} />}
+          {tool === 'geometry3d' && <Geometry3DLab storagePrefix={storagePrefix} />}
+          {tool === 'scientific' && <ScientificLab storagePrefix={storagePrefix} />}
+        </>}
       </div>
       <footer>{footer}</footer>
       {copyOpen && <div className="research-copy-dialog" role="dialog" aria-modal="true" aria-label="Copy research to notebook">

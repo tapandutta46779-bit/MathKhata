@@ -723,7 +723,31 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .research-expression-result > span { color: #4f7a55; font-size: 7px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .research-expression-result math-field { min-height: 24px; padding: 1px; border: 0; background: transparent; font-size: 13px; pointer-events: none; }
 .research-expression-result p { margin: 0; color: #8b542c; font-size: 8px; line-height: 1.4; }
+.research-expression-result small { color: #686158; font: 8px ui-monospace, monospace; }
 .research-expression-result button { justify-self: start; padding: 4px 6px; border-radius: 5px; color: #713c2a; background: #e8dfd3; font-size: 7.5px; font-weight: 700; }
+.graph-calculus { display: grid; gap: 7px; margin-top: 10px; padding: 9px; border: 1px solid rgba(80,72,61,.13); border-radius: 9px; background: #fffefa; }
+.graph-calculus > header { display: flex; align-items: center; justify-content: space-between; }
+.graph-calculus > header strong { font-size: 10px; }
+.graph-calculus > header span { color: var(--muted); font-size: 7px; }
+.graph-calculus label { display: grid; gap: 3px; color: #686158; font-size: 8px; font-weight: 700; }
+.graph-calculus select, .graph-calculus input { min-width: 0; width: 100%; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: white; font-size: 9px; }
+.graph-calculus > button, .graph-calculus output button { padding: 6px 7px; border-radius: 6px; color: #743a27; background: #eadfd2; font-size: 8px; font-weight: 750; }
+.graph-calculus__bounds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.graph-calculus__bounds > span { display: contents; }
+.graph-calculus output { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px; border-radius: 6px; color: #365f40; background: #edf5ed; font: 8px ui-monospace, monospace; }
+.graph-calculus output button { margin-left: auto; padding: 4px 6px; }
+.graph-volume-calculus .research-math-field { min-height: 28px; font-size: 13px; }
+.research-guide { height: 100%; padding: 18px; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 12px; background: #fffefa; }
+.research-guide > header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 13px; border-bottom: 1px solid var(--border); }
+.research-guide > header > div { display: grid; gap: 3px; }
+.research-guide > header strong { color: #713c2a; font-size: 18px; }
+.research-guide > header span { color: var(--muted); font-size: 9px; }
+.research-guide kbd { padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; color: var(--muted); background: #f2efe7; font: 8px ui-monospace, monospace; }
+.research-guide > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
+.research-guide article { padding: 13px; border: 1px solid rgba(76,67,55,.12); border-radius: 10px; background: #f8f5ee; }
+.research-guide h3 { margin: 0 0 8px; color: #4b453d; font-size: 12px; }
+.research-guide ul { display: grid; gap: 7px; margin: 0; padding-left: 17px; color: #676057; font-size: 10px; line-height: 1.5; }
+.research-guide > p { margin: 14px 0 0; padding: 10px; border-radius: 8px; color: #6d4939; background: var(--accent-soft); font-size: 10px; }
 .graph-expression-list--3d { display: flex; flex-direction: column; gap: 7px; padding-bottom: 18px; }
 .graph-expression-list--3d > header { flex: 0 0 auto; }
 .surface-expression-card, .graph-parameter-section, .graph-3d-object-section { display: grid; gap: 6px; padding: 7px; border: 1px solid rgba(55,51,42,.1); border-radius: 9px; background: #fffefa; }
