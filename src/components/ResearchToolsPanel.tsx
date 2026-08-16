@@ -3405,6 +3405,21 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
       setExportingPdf(false);
     }
   };
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    const keepPanelAnchored = () => {
+      if (panel.scrollTop !== 0) panel.scrollTop = 0;
+      if (panel.scrollLeft !== 0) panel.scrollLeft = 0;
+    };
+    keepPanelAnchored();
+    panel.addEventListener('scroll', keepPanelAnchored, { passive: true });
+    panel.addEventListener('focusin', keepPanelAnchored);
+    return () => {
+      panel.removeEventListener('scroll', keepPanelAnchored);
+      panel.removeEventListener('focusin', keepPanelAnchored);
+    };
+  }, [open]);
   return (
     <aside ref={panelRef} className="research-tools-panel" aria-label="Research mathematics tools" data-testid="research-tools-panel" hidden={!open}>
       <header><div><strong>{workspaceObjectId ? 'Edit page research copy' : 'Research workspace'}</strong><span>Graph · geometry · scientific</span></div><div className="research-header-actions">

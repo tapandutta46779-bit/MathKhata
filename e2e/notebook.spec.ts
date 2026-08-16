@@ -420,6 +420,30 @@ test('new research workspaces and Reset all contain no sample equations', async 
   await expect.poll(() => research.getByLabel('Scientific expression').evaluate((element: any) => element.value)).toBe('');
 });
 
+test('editing a lower 3D surface keeps research navigation and close controls anchored', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
+  const research = page.getByTestId('research-tools-panel');
+  await research.getByRole('button', { name: '3D Surface', exact: true }).click();
+  const addSurface = research.getByRole('button', { name: '+ Add surface' });
+  await addSurface.click();
+  await addSurface.click();
+  await addSurface.click();
+  await addSurface.click();
+
+  await research.getByLabel('3D surface expression 4').click();
+  await expect.poll(() => research.evaluate((element: HTMLElement) => element.scrollTop)).toBe(0);
+  const panelBox = await research.boundingBox();
+  const close = research.getByRole('button', { name: 'Close research tools' });
+  const closeBox = await close.boundingBox();
+  expect(panelBox).not.toBeNull();
+  expect(closeBox).not.toBeNull();
+  expect(closeBox!.y).toBeGreaterThanOrEqual(panelBox!.y);
+  await expect(close).toBeInViewport();
+  await close.click();
+  await expect(research).toBeHidden();
+});
+
 test('research exports PDFs, splits signed integral shading, and marks 2D/log-log crossings', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
