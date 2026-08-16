@@ -109,6 +109,10 @@ export function focusMathfield(id: string): boolean {
   return true;
 }
 
+export function getMathfieldValue(id: string): string | null {
+  return fields.get(id)?.element.value ?? null;
+}
+
 export function blurActiveMathfield(): void {
   if (!activeId) return;
   fields.get(activeId)?.element.blur();

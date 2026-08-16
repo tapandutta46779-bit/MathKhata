@@ -8,6 +8,7 @@ import {
   dismissActiveMathfieldMenu,
   dismissMathfieldMenuFromOutsidePointer,
   focusActiveMathfield,
+  getMathfieldValue,
   insertIntoMathfield,
   registerMathfield,
   setActiveMathfield,
@@ -2640,7 +2641,11 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
   }
 
   function runCommand() {
-    const source = command.replace(/\\left|\\right/g, '').replace(/\\(?:operatorname|mathrm)\{([^{}]+)\}/g, '$1').replace(/[{}]/g, (c) => c === '{' ? '(' : ')').replace(/\\([a-z]+)/gi, '$1').replace(/\s+/g, '');
+    // Older starter options accidentally supplied doubled backslashes through
+    // JSX string attributes. Collapse those before interpreting the MathLive
+    // LaTeX so an in-progress command remains recoverable after an update.
+    const visibleCommand = getMathfieldValue('research-geometry3d-command') ?? command;
+    const source = visibleCommand.replace(/\\\\/g, '\\').replace(/\\operatorname\{\\mathrm\{([^{}]+)\}\}/g, '$1').replace(/\\left|\\right/g, '').replace(/\\(?:operatorname|mathrm)\{([^{}]+)\}/g, '$1').replace(/[{}]/g, (c) => c === '{' ? '(' : ')').replace(/\\([a-z]+)/gi, '$1').replace(/\s+/g, '');
     const match = source.match(/^([a-z]+)\((.*)\)$/i);
     if (!match) { setMessage('Use point, segment, vector, triangle, midpoint, or a 3D object command such as cube(A,2) or ellipsoid(A,2,1,1).'); return; }
     const operation = match[1].toLowerCase(); const args = match[2].split(',');
@@ -2728,18 +2733,18 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
           }}
         >
           <option value="" disabled>Choose type…</option>
-          <option value="\\operatorname{point}\\left(#0,#?,#?\\right)">Point</option>
-          <option value="\\operatorname{segment}\\left(#0,#?\\right)">Segment</option>
-          <option value="\\operatorname{vector}\\left(#0,#?\\right)">Vector</option>
-          <option value="\\operatorname{triangle}\\left(#0,#?,#?\\right)">Triangle</option>
-          <option value="\\operatorname{midpoint}\\left(#0,#?\\right)">Midpoint</option>
-          <option value="\\operatorname{cube}\\left(#0,#?\\right)">Cube</option>
-          <option value="\\operatorname{cuboid}\\left(#0,#?,#?,#?\\right)">Cuboid</option>
-          <option value="\\operatorname{sphere}\\left(#0,#?\\right)">Sphere</option>
-          <option value="\\operatorname{ellipsoid}\\left(#0,#?,#?,#?\\right)">Ellipsoid</option>
-          <option value="\\operatorname{cylinder}\\left(#0,#?,#?\\right)">Cylinder</option>
-          <option value="\\operatorname{cone}\\left(#0,#?,#?\\right)">Cone</option>
-          <option value="\\operatorname{paraboloid}\\left(#0,#?,#?\\right)">Paraboloid</option>
+          <option value={'\\mathrm{point}\\left(#0,#?,#?\\right)'}>Point</option>
+          <option value={'\\mathrm{segment}\\left(#0,#?\\right)'}>Segment</option>
+          <option value={'\\mathrm{vector}\\left(#0,#?\\right)'}>Vector</option>
+          <option value={'\\mathrm{triangle}\\left(#0,#?,#?\\right)'}>Triangle</option>
+          <option value={'\\mathrm{midpoint}\\left(#0,#?\\right)'}>Midpoint</option>
+          <option value={'\\mathrm{cube}\\left(#0,#?\\right)'}>Cube</option>
+          <option value={'\\mathrm{cuboid}\\left(#0,#?,#?,#?\\right)'}>Cuboid</option>
+          <option value={'\\mathrm{sphere}\\left(#0,#?\\right)'}>Sphere</option>
+          <option value={'\\mathrm{ellipsoid}\\left(#0,#?,#?,#?\\right)'}>Ellipsoid</option>
+          <option value={'\\mathrm{cylinder}\\left(#0,#?,#?\\right)'}>Cylinder</option>
+          <option value={'\\mathrm{cone}\\left(#0,#?,#?\\right)'}>Cone</option>
+          <option value={'\\mathrm{paraboloid}\\left(#0,#?,#?\\right)'}>Paraboloid</option>
         </select>
       </label>
       <label>New construction<ResearchMathField id="research-geometry3d-command" label="3D geometry construction expression" placeholder="point(1,2,3)" value={command} onChange={setCommand} onEnter={runCommand} /></label>

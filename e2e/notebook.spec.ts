@@ -517,7 +517,17 @@ test('3D Geometry object gallery creates and edits actual solids', async ({ page
 
   const construction = research.getByLabel('3D geometry construction expression');
   await research.getByLabel('3D construction type').selectOption({ label: 'Point' });
-  await expect.poll(() => construction.evaluate((element: any) => element.value)).toContain('point');
+  await expect.poll(() => construction.evaluate((element: any) => element.value)).toBe('\\mathrm{point}\\left(\\placeholder{},\\placeholder{},\\placeholder{}\\right)');
+  await construction.pressSequentially('1');
+  await construction.press('Tab');
+  await construction.pressSequentially('2');
+  await construction.press('Tab');
+  await construction.pressSequentially('3');
+  await expect.poll(() => construction.evaluate((element: any) => element.value)).toBe('\\mathrm{point}\\left(1,2,3\\right)');
+  await construction.press('Enter');
+  await expect(research.getByRole('button', { name: 'Delete point C' })).toBeVisible();
+  await research.getByRole('button', { name: 'Delete point C' }).click();
+  await expect(research.getByText('Point C deleted.')).toBeVisible();
   await construction.evaluate((element: any) => {
     element.value = String.raw`\operatorname{point}\left(1,2,3\right)`;
     element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
