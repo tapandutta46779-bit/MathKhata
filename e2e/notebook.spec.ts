@@ -514,6 +514,26 @@ test('3D Geometry object gallery creates and edits actual solids', async ({ page
   await expect(research.getByLabel('X size')).toBeVisible();
   await research.getByLabel('X size').fill('3');
   await expect(research.getByText(/semi-axes 3\.00/)).toBeVisible();
+
+  const construction = research.getByLabel('3D geometry construction expression');
+  await research.getByLabel('3D construction type').selectOption({ label: 'Point' });
+  await expect.poll(() => construction.evaluate((element: any) => element.value)).toContain('point');
+  await construction.evaluate((element: any) => {
+    element.value = String.raw`\operatorname{point}\left(1,2,3\right)`;
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText' }));
+  });
+  await construction.press('Enter');
+  await expect(research.getByRole('button', { name: 'Delete point C' })).toBeVisible();
+  await research.getByRole('button', { name: 'Delete point C' }).click();
+  await expect(research.getByRole('button', { name: 'Delete point C' })).toHaveCount(0);
+  await expect(research.getByText('Point C deleted.')).toBeVisible();
+
+  await construction.click();
+  await construction.press('Meta+A');
+  await construction.press('Backspace');
+  await construction.pressSequentially('int', { delay: 120 });
+  await page.waitForTimeout(600);
+  await expect.poll(() => construction.evaluate((element: any) => element.value)).toContain('\\int');
   await research.getByRole('button', { name: 'Guide', exact: true }).click();
   await expect(research.getByLabel('3D Geometry guide complete supported features')).toContainText('paraboloid');
 });

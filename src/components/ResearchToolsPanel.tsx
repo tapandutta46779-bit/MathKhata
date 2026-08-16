@@ -252,6 +252,11 @@ function ResearchMathField({
     field.value = value;
     field.mathVirtualKeyboardPolicy = 'manual';
     field.smartFence = true;
+    // Keep ordinary keyboard shorthand consistent with the rest of the
+    // notebook: typing `int` produces a structured integral. Construction
+    // names such as point/cube are inserted by the compact starter below, so
+    // users never have to fight that mathematical shortcut.
+    field.inlineShortcuts = { ...field.inlineShortcuts, int: '\\int_{#?}^{#?}' };
     field.placeholder = placeholder ?? '';
     const unregister = registerMathfield(id, field, (next) => changeRef.current(next));
     const dismissFromOutside = (event: PointerEvent) => {
@@ -2491,6 +2496,37 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
   const pointById = (id: number) => points.find((point) => point.id === id);
   const nextPointId = () => Math.max(0, ...points.map((point) => point.id)) + 1;
   const nextObjectId = () => Math.max(0, ...objects.map((object) => object.id)) + 1;
+  const nextPointLabel = () => {
+    const used = new Set(points.map((point) => point.label));
+    for (let index = 0; index < 702; index += 1) {
+      const label = geometryPointLabel(index);
+      if (!used.has(label)) return label;
+    }
+    return `P${nextPointId()}`;
+  };
+
+  const objectUsesPoint = (object: Geometry3DObject, pointId: number) => (
+    object.type === 'sphere' || object.type === 'solid'
+      ? object.center === pointId
+      : object.points.includes(pointId)
+  );
+
+  function deletePoint(pointId: number) {
+    const target = pointById(pointId);
+    if (!target) return;
+    const dependent = objects.filter((object) => objectUsesPoint(object, pointId));
+    if (dependent.length && !window.confirm(`Delete point ${target.label} and ${dependent.length} dependent 3D object${dependent.length === 1 ? '' : 's'}?`)) return;
+    setObjects((current) => current.filter((object) => !objectUsesPoint(object, pointId)));
+    setPoints((current) => current.filter((point) => point.id !== pointId));
+    if (selectedPoint === pointId) setSelectedPoint(null);
+    if (selectedObject && dependent.some((object) => object.id === selectedObject)) setSelectedObject(null);
+    setMessage(`Point ${target.label} deleted${dependent.length ? ` with ${dependent.length} dependent object${dependent.length === 1 ? '' : 's'}` : ''}.`);
+  }
+
+  function startConstruction(template: string) {
+    setCommand('');
+    requestAnimationFrame(() => insertIntoMathfield('research-geometry3d-command', template));
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2579,7 +2615,7 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
     const centerId = existingCenter?.id ?? nextPointId();
     const center = existingCenter ?? {
       id: centerId,
-      label: geometryPointLabel(points.length),
+      label: nextPointLabel(),
       x: ((objects.length % 3) - 1) * 2.5,
       y: Math.floor(objects.length / 3) % 2 ? 1.5 : 0,
       z: 0,
@@ -2610,12 +2646,12 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
     const operation = match[1].toLowerCase(); const args = match[2].split(',');
     const byLabel = (label: string) => points.find((point) => point.label.toLowerCase() === label.toLowerCase());
     if (operation === 'point' && args.length === 3 && args.every((value) => Number.isFinite(Number(value)))) {
-      const id = nextPointId(); const label = geometryPointLabel(points.length);
+      const id = nextPointId(); const label = nextPointLabel();
       setPoints((current) => [...current, { id, label, x: Number(args[0]), y: Number(args[1]), z: Number(args[2]), color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true }]); setSelectedPoint(id); setCommand(''); setMessage('Point created.'); return;
     }
     if (operation === 'midpoint' && args.length === 2) {
       const a = byLabel(args[0]); const b = byLabel(args[1]); if (!a || !b) { setMessage('Create both named points first.'); return; }
-      const id = nextPointId(); setPoints((current) => [...current, { id, label: geometryPointLabel(current.length), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2, color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true }]); setSelectedPoint(id); setCommand(''); setMessage('Midpoint created.'); return;
+      const id = nextPointId(); setPoints((current) => [...current, { id, label: nextPointLabel(), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2, color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true }]); setSelectedPoint(id); setCommand(''); setMessage('Midpoint created.'); return;
     }
     const solidOperation = operation as Geometry3DPrimitive;
     if (['cube', 'tetrahedron', 'octahedron', 'sphere'].includes(solidOperation) && args.length === 2) {
@@ -2681,12 +2717,45 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
   return <section className="geometry3d-lab">
     <aside className="geometry3d-sidebar" aria-label="3D geometry expression rail">
       <header><strong>3D constructions</strong><span>{points.length} points · {objects.length} objects</span></header>
+      <label className="geometry3d-command-starter">Start with
+        <select
+          aria-label="3D construction type"
+          defaultValue=""
+          onChange={(event) => {
+            const template = event.target.value;
+            if (template) startConstruction(template);
+            event.currentTarget.value = '';
+          }}
+        >
+          <option value="" disabled>Choose type…</option>
+          <option value="\\operatorname{point}\\left(#0,#?,#?\\right)">Point</option>
+          <option value="\\operatorname{segment}\\left(#0,#?\\right)">Segment</option>
+          <option value="\\operatorname{vector}\\left(#0,#?\\right)">Vector</option>
+          <option value="\\operatorname{triangle}\\left(#0,#?,#?\\right)">Triangle</option>
+          <option value="\\operatorname{midpoint}\\left(#0,#?\\right)">Midpoint</option>
+          <option value="\\operatorname{cube}\\left(#0,#?\\right)">Cube</option>
+          <option value="\\operatorname{cuboid}\\left(#0,#?,#?,#?\\right)">Cuboid</option>
+          <option value="\\operatorname{sphere}\\left(#0,#?\\right)">Sphere</option>
+          <option value="\\operatorname{ellipsoid}\\left(#0,#?,#?,#?\\right)">Ellipsoid</option>
+          <option value="\\operatorname{cylinder}\\left(#0,#?,#?\\right)">Cylinder</option>
+          <option value="\\operatorname{cone}\\left(#0,#?,#?\\right)">Cone</option>
+          <option value="\\operatorname{paraboloid}\\left(#0,#?,#?\\right)">Paraboloid</option>
+        </select>
+      </label>
       <label>New construction<ResearchMathField id="research-geometry3d-command" label="3D geometry construction expression" placeholder="point(1,2,3)" value={command} onChange={setCommand} onEnter={runCommand} /></label>
       <button type="button" className="research-primary" onClick={runCommand}>Construct</button>
       {message && <p className="geometry-expression-help">{message}</p>}
       <section className="geometry3d-object-gallery" aria-label="3D object gallery">
         <strong>3D objects</strong>
         <div>{GEOMETRY_3D_OBJECTS.map((item) => <button key={item.primitive} type="button" onClick={() => addPrimitive(item.primitive, item.dimensions)}>{item.label}</button>)}</div>
+      </section>
+      <section className="geometry3d-points" aria-label="3D geometry points">
+        <strong>Points</strong>
+        {!points.length && <small>No points yet</small>}
+        <div>{points.map((point) => <div key={point.id} className={selectedPoint === point.id ? 'is-active' : ''}>
+          <button type="button" aria-label={`Select point ${point.label}`} onClick={() => { setSelectedPoint(point.id); setSelectedObject(null); }}><span style={{ '--graph-color': point.color } as React.CSSProperties} />{point.label}<small>({point.x.toPrecision(3)}, {point.y.toPrecision(3)}, {point.z.toPrecision(3)})</small></button>
+          <button type="button" className="is-danger" aria-label={`Delete point ${point.label}`} onClick={() => deletePoint(point.id)}>×</button>
+        </div>)}</div>
       </section>
       <div className="geometry3d-list" aria-label="3D geometry objects">
         {objects.map((object) => <button key={object.id} type="button" className={selectedObject === object.id ? 'is-active' : ''} onClick={() => { setSelectedObject(object.id); setSelectedPoint(null); }}><span style={{ '--graph-color': object.color } as React.CSSProperties} />{object.label}<small>{object.type}</small></button>)}
@@ -2721,7 +2790,7 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
         onPointerMove={(event) => { const current = drag.current; if (!current || current.pointerId !== event.pointerId) return; const dx = (event.clientX - current.x) / (30 * camera.zoom); const dy = (event.clientY - current.y) / (30 * camera.zoom); if (!current.point) { if (current.pan) setCamera((view) => ({ ...view, panX: current.panX + event.clientX - current.x, panY: current.panY + event.clientY - current.y })); else setCamera((view) => ({ ...view, yaw: current.yaw - (event.clientX - current.x) * .004, pitch: Math.max(-1.5, Math.min(1.5, current.pitch + (event.clientY - current.y) * .004)) })); return; } setPoints((items) => items.map((point) => point.id !== current.point!.id ? point : { ...point, x: moveAxis === 'y' || moveAxis === 'z' ? current.point!.x : current.point!.x + dx, y: moveAxis === 'x' || moveAxis === 'z' ? current.point!.y : current.point!.y - dy, z: moveAxis === 'z' ? current.point!.z - dy : current.point!.z })); }}
         onPointerUp={(event) => { drag.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { drag.current = null; }}
         onWheel={(event) => { event.preventDefault(); setCamera((view) => ({ ...view, zoom: Math.max(.15, Math.min(8, view.zoom * Math.exp(-event.deltaY * .0015))) })); }} />
-      {selectedPoint && pointById(selectedPoint) && <div className="geometry3d-point-editor">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}<input type="number" step=".1" value={pointById(selectedPoint)![axis]} onChange={(event) => setPoints((items) => items.map((point) => point.id === selectedPoint ? { ...point, [axis]: Number(event.target.value) } : point))} /></label>)}</div>}
+      {selectedPoint && pointById(selectedPoint) && <div className="geometry3d-point-editor">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}<input type="number" step=".1" value={pointById(selectedPoint)![axis]} onChange={(event) => setPoints((items) => items.map((point) => point.id === selectedPoint ? { ...point, [axis]: Number(event.target.value) } : point))} /></label>)}<button type="button" aria-label={`Delete selected point ${pointById(selectedPoint)!.label}`} onClick={() => deletePoint(selectedPoint)}>Delete point</button></div>}
       <p className="geometry3d-help">Drag blank space to orbit · Shift-drag to pan · wheel/pinch to zoom · drag a point along the selected axis</p>
     </div>
   </section>;

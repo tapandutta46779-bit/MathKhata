@@ -884,6 +884,8 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry3d-sidebar > header strong { font-size: 11px; }
 .geometry3d-sidebar > header span { color: var(--muted); font-size: 8px; }
 .geometry3d-sidebar > label { display: grid; gap: 4px; color: var(--muted); font-size: 8px; font-weight: 700; }
+.geometry3d-command-starter { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+.geometry3d-command-starter select { min-width: 0; padding: 6px; border: 1px solid var(--border); border-radius: 6px; color: #564f46; background: #fffefa; font-size: 9px; }
 .geometry3d-list { display: grid; gap: 4px; }
 .geometry3d-list button { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 6px; padding: 7px; border: 1px solid var(--border); border-radius: 7px; color: #504b44; background: #fffefa; font-size: 9px; text-align: left; }
 .geometry3d-list button > span { width: 10px; height: 10px; border-radius: 50%; background: var(--graph-color); }
@@ -901,6 +903,17 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry3d-object-gallery > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .geometry3d-object-gallery button { min-width: 0; padding: 6px 3px; border-radius: 6px; color: #613d31; background: #eee9df; font-size: 7.5px; font-weight: 700; }
 .geometry3d-object-gallery button:hover { background: var(--accent-soft); }
+.geometry3d-points { display: grid; gap: 5px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #fffefa; }
+.geometry3d-points > strong { font-size: 9px; }
+.geometry3d-points > small { color: var(--muted); font-size: 8px; }
+.geometry3d-points > div { display: grid; gap: 4px; }
+.geometry3d-points > div > div { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 4px; border-radius: 7px; }
+.geometry3d-points > div > div.is-active { box-shadow: 0 0 0 2px rgba(154,72,44,.28); }
+.geometry3d-points button { min-width: 0; padding: 6px; border: 1px solid var(--border); border-radius: 6px; color: #504b44; background: #fffefa; font-size: 8px; }
+.geometry3d-points button:first-child { display: grid; grid-template-columns: 10px 18px minmax(0, 1fr); align-items: center; gap: 5px; text-align: left; }
+.geometry3d-points button:first-child > span { width: 9px; height: 9px; border-radius: 50%; background: var(--graph-color); }
+.geometry3d-points button:first-child small { overflow: hidden; color: var(--muted); font: 7px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.geometry3d-points button.is-danger { color: #9b342b; background: #f8e7e3; font-size: 14px; }
 .geometry3d-dimensions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .geometry3d-dimensions label { display: grid; gap: 3px; }
 .geometry3d-style .is-danger { padding: 5px; border-radius: 5px; color: #91352f; background: #f7e6e2; font-size: 8px; }
@@ -919,6 +932,7 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry3d-point-editor { position: absolute; z-index: 5; left: 10px; bottom: 10px; display: flex; gap: 5px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,254,250,.95); }
 .geometry3d-point-editor label { display: flex; align-items: center; gap: 3px; color: var(--muted); font-size: 8px; }
 .geometry3d-point-editor input { width: 62px; padding: 4px; border: 1px solid var(--border); border-radius: 5px; }
+.geometry3d-point-editor > button { padding: 4px 7px; border-radius: 5px; color: #973b32; background: #f8e7e3; font-size: 8px; font-weight: 700; }
 .geometry3d-help { position: absolute; right: 10px; bottom: 8px; margin: 0; color: var(--muted); font-size: 7px; }
 .geometry-sidebar { min-width: 0; padding: 10px; overflow-y: auto; border: 0; border-right: 1px solid var(--border); border-radius: 0; background: #f6f4ee; }
 .geometry-sidebar > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
