@@ -20,6 +20,23 @@ export interface Geometry3DWireframe {
   faces: Vector3[][];
 }
 
+export const GEOMETRY_3D_ORBIT_RADIANS_PER_PIXEL = .004;
+
+export function orbitGeometry3DCamera<T extends { yaw: number; pitch: number }>(
+  camera: T,
+  deltaX: number,
+  deltaY: number,
+): T {
+  return {
+    ...camera,
+    // Geometry3D's projection convention is the inverse of Graph3D's camera
+    // transform. Increasing yaw for a rightward drag matches Desmos's
+    // grab-and-rotate direction for this canvas.
+    yaw: camera.yaw + deltaX * GEOMETRY_3D_ORBIT_RADIANS_PER_PIXEL,
+    pitch: Math.max(-1.5, Math.min(1.5, camera.pitch + deltaY * GEOMETRY_3D_ORBIT_RADIANS_PER_PIXEL)),
+  };
+}
+
 const point = (x: number, y: number, z: number): Vector3 => ({ x, y, z });
 
 function ring(rx: number, ry: number, z: number, segments = 32): Vector3[] {
