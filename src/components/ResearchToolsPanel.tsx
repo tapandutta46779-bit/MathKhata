@@ -408,6 +408,7 @@ function useSmoothViewportZoom(
   const viewportRef = useRef(viewport);
   const targetScaleRef = useRef(viewport.scale);
   const animationRef = useRef<number | null>(null);
+  const animationStartRef = useRef({ time: 0, scale: viewport.scale });
   viewportRef.current = viewport;
 
   const cancelAnimation = useCallback(() => {
@@ -419,17 +420,19 @@ function useSmoothViewportZoom(
   const animateScale = useCallback((factor: number) => {
     targetScaleRef.current = Math.max(minimumScale, Math.min(maximumScale, targetScaleRef.current * factor));
     if (animationRef.current !== null) return;
-    const step = () => {
-      const currentScale = viewportRef.current.scale;
+    animationStartRef.current = { time: performance.now(), scale: viewportRef.current.scale };
+    const step = (timestamp: number) => {
+      const start = animationStartRef.current;
       const targetScale = targetScaleRef.current;
-      const remaining = targetScale - currentScale;
-      const nextScale = Math.abs(remaining) < .08 ? targetScale : currentScale + remaining * .34;
+      const progress = Math.min(1, Math.max(0, (timestamp - start.time) / 180));
+      const eased = 1 - (1 - progress) ** 3;
+      const nextScale = progress >= 1 ? targetScale : start.scale * (targetScale / start.scale) ** eased;
       setViewport((current) => {
         const next = { ...current, scale: nextScale };
         viewportRef.current = next;
         return next;
       });
-      if (nextScale === targetScale) {
+      if (progress >= 1) {
         animationRef.current = null;
         return;
       }
