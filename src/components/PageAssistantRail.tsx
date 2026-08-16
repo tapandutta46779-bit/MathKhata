@@ -273,10 +273,23 @@ export function PageAssistantRail() {
       : request);
   }
 
+  useEffect(() => {
+    const askFromResearch = (event: Event) => {
+      const question = (event as CustomEvent<string>).detail;
+      if (!question) return;
+      openAssistant();
+      setAssistantView('chat');
+      if (aion.status === 'ready') submitAION(question);
+      else setAionQuestion(question);
+    };
+    window.addEventListener('mathnotebook:aion-question', askFromResearch);
+    return () => window.removeEventListener('mathnotebook:aion-question', askFromResearch);
+  }, [aion.status, context]);
+
   function explainGroupWithAION(group: PageProblemGroup, groupIndex: number) {
     if (!context || aion.status !== 'ready') return;
     const lines = group.items.map((item, index) => {
-      const value = item.object.type === 'math' ? item.object.latex : item.object.text;
+      const value = item.object.type === 'math' ? item.object.latex : item.object.type === 'text' ? item.object.text : item.object.snapshot.title;
       return `${index + 1}. ${item.object.type}: ${value}`;
     }).join('\n');
     submitAION([
@@ -517,7 +530,7 @@ export function PageAssistantRail() {
                     <span>Line {analysis.orderedObjectIds.indexOf(item.object.id) + 1}</span>
                     {item.object.type === 'math'
                       ? <ReadOnlyMath latex={item.object.latex} label={`Page line ${itemIndex + 1}`} />
-                      : <q>{item.object.text}</q>}
+                      : item.object.type === 'text' ? <q>{item.object.text}</q> : <q>{item.object.snapshot.title}</q>}
                     {item.issue && <small>{item.issue}</small>}
                   </button>
                 ))}

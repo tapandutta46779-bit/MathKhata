@@ -3,6 +3,7 @@ import { focusMathfield } from '../editor/mathfieldRegistry';
 import { useNotebookStore } from '../store/notebookStore';
 import { MathEditor } from './MathEditor';
 import { TextEditor } from './TextEditor';
+import { ResearchObjectView } from './ResearchObjectView';
 
 export function PageObjectView({ object }: { object: PageObject }) {
   const selected = useNotebookStore((state) => state.selectedObjectId === object.id);
@@ -30,7 +31,9 @@ export function PageObjectView({ object }: { object: PageObject }) {
         if (object.type === 'math') focusMathfield(object.id);
       }}
     >
-      {object.type === 'math' ? <MathEditor object={object} /> : <TextEditor object={object} />}
+      {object.type === 'math'
+        ? <MathEditor object={object} />
+        : object.type === 'text' ? <TextEditor object={object} /> : <ResearchObjectView object={object} />}
     </section>
   );
 }

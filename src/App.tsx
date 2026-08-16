@@ -14,6 +14,7 @@ import { VoicePanel } from './components/VoicePanel';
 import { FloatingCalculator } from './components/FloatingCalculator';
 import { ResearchToolsPanel } from './components/ResearchToolsPanel';
 import { MathKeyboardDismiss } from './components/MathKeyboardDismiss';
+import { PrintableNotebook } from './components/PrintableNotebook';
 import type { WritingMode } from './components/ContinuousLineComposer';
 import { useNotebookStore } from './store/notebookStore';
 
@@ -29,8 +30,10 @@ function isEditingTarget(target: EventTarget | null): boolean {
 
 export default function App() {
   const [researchOpen, setResearchOpen] = useState(false);
+  const [researchObjectId, setResearchObjectId] = useState<string | null>(null);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [writingMode, setWritingMode] = useState<WritingMode>('auto');
+  const [printPageIds, setPrintPageIds] = useState<string[]>([]);
   const notebook = useNotebookStore((state) => state.notebook);
   const hydrated = useNotebookStore((state) => state.hydrated);
   const currentPageId = useNotebookStore((state) => state.currentPageId);
@@ -47,7 +50,7 @@ export default function App() {
   const deleteSelectedObject = useNotebookStore((state) => state.deleteSelectedObject);
   const duplicateSelectedObject = useNotebookStore((state) => state.duplicateSelectedObject);
   const clearError = useNotebookStore((state) => state.clearError);
-  const closeResearch = useCallback(() => setResearchOpen(false), []);
+  const closeResearch = useCallback(() => { setResearchOpen(false); setResearchObjectId(null); }, []);
 
   useEffect(() => {
     void initialize();
@@ -117,6 +120,18 @@ export default function App() {
         }
         return;
       }
+      if (!editingTarget && !liveState.editingObjectId && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) && liveState.selectedObjectId) {
+        const selected = liveState.notebook?.pages.find((page) => page.id === liveState.currentPageId)?.objects.find((object) => object.id === liveState.selectedObjectId);
+        if (selected?.type === 'research') {
+          event.preventDefault();
+          const amount = event.shiftKey ? 10 : 1;
+          liveState.moveObject(selected.id, {
+            x: selected.x + (event.key === 'ArrowLeft' ? -amount : event.key === 'ArrowRight' ? amount : 0),
+            y: selected.y + (event.key === 'ArrowUp' ? -amount : event.key === 'ArrowDown' ? amount : 0),
+          });
+          return;
+        }
+      }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && !editingTarget) {
         if (key === 'm') {
           setWritingMode('math');
@@ -152,6 +167,35 @@ export default function App() {
     if (command === 'print') window.print();
   }), [redo, saveNow, undo]);
 
+  useEffect(() => {
+    const printPages = (event: Event) => {
+      const ids = (event as CustomEvent<string[]>).detail;
+      if (!Array.isArray(ids) || ids.length === 0) return;
+      setPrintPageIds(ids);
+      requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+    };
+    const clearPrintPages = () => setPrintPageIds([]);
+    window.addEventListener('mathnotebook:print-pages', printPages);
+    window.addEventListener('afterprint', clearPrintPages);
+    return () => {
+      window.removeEventListener('mathnotebook:print-pages', printPages);
+      window.removeEventListener('afterprint', clearPrintPages);
+    };
+  }, []);
+
+  useEffect(() => {
+    const editResearchObject = (event: Event) => {
+      const objectId = (event as CustomEvent<string>).detail;
+      const exists = useNotebookStore.getState().notebook?.pages.some((page) => page.objects.some((object) => object.id === objectId && object.type === 'research'));
+      if (!exists) return;
+      window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'research-tools' }));
+      setResearchObjectId(objectId);
+      setResearchOpen(true);
+    };
+    window.addEventListener('mathnotebook:edit-research-object', editResearchObject);
+    return () => window.removeEventListener('mathnotebook:edit-research-object', editResearchObject);
+  }, []);
+
   if (!hydrated || !notebook) {
     return (
       <main className="loading-screen">
@@ -163,6 +207,7 @@ export default function App() {
 
   const currentPage = notebook.pages.find((page) => page.id === currentPageId) ?? notebook.pages[0];
   const pageNumber = notebook.pages.findIndex((page) => page.id === currentPage.id) + 1;
+  const editedResearchObject = notebook.pages.flatMap((page) => page.objects).find((object) => object.id === researchObjectId);
 
   return (
     <div className="app-shell">
@@ -181,6 +226,7 @@ export default function App() {
         onWritingModeChange={setWritingMode}
         onOpenResearch={() => {
           window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'research-tools' }));
+          setResearchObjectId(null);
           setResearchOpen(true);
         }}
         onToggleCalculator={() => setCalculatorOpen((open) => !open)}
@@ -190,8 +236,15 @@ export default function App() {
       {tool === 'voice' && <VoicePanel />}
       <PageAssistantRail />
       <NotebookLibrary />
-      <ResearchToolsPanel notebookId={notebook.id} open={researchOpen} onClose={closeResearch} />
+      <ResearchToolsPanel
+        notebookId={notebook.id}
+        open={researchOpen}
+        onClose={closeResearch}
+        workspaceObjectId={researchObjectId}
+        initialTool={editedResearchObject?.type === 'research' ? editedResearchObject.snapshot.kind : '2d'}
+      />
       <FloatingCalculator open={calculatorOpen} onToggle={() => setCalculatorOpen((open) => !open)} />
+      <PrintableNotebook pages={notebook.pages.filter((page) => printPageIds.includes(page.id))} allPages={notebook.pages} />
       {errorMessage && (
         <div className="error-toast" role="alert">
           <span>{errorMessage}</span>

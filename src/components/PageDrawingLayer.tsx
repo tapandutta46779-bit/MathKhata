@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import type { DrawingElement, DrawingKind, Page, Point } from '../domain/model';
+import type { DrawingElement, DrawingErasure, DrawingKind, Page, Point } from '../domain/model';
 import { useNotebookStore } from '../store/notebookStore';
 
 type DrawingTool = DrawingKind | 'eraser';
@@ -80,7 +80,7 @@ function drawingTouchesPoint(drawing: DrawingElement, point: Point, radius: numb
     pointToSegmentDistance(point, start, end) <= radius + drawing.width / 2);
 }
 
-function DrawingMark({ drawing, hitTarget = false }: { drawing: DrawingElement; hitTarget?: boolean }) {
+function DrawingMark({ drawing, markerId, hitTarget = false }: { drawing: DrawingElement; markerId: string; hitTarget?: boolean }) {
   const [start, end] = [drawing.points[0], drawing.points.at(-1) ?? drawing.points[0]];
   const common = {
     'data-drawing-id': drawing.id,
@@ -100,7 +100,7 @@ function DrawingMark({ drawing, hitTarget = false }: { drawing: DrawingElement; 
     return <ellipse {...common} cx={(start.x + end.x) / 2} cy={(start.y + end.y) / 2} rx={Math.abs(end.x - start.x) / 2} ry={Math.abs(end.y - start.y) / 2} />;
   }
   if (drawing.kind === 'line' || drawing.kind === 'arrow') {
-    return <line {...common} x1={start.x} y1={start.y} x2={end.x} y2={end.y} markerEnd={!hitTarget && drawing.kind === 'arrow' ? 'url(#page-arrowhead)' : undefined} />;
+    return <line {...common} x1={start.x} y1={start.y} x2={end.x} y2={end.y} markerEnd={!hitTarget && drawing.kind === 'arrow' ? `url(#${markerId})` : undefined} />;
   }
   if (drawing.kind === 'perpendicular') {
     const dx = end.x - start.x;
@@ -111,12 +111,51 @@ function DrawingMark({ drawing, hitTarget = false }: { drawing: DrawingElement; 
     const normal = { x: -dy / length, y: dx / length };
     return (
       <g data-drawing-id={drawing.id} pointerEvents={hitTarget ? 'stroke' : 'none'}>
-        <line {...common} x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
-        <line {...common} x1={middle.x - normal.x * half} y1={middle.y - normal.y * half} x2={middle.x + normal.x * half} y2={middle.y + normal.y * half} />
+        <line {...common} data-drawing-id={undefined} x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
+        <line {...common} data-drawing-id={undefined} x1={middle.x - normal.x * half} y1={middle.y - normal.y * half} x2={middle.x + normal.x * half} y2={middle.y + normal.y * half} />
       </g>
     );
   }
   return <path {...common} d={pathData(drawing.points, drawing.kind === 'polygon')} />;
+}
+
+function MaskedDrawingMark({
+  drawing,
+  markerId,
+  provisionalErasure,
+}: {
+  drawing: DrawingElement;
+  markerId: string;
+  provisionalErasure?: DrawingErasure;
+}) {
+  const safeId = drawing.id.replace(/[^a-zA-Z0-9_-]/g, '');
+  const maskId = `drawing-mask-${safeId}`;
+  const erasures = provisionalErasure ? [...drawing.erasures, provisionalErasure] : drawing.erasures;
+  if (erasures.length === 0) return <DrawingMark drawing={drawing} markerId={markerId} />;
+  return (
+    <>
+      <defs>
+        <mask id={maskId} maskUnits="userSpaceOnUse" x="-100%" y="-100%" width="300%" height="300%">
+          <rect x="-100%" y="-100%" width="300%" height="300%" fill="white" />
+          {erasures.map((erasure) => (
+            <path
+              key={erasure.id}
+              d={pathData(erasure.points)}
+              fill="none"
+              stroke="black"
+              strokeWidth={erasure.width}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        </mask>
+      </defs>
+      <g mask={`url(#${maskId})`}>
+        <DrawingMark drawing={drawing} markerId={markerId} />
+      </g>
+    </>
+  );
 }
 
 function createDraft(kind: DrawingKind, color: string, width: number, point: Point): DrawingElement {
@@ -128,6 +167,7 @@ function createDraft(kind: DrawingKind, color: string, width: number, point: Poi
     width: kind === 'highlighter' ? Math.max(10, width * 2.2) : width,
     opacity: kind === 'highlighter' ? 0.28 : 1,
     points: [point, point],
+    erasures: [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -135,20 +175,22 @@ function createDraft(kind: DrawingKind, color: string, width: number, point: Poi
 
 export function PageDrawingLayer({ page }: { page: Page }) {
   const active = useNotebookStore((state) => state.tool === 'draw');
-  const setTool = useNotebookStore((state) => state.setTool);
   const addDrawing = useNotebookStore((state) => state.addDrawing);
-  const removeDrawings = useNotebookStore((state) => state.removeDrawings);
+  const eraseDrawingRegions = useNotebookStore((state) => state.eraseDrawingRegions);
   const undoLastDrawing = useNotebookStore((state) => state.undoLastDrawing);
+  const [toolbarOpen, setToolbarOpen] = useState(true);
   const [tool, setDrawingTool] = useState<DrawingTool>('pen');
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(3);
   const [eraserSize, setEraserSize] = useState(30);
   const [eraserCursor, setEraserCursor] = useState<Point | null>(null);
   const [erasedIds, setErasedIds] = useState<Set<string>>(() => new Set());
+  const [eraserPath, setEraserPath] = useState<Point[]>([]);
   const [draft, setDraft] = useState<DrawingElement | null>(null);
   const draftRef = useRef<DrawingElement | null>(null);
   const pointerIdRef = useRef<number | null>(null);
   const erasedIdsRef = useRef<Set<string>>(new Set());
+  const eraserPathRef = useRef<Point[]>([]);
   const lastEraserPointRef = useRef<Point | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const markerId = useMemo(() => `page-arrowhead-${page.id.replace(/[^a-zA-Z0-9_-]/g, '')}`, [page.id]);
@@ -156,6 +198,18 @@ export function PageDrawingLayer({ page }: { page: Page }) {
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+
+  useEffect(() => {
+    if (active) setToolbarOpen(true);
+  }, [active]);
+
+  useEffect(() => {
+    const toggle = () => {
+      if (active) setToolbarOpen((value) => !value);
+    };
+    window.addEventListener('mathnotebook:toggle-drawing-tools', toggle);
+    return () => window.removeEventListener('mathnotebook:toggle-drawing-tools', toggle);
+  }, [active]);
 
   function eventPoint(event: ReactPointerEvent<SVGSVGElement>): Point {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -193,6 +247,8 @@ export function PageDrawingLayer({ page }: { page: Page }) {
       lastEraserPointRef.current = point;
       erasedIdsRef.current = new Set();
       setErasedIds(new Set());
+      eraserPathRef.current = [point, point];
+      setEraserPath([point, point]);
       setEraserCursor(point);
       eraseAt(point);
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -221,6 +277,8 @@ export function PageDrawingLayer({ page }: { page: Page }) {
           y: previous.y + (point.y - previous.y) * index / samples,
         });
       }
+      eraserPathRef.current = [...eraserPathRef.current, point];
+      setEraserPath(eraserPathRef.current);
       lastEraserPointRef.current = point;
       return;
     }
@@ -239,11 +297,21 @@ export function PageDrawingLayer({ page }: { page: Page }) {
     event.stopPropagation();
     if (tool === 'eraser') {
       const ids = [...erasedIdsRef.current];
+      const points = eraserPathRef.current;
       pointerIdRef.current = null;
       lastEraserPointRef.current = null;
       erasedIdsRef.current = new Set();
+      eraserPathRef.current = [];
       setErasedIds(new Set());
-      if (ids.length > 0) removeDrawings(ids);
+      setEraserPath([]);
+      if (ids.length > 0 && points.length > 0) {
+        eraseDrawingRegions(ids, {
+          id: crypto.randomUUID(),
+          width: eraserSize,
+          points,
+          createdAt: new Date().toISOString(),
+        });
+      }
       return;
     }
     const completed = draftRef.current;
@@ -272,16 +340,25 @@ export function PageDrawingLayer({ page }: { page: Page }) {
         }}
       >
         <defs>
-          <marker id="page-arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-            <path d="M0,0 L8,4 L0,8 Z" fill="context-stroke" />
-          </marker>
           <marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
             <path d="M0,0 L8,4 L0,8 Z" fill="context-stroke" />
           </marker>
         </defs>
         <g className="page-drawing-layer__marks">
-          {page.drawings.filter((drawing) => !erasedIds.has(drawing.id)).map((drawing) => <DrawingMark key={drawing.id} drawing={drawing} />)}
-          {draft && <DrawingMark drawing={draft} />}
+          {page.drawings.map((drawing) => (
+            <MaskedDrawingMark
+              key={drawing.id}
+              drawing={drawing}
+              markerId={markerId}
+              provisionalErasure={erasedIds.has(drawing.id) && eraserPath.length > 0 ? {
+                id: 'provisional-eraser',
+                width: eraserSize,
+                points: eraserPath,
+                createdAt: '',
+              } : undefined}
+            />
+          ))}
+          {draft && <DrawingMark drawing={draft} markerId={markerId} />}
         </g>
         {active && tool === 'eraser' && eraserCursor && (
           <circle
@@ -293,11 +370,11 @@ export function PageDrawingLayer({ page }: { page: Page }) {
           />
         )}
       </svg>
-      {active && (
+      {active && toolbarOpen && (
         <aside className="drawing-toolbar" aria-label="Drawing tools">
           <header>
             <strong>Draw on paper</strong>
-            <button type="button" aria-label="Close drawing tools" onClick={() => setTool('select')}>×</button>
+            <button type="button" aria-label="Close drawing tools" onClick={() => setToolbarOpen(false)}>×</button>
           </header>
           <div className="drawing-toolbar__tools">
             {TOOL_OPTIONS.map((option) => (
@@ -340,6 +417,15 @@ export function PageDrawingLayer({ page }: { page: Page }) {
                       onClick={() => setColor(option)}
                     />
                   ))}
+                  <label className="drawing-color-picker" title="Choose any color">
+                    <span>+</span>
+                    <input
+                      aria-label="Custom pen color"
+                      type="color"
+                      value={color}
+                      onChange={(event) => setColor(event.target.value)}
+                    />
+                  </label>
                 </div>
                 <label>
                   Nib <input aria-label="Pen nib width" type="range" min="1" max="18" step="1" value={width} onChange={(event) => setWidth(Number(event.target.value))} />

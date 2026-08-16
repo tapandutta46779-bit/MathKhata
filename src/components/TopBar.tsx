@@ -45,6 +45,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
   const setLibraryOpen = useNotebookStore((state) => state.setLibraryOpen);
   const createNewNotebook = useNotebookStore((state) => state.createNewNotebook);
   const importNotebook = useNotebookStore((state) => state.importNotebook);
+  const resetNotebook = useNotebookStore((state) => state.resetNotebook);
   const [title, setTitle] = useState(notebook.title);
   const [menuOpen, setMenuOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -280,6 +281,17 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
             <button type="button" role="menuitem" onClick={exportNotebook}>Export structured JSON</button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); fileInput.current?.click(); }}>Import JSON…</button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); window.print(); }}>Print / Save PDF…</button>
+            <button
+              type="button"
+              role="menuitem"
+              className="overflow-menu__danger"
+              onClick={() => {
+                setMenuOpen(false);
+                if (window.confirm('Reset this notebook to one blank page? Its title, preferences, and AION setup are preserved. You can undo this action.')) resetNotebook();
+              }}
+            >
+              Reset current notebook…
+            </button>
             {!window.mathKhataDesktop && (
               <button
                 type="button"

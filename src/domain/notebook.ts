@@ -6,11 +6,15 @@ import {
   SCHEMA_VERSION,
   type MathObject,
   type DrawingElement,
+  type DrawingErasure,
   type Notebook,
   type Page,
   type PageObject,
   type Point,
   type TextObject,
+  type ResearchObject,
+  type ResearchSnapshot,
+  type ResearchValue,
 } from './model';
 
 type IdFactory = () => string;
@@ -40,6 +44,8 @@ export function createPage(order = 0, options: FactoryOptions = {}): Page {
     updatedAt: timestamp,
     objects: [],
     drawings: [],
+    favorite: false,
+    highlightColor: null,
   };
 }
 
@@ -53,6 +59,7 @@ export function createNotebook(title = 'Untitled notebook', options: FactoryOpti
     createdAt: timestamp,
     updatedAt: timestamp,
     pages: [createPage(0, { id, now })],
+    research: { values: {} },
   };
 }
 
@@ -95,6 +102,20 @@ export function createTextObject(
     text,
     width: 280,
     height: 92,
+  };
+}
+
+export function createResearchObject(
+  point: Point,
+  snapshot: ResearchSnapshot,
+  options: FactoryOptions = {},
+): ResearchObject {
+  return {
+    ...baseObject(point, options),
+    type: 'research',
+    snapshot,
+    width: 440,
+    height: 290,
   };
 }
 
@@ -153,6 +174,91 @@ export function movePage(
   );
 }
 
+export function updatePageMetadata(
+  notebook: Notebook,
+  pageIds: string[],
+  patch: Partial<Pick<Page, 'favorite' | 'highlightColor'>>,
+  now: DateFactory = defaultDate,
+): Notebook {
+  const targets = new Set(pageIds);
+  let changed = false;
+  const timestamp = now();
+  const pages = notebook.pages.map((page) => {
+    if (!targets.has(page.id)) return page;
+    changed = true;
+    return { ...page, ...patch, updatedAt: timestamp };
+  });
+  return changed ? updateNotebook(notebook, pages, now) : notebook;
+}
+
+export function resetPages(
+  notebook: Notebook,
+  pageIds: string[],
+  now: DateFactory = defaultDate,
+): Notebook {
+  const targets = new Set(pageIds);
+  let changed = false;
+  const timestamp = now();
+  const pages = notebook.pages.map((page) => {
+    if (!targets.has(page.id) || (page.objects.length === 0 && page.drawings.length === 0)) return page;
+    changed = true;
+    return { ...page, objects: [], drawings: [], updatedAt: timestamp };
+  });
+  return changed ? updateNotebook(notebook, pages, now) : notebook;
+}
+
+export function deletePages(
+  notebook: Notebook,
+  pageIds: string[],
+  options: FactoryOptions = {},
+): Notebook {
+  const targets = new Set(pageIds);
+  if (targets.size === 0) return notebook;
+  const { id, now } = factories(options);
+  let pages = notebook.pages.filter((page) => !targets.has(page.id));
+  if (pages.length === 0) pages = [createPage(0, { id, now })];
+  if (pages.length === notebook.pages.length) return notebook;
+  return updateNotebook(notebook, pages.map((page, order) => ({ ...page, order })), now);
+}
+
+export function resetNotebookContent(
+  notebook: Notebook,
+  options: FactoryOptions = {},
+): Notebook {
+  const { id, now } = factories(options);
+  return {
+    ...notebook,
+    pages: [createPage(0, { id, now })],
+    research: { values: {} },
+    updatedAt: now(),
+  };
+}
+
+export function updateResearchValue(
+  notebook: Notebook,
+  key: string,
+  value: ResearchValue,
+  now: DateFactory = defaultDate,
+): Notebook {
+  if (notebook.research.values[key] === value) return notebook;
+  return {
+    ...notebook,
+    research: { values: { ...notebook.research.values, [key]: value } },
+    updatedAt: now(),
+  };
+}
+
+export function resetResearchValues(
+  notebook: Notebook,
+  prefixes: string[],
+  now: DateFactory = defaultDate,
+): Notebook {
+  const values = Object.fromEntries(Object.entries(notebook.research.values)
+    .filter(([key]) => !prefixes.some((prefix) => key.startsWith(prefix))));
+  if (Object.keys(values).length === Object.keys(notebook.research.values).length) return notebook;
+  return { ...notebook, research: { values }, updatedAt: now() };
+}
+
 export function addObject(
   notebook: Notebook,
   pageId: string,
@@ -173,7 +279,8 @@ export function updateObject(
   objectId: string,
   patch: Partial<Pick<PageObject, 'x' | 'y' | 'width' | 'height' | 'zIndex'>> &
     Partial<Pick<MathObject, 'latex'>> &
-    Partial<Pick<TextObject, 'text'>>,
+    Partial<Pick<TextObject, 'text'>> &
+    Partial<Pick<ResearchObject, 'snapshot'>>,
   now: DateFactory = defaultDate,
 ): Notebook {
   let changed = false;
@@ -315,6 +422,29 @@ export function removeDrawing(
     if (drawings.length === page.drawings.length) return page;
     changed = true;
     return { ...page, drawings, updatedAt: now() };
+  });
+  return changed ? updateNotebook(notebook, pages, now) : notebook;
+}
+
+export function eraseDrawingRegions(
+  notebook: Notebook,
+  pageId: string,
+  drawingIds: string[],
+  erasure: DrawingErasure,
+  now: DateFactory = defaultDate,
+): Notebook {
+  const targets = new Set(drawingIds);
+  if (targets.size === 0) return notebook;
+  let changed = false;
+  const pages = notebook.pages.map((page) => {
+    if (page.id !== pageId) return page;
+    const timestamp = now();
+    const drawings = page.drawings.map((drawing) => {
+      if (!targets.has(drawing.id)) return drawing;
+      changed = true;
+      return { ...drawing, erasures: [...drawing.erasures, erasure], updatedAt: timestamp };
+    });
+    return changed ? { ...page, drawings, updatedAt: timestamp } : page;
   });
   return changed ? updateNotebook(notebook, pages, now) : notebook;
 }

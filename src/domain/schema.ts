@@ -1,10 +1,22 @@
 import { z } from 'zod';
-import { SCHEMA_VERSION, type MathKhataExport, type Notebook } from './model';
+import { SCHEMA_VERSION, type MathKhataExport, type Notebook, type ResearchValue } from './model';
 
 const dateSchema = z.string().datetime({ offset: true });
 const coordinateSchema = z.number().finite().min(0).max(20_000);
 const sizeSchema = z.number().finite().positive().max(20_000);
 const drawingPointSchema = z.object({ x: coordinateSchema, y: coordinateSchema }).strict();
+const researchValueSchema: z.ZodType<ResearchValue> = z.lazy(() => z.union([
+  z.null(), z.boolean(), z.number().finite(), z.string().max(8_000_000),
+  z.array(researchValueSchema).max(100_000),
+  z.record(z.string().max(300), researchValueSchema),
+]));
+
+const drawingErasureSchema = z.object({
+  id: z.string().min(1).max(200),
+  width: z.number().finite().min(1).max(240),
+  points: z.array(drawingPointSchema).min(1).max(20_000),
+  createdAt: dateSchema,
+}).strict();
 
 export const drawingElementSchema = z.object({
   id: z.string().min(1).max(200),
@@ -13,6 +25,7 @@ export const drawingElementSchema = z.object({
   width: z.number().finite().min(0.5).max(80),
   opacity: z.number().finite().min(0.05).max(1),
   points: z.array(drawingPointSchema).min(2).max(20_000),
+  erasures: z.array(drawingErasureSchema).max(10_000),
   createdAt: dateSchema,
   updatedAt: dateSchema,
 }).strict();
@@ -50,7 +63,18 @@ export const textObjectSchema = z
   })
   .strict();
 
-export const pageObjectSchema = z.discriminatedUnion('type', [mathObjectSchema, textObjectSchema]);
+export const researchObjectSchema = z.object({
+  ...baseObjectShape,
+  type: z.literal('research'),
+  snapshot: z.object({
+    kind: z.enum(['2d', '3d', 'geometry', 'geometry3d']),
+    title: z.string().min(1).max(200),
+    values: z.record(z.string().max(300), researchValueSchema),
+    previewDataUrl: z.string().max(8_000_000).nullable(),
+  }).strict(),
+}).strict();
+
+export const pageObjectSchema = z.discriminatedUnion('type', [mathObjectSchema, textObjectSchema, researchObjectSchema]);
 
 export const pageSchema = z
   .object({
@@ -62,6 +86,8 @@ export const pageSchema = z
     updatedAt: dateSchema,
     objects: z.array(pageObjectSchema).max(10_000),
     drawings: z.array(drawingElementSchema).max(20_000),
+    favorite: z.boolean(),
+    highlightColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
   })
   .strict();
 
@@ -73,6 +99,7 @@ export const notebookSchema = z
     createdAt: dateSchema,
     updatedAt: dateSchema,
     pages: z.array(pageSchema).min(1).max(1_000),
+    research: z.object({ values: z.record(z.string().max(300), researchValueSchema) }).strict(),
   })
   .strict()
   .superRefine((notebook, context) => {
@@ -128,6 +155,27 @@ const notebookMigrations: Partial<Record<number, NotebookMigration>> = Object.fr
       ))
       : value.pages,
   }),
+  2: (value: Record<string, unknown>) => ({
+    ...value,
+    schemaVersion: 3,
+    research: { values: {} },
+    pages: Array.isArray(value.pages)
+      ? value.pages.map((page: unknown) => (
+        typeof page === 'object' && page !== null
+          ? {
+            ...page,
+            favorite: false,
+            highlightColor: null,
+            drawings: Array.isArray((page as { drawings?: unknown }).drawings)
+              ? ((page as { drawings: unknown[] }).drawings).map((drawing) => (
+                typeof drawing === 'object' && drawing !== null ? { ...drawing, erasures: [] } : drawing
+              ))
+              : [],
+          }
+          : page
+      ))
+      : value.pages,
+  }),
 });
 
 export function migrateNotebook(value: unknown): unknown {
@@ -176,6 +224,13 @@ export function normalizeNotebook(notebook: Notebook): Notebook {
           points: drawing.points.map((point) => ({
             x: Math.min(Math.max(0, point.x), page.width),
             y: Math.min(Math.max(0, point.y), page.height),
+          })),
+          erasures: drawing.erasures.map((erasure) => ({
+            ...erasure,
+            points: erasure.points.map((point) => ({
+              x: Math.min(Math.max(0, point.x), page.width),
+              y: Math.min(Math.max(0, point.y), page.height),
+            })),
           })),
         })),
         objects: page.objects.map((object) => ({

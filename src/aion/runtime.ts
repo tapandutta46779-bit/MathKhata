@@ -22,7 +22,7 @@ export function aionPageObjectText(context: NotebookContext): string {
   return [...context.currentPage.objects]
     .sort((left, right) => left.y - right.y || left.x - right.x || left.zIndex - right.zIndex)
     .map((object, index) => {
-      const content = object.type === 'math' ? object.latex : object.text;
+      const content = object.type === 'math' ? object.latex : object.type === 'text' ? object.text : `[${object.snapshot.title} research snapshot]`;
       return `${index + 1}. ${object.type.toUpperCase()} at (${object.x}, ${object.y}): ${content}`;
     })
     .join('\n');

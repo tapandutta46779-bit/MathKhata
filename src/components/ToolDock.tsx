@@ -168,7 +168,10 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
           aria-pressed={activeTool === 'draw'}
           aria-label="Draw on page"
           title="Draw on page"
-          onClick={() => setTool(activeTool === 'draw' ? 'select' : 'draw')}
+          onClick={() => {
+            if (activeTool === 'draw') window.dispatchEvent(new Event('mathnotebook:toggle-drawing-tools'));
+            else setTool('draw');
+          }}
         >
           <span className="tool-icon" aria-hidden="true">✎</span><span>Draw</span>
         </button>

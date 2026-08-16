@@ -79,7 +79,7 @@ test('ruled page is the editor and stores mixed text and structured math line by
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(Buffer.from(chunk));
   const exported = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  expect(exported).toMatchObject({ format: 'mathkhata-notebook', schemaVersion: 2 });
+  expect(exported).toMatchObject({ format: 'mathkhata-notebook', schemaVersion: 3 });
   expect(exported.notebook.pages[0].objects).toHaveLength(4);
   expect(exported.notebook.pages[0].drawings).toEqual([]);
 });
@@ -167,8 +167,26 @@ test('Pen draws with an ordinary mouse or trackpad pointer and geometry strokes 
   await page.mouse.move(bounds.x + 230, bounds.y + 190, { steps: 8 });
   await page.mouse.move(bounds.x + 280, bounds.y + 160, { steps: 8 });
   await page.mouse.up();
-  const savedMarks = canvas.locator('.page-drawing-layer__marks > [data-drawing-id]');
+  const savedMarks = canvas.locator('.page-drawing-layer__marks [data-drawing-id]');
   await expect(savedMarks).toHaveCount(1);
+
+  // Closing controls does not exit Draw. The dock button reopens them, and
+  // arbitrary native-picker colors are retained for the next mouse stroke.
+  await toolbar.getByRole('button', { name: 'Close drawing tools' }).click();
+  await expect(toolbar).toBeHidden();
+  await page.mouse.move(bounds.x + 120, bounds.y + 250);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 190, bounds.y + 265, { steps: 6 });
+  await page.mouse.up();
+  await expect(savedMarks).toHaveCount(2);
+  await page.getByRole('button', { name: 'Draw on page' }).click();
+  await expect(toolbar).toBeVisible();
+  await toolbar.getByLabel('Custom pen color').fill('#12a4c7');
+  await page.mouse.move(bounds.x + 120, bounds.y + 300);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 220, bounds.y + 315, { steps: 6 });
+  await page.mouse.up();
+  await expect(savedMarks.last()).toHaveAttribute('stroke', '#12a4c7');
 
   await toolbar.getByRole('button', { name: 'Rectangle' }).click();
   await toolbar.getByRole('button', { name: 'Use color #a33d32' }).click();
@@ -189,13 +207,13 @@ test('Pen draws with an ordinary mouse or trackpad pointer and geometry strokes 
   await page.mouse.down();
   await page.mouse.move(bounds.x + 410, bounds.y + 460, { steps: 5 });
   await page.mouse.up();
-  await expect(savedMarks).toHaveCount(4);
+  await expect(savedMarks).toHaveCount(6);
 
   await toolbar.getByRole('button', { name: 'Undo stroke' }).click();
-  await expect(savedMarks).toHaveCount(3);
+  await expect(savedMarks).toHaveCount(5);
   await expect(page.getByRole('button', { name: /Saved locally/ })).toBeVisible({ timeout: 10_000 });
   await page.reload();
-  await expect(page.getByLabel('Saved page drawings').locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(3);
+  await expect(page.getByLabel('Saved page drawings').locator('.page-drawing-layer__marks [data-drawing-id]')).toHaveCount(5);
 
   // Erasing is also an ordinary mouse/trackpad gesture. One drag is committed
   // as one history action and cannot touch text, math, or the ruled paper.
@@ -215,17 +233,21 @@ test('Pen draws with an ordinary mouse or trackpad pointer and geometry strokes 
   await page.mouse.down();
   await page.mouse.move(eraseBounds.x + 300, eraseBounds.y + 205, { steps: 12 });
   await page.mouse.up();
-  await expect(activeCanvas.locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(2);
+  await expect(activeCanvas.locator('.page-drawing-layer__marks [data-drawing-id]')).toHaveCount(5);
+  await expect(activeCanvas.locator('mask path')).toHaveCount(1);
   await expect(page.getByTestId('page-object-text')).toHaveCount(1);
   await expect(page.getByTestId('page-object-math')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(activeCanvas.locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(3);
+  await expect(activeCanvas.locator('.page-drawing-layer__marks [data-drawing-id]')).toHaveCount(5);
+  await expect(activeCanvas.locator('mask path')).toHaveCount(0);
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
-  await expect(activeCanvas.locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(2);
+  await expect(activeCanvas.locator('.page-drawing-layer__marks [data-drawing-id]')).toHaveCount(5);
+  await expect(activeCanvas.locator('mask path')).toHaveCount(1);
   await expect(page.getByRole('button', { name: /Saved locally/ })).toBeVisible({ timeout: 10_000 });
   await page.reload();
-  await expect(page.getByLabel('Saved page drawings').locator('.page-drawing-layer__marks > [data-drawing-id]')).toHaveCount(2);
+  await expect(page.getByLabel('Saved page drawings').locator('.page-drawing-layer__marks [data-drawing-id]')).toHaveCount(5);
+  await expect(page.getByLabel('Saved page drawings').locator('mask path')).toHaveCount(1);
 });
 
 test('integrals calculate from structured lines and notebook operations remain available', async ({ page }) => {
@@ -253,7 +275,27 @@ test('voice, research tools, and floating calculator remain available', async ({
   const research = page.getByTestId('research-tools-panel');
   await expect(research).toBeVisible();
   await expect(research.getByLabel('Interactive 2D graph')).toBeVisible();
-  await research.getByRole('textbox', { name: 'Expression 1', exact: true }).fill('y=sin(x)');
+  const researchExpression = research.getByLabel('Expression 1', { exact: true });
+  await researchExpression.fill('y=sin(x)');
+  await researchExpression.click();
+  await research.getByRole('button', { name: 'Ω Symbols' }).click();
+  const researchPalette = page.getByTestId('math-palette');
+  await expect(researchPalette).toBeVisible();
+  await researchPalette.getByRole('tab', { name: 'Calculus', exact: true }).click();
+  await researchPalette.getByRole('button', { name: 'Insert Integral' }).click();
+  await expect.poll(() => researchExpression.evaluate((element: any) => element.value)).toContain('\\int');
+  await researchPalette.getByRole('button', { name: 'Close symbol palette' }).click();
+  await researchExpression.fill('y=sin(x)');
+  const researchInsert = research.getByRole('button', { name: '☰ Insert structures' });
+  await researchInsert.click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  const researchInsertBox = await researchInsert.boundingBox();
+  expect(researchInsertBox).not.toBeNull();
+  await page.mouse.click(
+    researchInsertBox!.x + researchInsertBox!.width / 2,
+    researchInsertBox!.y + researchInsertBox!.height / 2,
+  );
+  await expect(page.getByRole('menu')).toBeHidden();
   await research.getByRole('button', { name: 'Zoom in', exact: true }).click();
 
   await research.getByRole('button', { name: '3D Surface', exact: true }).click();
@@ -266,6 +308,22 @@ test('voice, research tools, and floating calculator remain available', async ({
   await research.getByLabel('Geometry construction expression').fill('circle((0,0),3)');
   await research.getByLabel('Geometry construction expression').press('Enter');
   await expect(research.getByLabel('Geometry objects', { exact: true })).toContainText('Circle');
+
+  await research.getByRole('button', { name: '3D Geometry', exact: true }).click();
+  await expect(research.getByLabel('Interactive 3D geometry canvas')).toBeVisible();
+  await research.getByLabel('3D geometry construction expression').fill('point(1,2,3)');
+  await research.getByLabel('3D geometry construction expression').press('Enter');
+  await expect(research.getByText('Point created.')).toBeVisible();
+  await research.getByRole('button', { name: 'Copy to notebook' }).click();
+  await expect(research.getByRole('dialog', { name: 'Copy research to notebook' })).toBeVisible();
+  await research.getByRole('button', { name: 'Copy and open page' }).click();
+  await expect(research).toBeHidden();
+  const researchCard = page.locator('.research-object-card');
+  await expect(researchCard).toBeVisible();
+  await researchCard.dblclick();
+  await expect(research).toContainText('Edit page research copy');
+  await research.getByRole('button', { name: 'Save page copy' }).click();
+  await expect(research).toContainText('Page copy preview saved.');
   await research.getByRole('button', { name: 'Close research tools' }).click();
 
   await page.getByRole('button', { name: 'Toggle floating calculator' }).click();
@@ -273,6 +331,29 @@ test('voice, research tools, and floating calculator remain available', async ({
   await calculator.getByLabel('Calculator expression').fill('6*4');
   await calculator.getByLabel('Calculator expression').press('Enter');
   await expect(calculator).toContainText('24');
+});
+
+test('page selection manages favorites, highlights, printing, deletion, and undo without reordering', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '+ Add page' }).click();
+  await page.getByRole('button', { name: '+ Add page' }).click();
+  await expect(page.getByText('Page 3 of 3')).toBeVisible();
+  await page.getByRole('button', { name: 'Select pages' }).click();
+  await page.getByLabel('Select page 1').check();
+  await page.getByLabel('Select page 3').check();
+  await expect(page.getByText('2 selected')).toBeVisible();
+  await page.getByRole('button', { name: /Favorite/ }).click();
+  await page.getByLabel('Page highlight color').fill('#ffd966');
+  await expect(page.locator('.thumbnail-favorite')).toHaveCount(2);
+  await page.evaluate(() => { (window as typeof window & { __printed?: boolean }).__printed = false; window.print = () => { (window as typeof window & { __printed?: boolean }).__printed = true; }; });
+  await page.getByRole('button', { name: 'Print', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __printed?: boolean }).__printed)).toBe(true);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByText('Page 1 of 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText(/Page \d of 3/)).toBeVisible();
+  await expect(page.locator('.thumbnail-favorite')).toHaveCount(2);
 });
 
 test('page remains viewport-safe at laptop and narrow widths', async ({ page }) => {

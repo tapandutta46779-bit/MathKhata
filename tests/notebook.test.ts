@@ -13,6 +13,14 @@ import {
   removeDrawing,
   removeObject,
   updateObject,
+  eraseDrawingRegions,
+  updatePageMetadata,
+  deletePages,
+  resetPages,
+  resetNotebookContent,
+  updateResearchValue,
+  resetResearchValues,
+  createResearchObject,
 } from '../src/domain/notebook';
 import { DEFAULT_PAGE_HEIGHT, DEFAULT_PAGE_WIDTH, SCHEMA_VERSION } from '../src/domain/model';
 
@@ -119,6 +127,7 @@ describe('notebook domain', () => {
       width: 3,
       opacity: 1,
       points: [{ x: 90, y: 90 }, { x: 130, y: 120 }],
+      erasures: [],
       createdAt: factories.now(),
       updatedAt: factories.now(),
     };
@@ -126,5 +135,52 @@ describe('notebook domain', () => {
     expect(withDrawing.pages[0].drawings).toEqual([drawing]);
     expect(withDrawing.pages[0].objects).toEqual([]);
     expect(removeDrawing(withDrawing, pageId, drawing.id, factories.now).pages[0].drawings).toEqual([]);
+  });
+
+  it('records a partial eraser path only on the drawings it intersects', () => {
+    const factories = deterministicFactories();
+    const initial = createNotebook('Partial erase', factories);
+    const pageId = initial.pages[0].id;
+    const first = { id: 'first', kind: 'pen' as const, color: '#111', width: 3, opacity: 1, points: [{ x: 10, y: 10 }, { x: 100, y: 10 }], erasures: [], createdAt: factories.now(), updatedAt: factories.now() };
+    const second = { ...first, id: 'second', points: [{ x: 10, y: 80 }, { x: 100, y: 80 }] };
+    const drawn = addDrawing(addDrawing(initial, pageId, first, factories.now), pageId, second, factories.now);
+    const erasure = { id: 'erase-1', width: 24, points: [{ x: 45, y: 5 }, { x: 55, y: 15 }], createdAt: factories.now() };
+    const erased = eraseDrawingRegions(drawn, pageId, ['first'], erasure, factories.now);
+    expect(erased.pages[0].drawings).toHaveLength(2);
+    expect(erased.pages[0].drawings[0].erasures).toEqual([erasure]);
+    expect(erased.pages[0].drawings[1].erasures).toEqual([]);
+    expect(drawn.pages[0].drawings[0].erasures).toEqual([]);
+  });
+
+  it('updates page markers, bulk resets/deletes in order, and resets only the current notebook', () => {
+    const factories = deterministicFactories();
+    let notebook = addPage(addPage(createNotebook('Pages', factories), factories), factories);
+    const ids = notebook.pages.map((page) => page.id);
+    notebook = updatePageMetadata(notebook, [ids[0], ids[2]], { favorite: true, highlightColor: '#ffee88' }, factories.now);
+    expect(notebook.pages.map((page) => page.favorite)).toEqual([true, false, true]);
+    const math = createMathObject({ x: 20, y: 30 }, 'x^2', factories);
+    notebook = addObject(notebook, ids[0], math, factories.now);
+    const reset = resetPages(notebook, [ids[0]], factories.now);
+    expect(reset.pages[0].objects).toEqual([]);
+    expect(reset.pages[0]).toMatchObject({ id: ids[0], favorite: true, highlightColor: '#ffee88' });
+    const deleted = deletePages(reset, [ids[1]], factories);
+    expect(deleted.pages.map((page) => page.id)).toEqual([ids[0], ids[2]]);
+    expect(deleted.pages.map((page) => page.order)).toEqual([0, 1]);
+    const blank = resetNotebookContent(deleted, factories);
+    expect(blank.title).toBe('Pages');
+    expect(blank.pages).toHaveLength(1);
+  });
+
+  it('stores research state and independent page snapshots in schema version 3', () => {
+    const factories = deterministicFactories();
+    const initial = createNotebook('Research', factories);
+    const withGraph = updateResearchValue(initial, '2d:expressions', [{ expression: 'x^2' }], factories.now);
+    const snapshot = createResearchObject({ x: 50, y: 70 }, {
+      kind: '2d', title: '2D Graph', values: { '2d:expressions': [{ expression: 'x^2' }] }, previewDataUrl: 'data:image/png;base64,AA==',
+    }, factories);
+    const withSnapshot = addObject(withGraph, withGraph.pages[0].id, snapshot, factories.now);
+    const resetSource = resetResearchValues(withSnapshot, ['2d:'], factories.now);
+    expect(resetSource.research.values).toEqual({});
+    expect(resetSource.pages[0].objects[0]).toMatchObject({ type: 'research', snapshot: { values: { '2d:expressions': [{ expression: 'x^2' }] } } });
   });
 });

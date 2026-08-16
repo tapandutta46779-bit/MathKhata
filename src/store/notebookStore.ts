@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { DrawingElement, Notebook, PageObject, Point } from '../domain/model';
+import type { DrawingElement, DrawingErasure, Notebook, PageObject, Point, ResearchToolKind, ResearchValue } from '../domain/model';
 import {
   addDrawing as addDrawingToNotebook,
   addObject as addObjectToNotebook,
@@ -9,6 +9,8 @@ import {
   createMathObject,
   createNotebook,
   createTextObject,
+  createResearchObject,
+  deletePages as deleteNotebookPages,
   deletePage as deletePageFromNotebook,
   duplicateObject as duplicateNotebookObject,
   getObject,
@@ -16,7 +18,13 @@ import {
   movePage as moveNotebookPage,
   removeObject,
   removeDrawing as removeDrawingFromNotebook,
+  eraseDrawingRegions as eraseDrawingRegionsDomain,
+  resetNotebookContent,
+  resetPages as resetNotebookPages,
+  resetResearchValues,
   renameNotebook as renameNotebookDomain,
+  updatePageMetadata,
+  updateResearchValue as updateResearchValueDomain,
   updateObject,
 } from '../domain/notebook';
 import { validateNotebook } from '../domain/schema';
@@ -85,16 +93,27 @@ interface NotebookState {
   addDrawing: (drawing: DrawingElement) => void;
   removeDrawing: (drawingId: string) => void;
   removeDrawings: (drawingIds: string[]) => void;
+  eraseDrawingRegions: (drawingIds: string[], erasure: DrawingErasure) => void;
   undoLastDrawing: () => void;
   convertMathObjectToText: (objectId: string, text: string) => void;
   updateMath: (objectId: string, latex: string) => void;
   updateText: (objectId: string, text: string) => void;
   moveObject: (objectId: string, point: Point) => void;
+  resizeObject: (objectId: string, width: number, height: number) => void;
   deleteSelectedObject: () => void;
   duplicateSelectedObject: () => string | null;
   addPage: () => void;
   deletePage: (pageId: string) => void;
   movePage: (pageId: string, direction: -1 | 1) => void;
+  updatePagesMetadata: (pageIds: string[], patch: { favorite?: boolean; highlightColor?: string | null }) => void;
+  deletePages: (pageIds: string[]) => void;
+  resetPages: (pageIds: string[]) => void;
+  resetNotebook: () => void;
+  updateResearchValue: (key: string, value: ResearchValue) => void;
+  resetResearchSection: (kind: ResearchToolKind | 'all') => void;
+  copyResearchToPage: (kind: Exclude<ResearchToolKind, 'scientific'>, pageId: string, previewDataUrl: string | null) => string | null;
+  updateResearchObjectValue: (objectId: string, key: string, value: ResearchValue) => void;
+  updateResearchObjectPreview: (objectId: string, previewDataUrl: string | null) => void;
   undo: () => void;
   redo: () => void;
   saveNow: () => Promise<void>;
@@ -127,6 +146,28 @@ function scheduleSave(notebook: Notebook, set: (partial: Partial<NotebookState>)
 
 function nowForHistory(): number {
   return typeof performance === 'undefined' ? Date.now() : performance.now();
+}
+
+function ingestLegacyResearchState(notebook: Notebook): { notebook: Notebook; keys: string[] } {
+  if (typeof window === 'undefined') return { notebook, keys: [] };
+  const prefix = `mathkhata:research:${notebook.id}:`;
+  const values = { ...notebook.research.values };
+  const keys: string[] = [];
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const storageKey = window.localStorage.key(index);
+      if (!storageKey?.startsWith(prefix)) continue;
+      const documentKey = storageKey.slice(prefix.length);
+      const raw = window.localStorage.getItem(storageKey);
+      if (!documentKey || raw === null || documentKey in values) continue;
+      values[documentKey] = JSON.parse(raw) as ResearchValue;
+      keys.push(storageKey);
+    }
+  } catch {
+    return { notebook, keys: [] };
+  }
+  if (!keys.length) return { notebook, keys };
+  return { notebook: { ...notebook, research: { values }, updatedAt: new Date().toISOString() }, keys };
 }
 
 export const useNotebookStore = create<NotebookState>((set, get) => {
@@ -186,6 +227,12 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
           if (!notebook) {
             notebook = createNotebook('My Math Notebook');
             await saveNotebook(notebook);
+          }
+          const legacyResearch = ingestLegacyResearchState(notebook);
+          notebook = legacyResearch.notebook;
+          if (legacyResearch.keys.length) {
+            await saveNotebook(notebook);
+            legacyResearch.keys.forEach((key) => window.localStorage.removeItem(key));
           }
           set({
             notebook,
@@ -252,8 +299,14 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
 
     async openNotebook(id: string) {
       try {
-        const notebook = await loadNotebook(id);
-        if (!notebook) throw new Error('Notebook no longer exists.');
+        const loaded = await loadNotebook(id);
+        if (!loaded) throw new Error('Notebook no longer exists.');
+        const legacyResearch = ingestLegacyResearchState(loaded);
+        const notebook = legacyResearch.notebook;
+        if (legacyResearch.keys.length) {
+          await saveNotebook(notebook);
+          legacyResearch.keys.forEach((key) => window.localStorage.removeItem(key));
+        }
         set({
           notebook,
           currentPageId: notebook.pages[0].id,
@@ -443,6 +496,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       const proposed = requested;
       const lastLine = page.height - WRITING_LINE_HEIGHT;
       const lastLineOccupied = page.objects.some((object) => {
+        if (object.type === 'research') return object.y + object.height > lastLine;
         const content = object.type === 'math' ? object.latex : object.text;
         return object.y + flowObjectHeight(object.type, content) > lastLine;
       });
@@ -518,6 +572,12 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       ));
     },
 
+    eraseDrawingRegions(drawingIds, erasure) {
+      const pageId = get().currentPageId;
+      if (!pageId || drawingIds.length === 0) return;
+      commit('Erase drawing region', (notebook) => eraseDrawingRegionsDomain(notebook, pageId, drawingIds, erasure));
+    },
+
     undoLastDrawing() {
       const state = get();
       if (!state.currentPageId || !state.notebook) return;
@@ -590,7 +650,20 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       const safe = clampObjectToPage(object, page, point);
       commit('Move object', (notebook) =>
         updateObject(notebook, state.currentPageId!, objectId, safe),
-      );
+      `move:${objectId}`);
+    },
+
+    resizeObject(objectId, width, height) {
+      const state = get();
+      if (!state.notebook || !state.currentPageId) return;
+      const page = getPage(state.notebook, state.currentPageId);
+      const object = getObject(state.notebook, state.currentPageId, objectId);
+      if (!page || !object) return;
+      const safeWidth = Math.max(180, Math.min(page.width - object.x - 12, width));
+      const safeHeight = Math.max(120, Math.min(page.height - object.y - 12, height));
+      commit('Resize object', (notebook) => updateObject(notebook, state.currentPageId!, objectId, {
+        width: Math.round(safeWidth), height: Math.round(safeHeight),
+      }), `resize:${objectId}`);
     },
 
     deleteSelectedObject() {
@@ -643,6 +716,81 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
 
     movePage(pageId, direction) {
       commit('Reorder page', (notebook) => moveNotebookPage(notebook, pageId, direction));
+    },
+
+    updatePagesMetadata(pageIds, patch) {
+      commit('Update page markers', (notebook) => updatePageMetadata(notebook, pageIds, patch));
+    },
+
+    deletePages(pageIds) {
+      const state = get();
+      if (!state.notebook || pageIds.length === 0) return;
+      const next = deleteNotebookPages(state.notebook, pageIds);
+      if (next === state.notebook) return;
+      commit('Delete selected pages', () => next);
+      set({ currentPageId: next.pages[0]?.id ?? null, selectedObjectId: null, editingObjectId: null });
+    },
+
+    resetPages(pageIds) {
+      commit('Reset selected pages', (notebook) => resetNotebookPages(notebook, pageIds));
+      set({ selectedObjectId: null, editingObjectId: null });
+    },
+
+    resetNotebook() {
+      const state = get();
+      if (!state.notebook) return;
+      const next = resetNotebookContent(state.notebook);
+      commit('Reset notebook', () => next);
+      set({ currentPageId: next.pages[0].id, selectedObjectId: null, editingObjectId: null, insertionPoint: { x: WRITING_LEFT, y: WRITING_TOP } });
+    },
+
+    updateResearchValue(key, value) {
+      commit('Edit research workspace', (notebook) => updateResearchValueDomain(notebook, key, value), `research:${key}`);
+    },
+
+    resetResearchSection(kind) {
+      const prefixes = kind === 'all'
+        ? ['2d:', '3d:', 'geometry:', 'geometry3d:', 'scientific:', 'tool']
+        : [`${kind}:`];
+      commit(kind === 'all' ? 'Reset all research' : `Reset ${kind} research`, (notebook) => resetResearchValues(notebook, prefixes));
+    },
+
+    copyResearchToPage(kind, pageId, previewDataUrl) {
+      const state = get();
+      if (!state.notebook) return null;
+      const title = kind === '2d' ? '2D Graph' : kind === '3d' ? '3D Surface' : kind === 'geometry' ? '2D Geometry' : '3D Geometry';
+      const values = Object.fromEntries(Object.entries(state.notebook.research.values)
+        .filter(([key]) => key.startsWith(`${kind}:`)));
+      const destination = state.notebook.pages.find((page) => page.id === pageId);
+      const nextY = destination
+        ? Math.min(destination.height - 310, Math.max(WRITING_TOP, ...destination.objects.map((object) => object.y + object.height + 18)))
+        : WRITING_TOP;
+      const object = createResearchObject({ x: WRITING_LEFT, y: nextY }, { kind, title, values, previewDataUrl });
+      commit('Copy research to page', (notebook) => addObjectToNotebook(notebook, pageId, object));
+      set({ currentPageId: pageId, selectedObjectId: object.id, editingObjectId: null });
+      return object.id;
+    },
+
+    updateResearchObjectValue(objectId, key, value) {
+      const state = get();
+      if (!state.notebook) return;
+      const page = state.notebook.pages.find((candidate) => candidate.objects.some((object) => object.id === objectId));
+      const object = page?.objects.find((candidate) => candidate.id === objectId);
+      if (!page || object?.type !== 'research') return;
+      commit('Edit research page copy', (notebook) => updateObject(notebook, page.id, objectId, {
+        snapshot: { ...object.snapshot, values: { ...object.snapshot.values, [key]: value } },
+      }), `research-object:${objectId}:${key}`);
+    },
+
+    updateResearchObjectPreview(objectId, previewDataUrl) {
+      const state = get();
+      if (!state.notebook) return;
+      const page = state.notebook.pages.find((candidate) => candidate.objects.some((object) => object.id === objectId));
+      const object = page?.objects.find((candidate) => candidate.id === objectId);
+      if (!page || object?.type !== 'research') return;
+      commit('Update research preview', (notebook) => updateObject(notebook, page.id, objectId, {
+        snapshot: { ...object.snapshot, previewDataUrl },
+      }));
     },
 
     undo() {

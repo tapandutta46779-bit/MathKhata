@@ -1,4 +1,5 @@
 import type { Page, Point } from '../domain/model';
+import type { CSSProperties } from 'react';
 import { snapToWritingLine } from '../domain/writingFlow';
 import { blurActiveMathfield } from '../editor/mathfieldRegistry';
 import { useNotebookStore } from '../store/notebookStore';
@@ -40,7 +41,7 @@ export function NotebookPage({ page, writingMode }: NotebookPageProps) {
       className={`notebook-page tool-${tool}`}
       aria-label={`Notebook page ${page.order + 1}`}
       data-testid="notebook-page"
-      style={{ width: page.width, height: page.height }}
+      style={{ width: page.width, height: page.height, '--page-highlight': page.highlightColor ?? 'transparent' } as CSSProperties}
       onPointerDown={(event) => {
         if (event.target !== event.currentTarget) return;
         activateAt(eventPoint(event));

@@ -30,6 +30,7 @@ export function snapToWritingLine(y: number, pageHeight: number): number {
 
 export function nextWritingPoint(page: Page): Point {
   const furthestWritingEdge = page.objects.reduce((furthest, object) => {
+    if (object.type === 'research') return Math.max(furthest, object.y + object.height);
     const content = object.type === 'math' ? object.latex : object.text;
     const occupiedHeight = flowObjectHeight(object.type, content);
     return Math.max(furthest, object.y + occupiedHeight);

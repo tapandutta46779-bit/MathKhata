@@ -1,6 +1,18 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import type { MathfieldElement } from 'mathlive';
+import type { ResearchToolKind, ResearchValue } from '../domain/model';
+import { useNotebookStore } from '../store/notebookStore';
+import {
+  focusMathfieldElement,
+  dismissActiveMathfieldMenu,
+  dismissMathfieldMenuFromOutsidePointer,
+  focusActiveMathfield,
+  insertIntoMathfield,
+  registerMathfield,
+  setActiveMathfield,
+  showActiveMathfieldMenu,
+} from '../editor/mathfieldRegistry';
 import {
   angleDegrees,
   circleCircleIntersections,
@@ -18,19 +30,23 @@ import {
   translateCoordinate,
 } from '../research/geometry';
 
-export type ResearchTool = '2d' | '3d' | 'geometry' | 'scientific';
+export type ResearchTool = ResearchToolKind;
 
 const TABS: Array<{ id: ResearchTool; label: string }> = [
   { id: '2d', label: '2D Graph' },
   { id: '3d', label: '3D Surface' },
   { id: 'geometry', label: 'Geometry' },
+  { id: 'geometry3d', label: '3D Geometry' },
   { id: 'scientific', label: 'Scientific' },
 ];
 
 async function numericEvaluator(expression: string) {
   const { default: nerdamer } = await import('nerdamer-prime');
   nerdamer.set('SILENCE_WARNINGS', true);
-  const parsed = nerdamer(expression);
+  const source = expression.includes('\\')
+    ? nerdamer.convertFromLaTeX(expression).toString()
+    : expression;
+  const parsed = nerdamer(source);
   return (substitutions: Record<string, number>) => {
     const value = Number(parsed.evaluate(substitutions).text('decimals'));
     return Number.isFinite(value) ? value : Number.NaN;
@@ -92,10 +108,32 @@ function gridStep(scale: number): number {
   return factor * power;
 }
 
+function captureResearchPreview(panel: HTMLElement | null): string | null {
+  try {
+    return panel?.querySelector<HTMLCanvasElement>('.research-tools-panel__body canvas')?.toDataURL('image/png') ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const GRAPH_COLORS = ['#9a482c', '#3777a5', '#6b8e4e', '#8e5aa4', '#d18425', '#258f87'];
 
 function usePersistentResearchState<T>(key: string, initialValue: T): [T, Dispatch<SetStateAction<T>>] {
+  const objectMatch = key.match(/^mathkhata:research-object:([^:]+):(.+)$/);
+  const sourceMatch = key.match(/^mathkhata:research:[^:]+:(.+)$/);
+  const objectId = objectMatch?.[1] ?? null;
+  const documentKey = objectMatch?.[2] ?? sourceMatch?.[1] ?? key;
+  const documentValue = useNotebookStore((store) => {
+    if (!objectId) return store.notebook?.research.values[documentKey];
+    const object = store.notebook?.pages.flatMap((page) => page.objects).find((candidate) => candidate.id === objectId);
+    return object?.type === 'research' ? object.snapshot.values[documentKey] : undefined;
+  });
+  const updateResearchValue = useNotebookStore((store) => store.updateResearchValue);
+  const updateResearchObjectValue = useNotebookStore((store) => store.updateResearchObjectValue);
+  const initialRef = useRef(initialValue);
+  const previousDocumentValue = useRef(documentValue);
   const [state, setState] = useState<T>(() => {
+    if (documentValue !== undefined) return documentValue as T;
     try {
       const saved = window.localStorage.getItem(key);
       return saved === null ? initialValue : JSON.parse(saved) as T;
@@ -103,10 +141,123 @@ function usePersistentResearchState<T>(key: string, initialValue: T): [T, Dispat
       return initialValue;
     }
   });
+  const stateRef = useRef(state);
+  stateRef.current = state;
   useEffect(() => {
-    try { window.localStorage.setItem(key, JSON.stringify(state)); } catch { /* The workspace remains usable without persistence. */ }
-  }, [key, state]);
-  return [state, setState];
+    if (documentValue !== undefined) {
+      stateRef.current = documentValue as T;
+      setState(documentValue as T);
+    } else if (previousDocumentValue.current !== undefined) {
+      stateRef.current = initialRef.current;
+      setState(initialRef.current);
+    }
+    previousDocumentValue.current = documentValue;
+  }, [documentValue]);
+  useEffect(() => {
+    if (documentValue !== undefined) return;
+    try {
+      if (window.localStorage.getItem(key) === null) return;
+      if (objectId) updateResearchObjectValue(objectId, documentKey, state as ResearchValue);
+      else updateResearchValue(documentKey, state as ResearchValue);
+      window.localStorage.removeItem(key);
+    } catch { /* Legacy storage ingestion remains best-effort. */ }
+  }, [documentKey, documentValue, key, objectId, state, updateResearchObjectValue, updateResearchValue]);
+  const update: Dispatch<SetStateAction<T>> = useCallback((next) => {
+    const resolved = typeof next === 'function' ? (next as (value: T) => T)(stateRef.current) : next;
+    stateRef.current = resolved;
+    setState(resolved);
+    if (objectId) updateResearchObjectValue(objectId, documentKey, resolved as ResearchValue);
+    else updateResearchValue(documentKey, resolved as ResearchValue);
+  }, [documentKey, objectId, updateResearchObjectValue, updateResearchValue]);
+  return [state, update];
+}
+
+function ResearchMathField({
+  id,
+  value,
+  label,
+  placeholder,
+  onChange,
+  onEnter,
+}: {
+  id: string;
+  value: string;
+  label: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+  onEnter?: () => void;
+}) {
+  const cleanup = useRef<(() => void) | null>(null);
+  const fieldRef = useRef<MathfieldElement | null>(null);
+  const changeRef = useRef(onChange);
+  changeRef.current = onChange;
+  const attach = useCallback((field: MathfieldElement | null) => {
+    cleanup.current?.();
+    cleanup.current = null;
+    fieldRef.current = field;
+    if (!field) return;
+    field.value = value;
+    field.mathVirtualKeyboardPolicy = 'manual';
+    field.smartFence = true;
+    field.placeholder = placeholder ?? '';
+    const unregister = registerMathfield(id, field, (next) => changeRef.current(next));
+    const dismissFromOutside = (event: PointerEvent) => {
+      dismissMathfieldMenuFromOutsidePointer(field, event);
+    };
+    document.addEventListener('pointerdown', dismissFromOutside, true);
+    cleanup.current = () => {
+      document.removeEventListener('pointerdown', dismissFromOutside, true);
+      unregister();
+    };
+  }, [id, placeholder]);
+  useEffect(() => {
+    if (fieldRef.current && fieldRef.current.value !== value) fieldRef.current.value = value;
+  }, [value]);
+  useEffect(() => () => cleanup.current?.(), []);
+  return <math-field
+    class="research-math-field"
+    aria-label={label}
+    ref={attach}
+    onFocus={(event) => {
+      setActiveMathfield(id);
+      focusMathfieldElement(event.currentTarget as MathfieldElement);
+    }}
+    onPointerDown={() => setActiveMathfield(id)}
+    onInput={(event) => onChange((event.currentTarget as MathfieldElement).value)}
+    onKeyDown={(event) => {
+      if (event.key === 'Enter' && onEnter) {
+        event.preventDefault();
+        onEnter();
+      }
+    }}
+  />;
+}
+
+function ResearchExpressionResult({ latex }: { latex: string }) {
+  const [result, setResult] = useState<{ latex: string; verified: boolean; message?: string } | null>(null);
+  const isCalculation = /\\(?:int|iint|iiint|oint|sum|prod|lim|det|frac\s*\{d)|\\begin\{(?:matrix|bmatrix|pmatrix|vmatrix|Vmatrix)\}/.test(latex);
+  useEffect(() => {
+    let active = true;
+    if (!isCalculation || !latex.trim()) { setResult(null); return () => { active = false; }; }
+    void import('nerdamer-prime').then(({ default: nerdamer }) => {
+      try {
+        const source = nerdamer.convertFromLaTeX(latex).toString();
+        const answer = nerdamer(source);
+        const exact = answer.toString();
+        if (!active) return;
+        if (!exact || exact === source) setResult({ latex: '', verified: false, message: 'Complete notation recognized, but this local operation is not yet supported.' });
+        else setResult({ latex: answer.toTeX(), verified: true });
+      } catch {
+        if (active) setResult({ latex: '', verified: false, message: 'Incomplete or unsupported expression. Nothing was calculated silently.' });
+      }
+    });
+    return () => { active = false; };
+  }, [isCalculation, latex]);
+  if (!isCalculation || !result) return null;
+  return <div className="research-expression-result">
+    {result.latex ? <><span>{result.verified ? 'Checked locally' : 'Result'}</span><ScientificMath latex={result.latex} label="Research expression result" /></> : <p>{result.message}</p>}
+    <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('mathnotebook:aion-question', { detail: `Show complete, rigorous steps for this research expression. Preserve the notation and verify the final result where possible:\n${latex}` }))}>Show steps in AION</button>
+  </div>;
 }
 
 function useResponsiveCanvasSize(ref: React.RefObject<HTMLCanvasElement | null>) {
@@ -454,9 +605,10 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
               aria-label={`${entry.visible ? 'Hide' : 'Show'} expression ${index + 1}`}
               onClick={() => updateExpression(entry.id, { visible: !entry.visible })}
             />
-            <label><span>{index + 1}</span><input aria-label={`Expression ${index + 1}`} placeholder="y=sin(x)" value={entry.expression} onChange={(event) => updateExpression(entry.id, { expression: event.target.value })} /></label>
+            <label><span>{index + 1}</span><ResearchMathField id={`research-2d-${entry.id}`} label={`Expression ${index + 1}`} placeholder="y=sin(x)" value={entry.expression} onChange={(expression) => updateExpression(entry.id, { expression })} /></label>
             {expressions.length > 1 && <button type="button" aria-label={`Remove expression ${index + 1}`} onClick={() => setExpressions((current) => current.filter((item) => item.id !== entry.id))}>×</button>}
             {isParameter && parameter && <label className="graph-inline-slider"><span>{parameter[1]} = {Number(parameter[2]).toFixed(2)}</span><input type="range" aria-label={`Parameter ${parameter[1]} value`} min="-10" max="10" step="0.1" value={Number(parameter[2])} onChange={(event) => updateExpression(entry.id, { expression: `${parameter[1]}=${event.target.value}` })} /></label>}
+            <ResearchExpressionResult latex={entry.expression} />
           </div>
         })}
         <button
@@ -1061,13 +1213,14 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
                 aria-label={`${surface.visible ? 'Hide' : 'Show'} surface ${index + 1}`}
                 onClick={() => updateSurface(surface.id, { visible: !surface.visible })}
               />
-              <label><span>z =</span><input aria-label={`3D surface expression ${index + 1}`} value={surface.expression} onChange={(event) => updateSurface(surface.id, { expression: event.target.value })} /></label>
+              <label><span>z =</span><ResearchMathField id={`research-3d-surface-${surface.id}`} label={`3D surface expression ${index + 1}`} value={surface.expression} onChange={(expression) => updateSurface(surface.id, { expression })} /></label>
               {surfaces.length > 1 && <button type="button" aria-label={`Remove surface ${index + 1}`} onClick={() => setSurfaces((current) => current.filter((entry) => entry.id !== surface.id))}>×</button>}
             </div>
             <div className="surface-style-row">
               <label>Color <input type="color" aria-label={`Surface ${index + 1} color`} value={surface.color} onChange={(event) => updateSurface(surface.id, { color: event.target.value })} /></label>
               <label>Opacity <input type="range" aria-label={`Surface ${index + 1} opacity`} min="0.18" max="1" step="0.05" value={surface.opacity} onChange={(event) => updateSurface(surface.id, { opacity: Number(event.target.value) })} /></label>
             </div>
+            <ResearchExpressionResult latex={surface.expression} />
           </div>
         ))}
         <button
@@ -1085,7 +1238,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         {implicitSurfaces.map((surface, index) => <div className="surface-expression-card implicit-surface-card" key={`implicit-${surface.id}`}>
           <div className="surface-expression-main">
             <button type="button" className={`graph-color${surface.visible ? ' is-visible' : ''}`} style={{ '--graph-color': surface.color } as React.CSSProperties} aria-label={`${surface.visible ? 'Hide' : 'Show'} implicit surface ${index + 1}`} onClick={() => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, visible: !entry.visible } : entry))} />
-            <label><span>0 =</span><input aria-label={`Implicit surface expression ${index + 1}`} value={surface.expression} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, expression: event.target.value } : entry))} /></label>
+            <label><span>0 =</span><ResearchMathField id={`research-3d-implicit-${surface.id}`} label={`Implicit surface expression ${index + 1}`} value={surface.expression} onChange={(expression) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, expression } : entry))} /></label>
             <button type="button" aria-label={`Remove implicit surface ${index + 1}`} onClick={() => setImplicitSurfaces((current) => current.filter((entry) => entry.id !== surface.id))}>×</button>
           </div>
           <div className="surface-style-row"><label>Color <input type="color" aria-label={`Implicit surface ${index + 1} color`} value={surface.color} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, color: event.target.value } : entry))} /></label><label>Opacity <input type="range" aria-label={`Implicit surface ${index + 1} opacity`} min="0.18" max="1" step="0.05" value={surface.opacity} onChange={(event) => setImplicitSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, opacity: Number(event.target.value) } : entry))} /></label></div>
@@ -1104,16 +1257,16 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           <header><strong>Points · curves · parametric surfaces</strong><span>{points3D.length + curves3D.length + parametricSurfaces.length}</span></header>
           {points3D.map((point, index) => <div className="graph-3d-object-card" key={`point-${point.id}`}>
             <div className="graph-3d-object-title"><button type="button" className={`graph-color${point.visible ? ' is-visible' : ''}`} style={{ '--graph-color': point.color } as React.CSSProperties} aria-label={`${point.visible ? 'Hide' : 'Show'} 3D point ${index + 1}`} onClick={() => setPoints3D((current) => current.map((entry) => entry.id === point.id ? { ...entry, visible: !entry.visible } : entry))} /><strong>P{index + 1}</strong><button type="button" aria-label={`Remove 3D point ${index + 1}`} onClick={() => setPoints3D((current) => current.filter((entry) => entry.id !== point.id))}>×</button></div>
-            <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis} = <input aria-label={`3D point ${index + 1} ${axis} coordinate`} value={point[axis]} onChange={(event) => setPoints3D((current) => current.map((entry) => entry.id === point.id ? { ...entry, [axis]: event.target.value } : entry))} /></label>)}</div>
+            <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis} = <ResearchMathField id={`research-3d-point-${point.id}-${axis}`} label={`3D point ${index + 1} ${axis} coordinate`} value={point[axis]} onChange={(value) => setPoints3D((current) => current.map((entry) => entry.id === point.id ? { ...entry, [axis]: value } : entry))} /></label>)}</div>
           </div>)}
           {curves3D.map((curve, index) => <div className="graph-3d-object-card" key={`curve-${curve.id}`}>
             <div className="graph-3d-object-title"><button type="button" className={`graph-color${curve.visible ? ' is-visible' : ''}`} style={{ '--graph-color': curve.color } as React.CSSProperties} aria-label={`${curve.visible ? 'Hide' : 'Show'} 3D curve ${index + 1}`} onClick={() => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, visible: !entry.visible } : entry))} /><strong>C{index + 1}(t)</strong><button type="button" aria-label={`Remove 3D curve ${index + 1}`} onClick={() => setCurves3D((current) => current.filter((entry) => entry.id !== curve.id))}>×</button></div>
-            <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}(t) = <input aria-label={`3D curve ${index + 1} ${axis} expression`} value={curve[axis]} onChange={(event) => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, [axis]: event.target.value } : entry))} /></label>)}</div>
+            <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}(t) = <ResearchMathField id={`research-3d-curve-${curve.id}-${axis}`} label={`3D curve ${index + 1} ${axis} expression`} value={curve[axis]} onChange={(value) => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, [axis]: value } : entry))} /></label>)}</div>
             <div className="curve-domain"><label>t min <input type="number" step="0.1" value={curve.tMin} onChange={(event) => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, tMin: Number(event.target.value) } : entry))} /></label><label>t max <input type="number" step="0.1" value={curve.tMax} onChange={(event) => setCurves3D((current) => current.map((entry) => entry.id === curve.id ? { ...entry, tMax: Number(event.target.value) } : entry))} /></label></div>
           </div>)}
           {parametricSurfaces.map((surface, index) => <div className="graph-3d-object-card" key={`parametric-surface-${surface.id}`}>
             <div className="graph-3d-object-title"><button type="button" className={`graph-color${surface.visible ? ' is-visible' : ''}`} style={{ '--graph-color': surface.color } as React.CSSProperties} aria-label={`${surface.visible ? 'Hide' : 'Show'} parametric surface ${index + 1}`} onClick={() => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, visible: !entry.visible } : entry))} /><strong>S{index + 1}(u,v)</strong><button type="button" aria-label={`Remove parametric surface ${index + 1}`} onClick={() => setParametricSurfaces((current) => current.filter((entry) => entry.id !== surface.id))}>×</button></div>
-            <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}(u,v) = <input aria-label={`Parametric surface ${index + 1} ${axis} expression`} value={surface[axis]} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, [axis]: event.target.value } : entry))} /></label>)}</div>
+            <div className="graph-coordinate-inputs">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}(u,v) = <ResearchMathField id={`research-3d-parametric-${surface.id}-${axis}`} label={`Parametric surface ${index + 1} ${axis} expression`} value={surface[axis]} onChange={(value) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, [axis]: value } : entry))} /></label>)}</div>
             <div className="parametric-surface-domain">
               <label>u min <input type="number" step="0.1" value={surface.uMin} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, uMin: Number(event.target.value) } : entry))} /></label>
               <label>u max <input type="number" step="0.1" value={surface.uMax} onChange={(event) => setParametricSurfaces((current) => current.map((entry) => entry.id === surface.id ? { ...entry, uMax: Number(event.target.value) } : entry))} /></label>
@@ -1312,7 +1465,6 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const [interactionNotice, setInteractionNotice] = useState('Move mode: drag a point, an object, or the blank paper.');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasSize = useResponsiveCanvasSize(canvasRef);
-  const constructionInputRef = useRef<HTMLInputElement | null>(null);
   const nextPointIdRef = useRef(Math.max(0, ...points.map((point) => point.id)) + 1);
   const nextObjectIdRef = useRef(Math.max(0, ...objects.map((object) => object.id)) + 1);
   const spacePanRef = useRef(false);
@@ -1759,7 +1911,14 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   };
 
   const executeConstructionCommand = () => {
-    const command = constructionCommand.trim();
+    const command = constructionCommand
+      .replace(/\\left|\\right/g, '')
+      .replace(/\\(?:operatorname|mathrm)\{([^{}]+)\}/g, '$1')
+      .replace(/\\cdot/g, '*')
+      .replace(/[{}]/g, (character) => character === '{' ? '(' : ')')
+      .replace(/\\([a-z]+)/gi, '$1')
+      .replace(/\s+/g, '')
+      .trim();
     const pointForLabel = (label: string) => points.find((point) => point.label.toLowerCase() === label.trim().toLowerCase());
     const circle = parseCircleConstruction(command);
     if (circle) {
@@ -1797,15 +1956,9 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   };
 
   const insertGeometryToken = (token: string) => {
-    const input = constructionInputRef.current;
-    const start = input?.selectionStart ?? constructionCommand.length;
-    const end = input?.selectionEnd ?? start;
-    const next = `${constructionCommand.slice(0, start)}${token}${constructionCommand.slice(end)}`;
-    setConstructionCommand(next);
-    requestAnimationFrame(() => {
-      input?.focus();
-      input?.setSelectionRange(start + token.length, start + token.length);
-    });
+    if (!insertIntoMathfield('research-geometry-command', token)) {
+      setConstructionCommand((current) => `${current}${token}`);
+    }
   };
 
   const selectedCircle = objects.find((object): object is Extract<GeometryObject, { type: 'circle' }> => object.type === 'circle' && selectedObjectIds.includes(object.id));
@@ -1834,7 +1987,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           <div>{points.map((point) => <button type="button" key={point.id} onClick={() => insertGeometryToken(point.label)}>{point.label}</button>)}</div>
         </div>
         <div className="geometry-command">
-          <label>New expression<input ref={constructionInputRef} aria-label="Geometry construction expression" placeholder="circle(A,3)" value={constructionCommand} onChange={(event) => setConstructionCommand(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') executeConstructionCommand(); }} /></label>
+          <label>New expression<ResearchMathField id="research-geometry-command" label="Geometry construction expression" placeholder="circle(A,3)" value={constructionCommand} onChange={setConstructionCommand} onEnter={executeConstructionCommand} /></label>
           <button type="button" onClick={executeConstructionCommand}>Add</button>
           {commandError && <p>{commandError}</p>}
         </div>
@@ -1846,7 +1999,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           {!objects.length && <p>Choose a tool, then construct directly on the coordinate plane.</p>}
           {objects.map((object, index) => <div className={`geometry-expression-row${selectedObjectIds.includes(object.id) ? ' is-selected' : ''}`} key={object.id}>
             <button type="button" className={`graph-color${object.visible === false ? '' : ' is-visible'}`} style={{ '--graph-color': object.color ?? GRAPH_COLORS[index % GRAPH_COLORS.length] } as React.CSSProperties} aria-label={`${object.visible === false ? 'Show' : 'Hide'} geometry object ${index + 1}`} onClick={() => setObjects((current) => current.map((entry) => entry.id === object.id ? { ...entry, visible: entry.visible === false } : entry))} />
-            <button type="button" className="geometry-expression-select" aria-pressed={selectedObjectIds.includes(object.id)} onClick={(event) => setSelectedObjectIds((current) => event.shiftKey ? (current.includes(object.id) ? current.filter((id) => id !== object.id) : [...current, object.id]) : [object.id])}><b>{index + 1}</b><span>{objectExpression(object)}</span><small>{objectDescription(object)}</small></button>
+            <button type="button" className="geometry-expression-select" aria-pressed={selectedObjectIds.includes(object.id)} onClick={(event) => setSelectedObjectIds((current) => event.shiftKey ? (current.includes(object.id) ? current.filter((id) => id !== object.id) : [...current, object.id]) : [object.id])}><b>{index + 1}</b><ScientificMath latex={`\\operatorname{${object.type}}\\left(${objectExpression(object).replace(/^[^(]+\(|\)$/g, '')}\\right)`} label={`Geometry ${object.type} ${index + 1}`} /><small>{objectDescription(object)}</small></button>
             <button type="button" aria-label={`Delete geometry object ${index + 1}`} onClick={() => { setObjects((current) => current.filter((entry) => entry.id !== object.id)); setSelectedObjectIds((current) => current.filter((id) => id !== object.id)); }}>×</button>
           </div>)}
         </div>
@@ -2165,6 +2318,177 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   );
 }
 
+interface Geometry3DPoint { id: number; label: string; x: number; y: number; z: number; color: string; visible: boolean }
+type Geometry3DObject =
+  | { id: number; type: 'segment' | 'vector'; points: [number, number]; color: string; visible: boolean; label: string }
+  | { id: number; type: 'triangle'; points: [number, number, number]; color: string; visible: boolean; label: string }
+  | { id: number; type: 'sphere'; center: number; radius: number; color: string; visible: boolean; label: string };
+
+function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
+  const [points, setPoints] = usePersistentResearchState<Geometry3DPoint[]>(`${storagePrefix}:geometry3d:points`, [
+    { id: 1, label: 'A', x: 0, y: 0, z: 0, color: GRAPH_COLORS[0], visible: true },
+    { id: 2, label: 'B', x: 3, y: 0, z: 1, color: GRAPH_COLORS[1], visible: true },
+    { id: 3, label: 'C', x: 1, y: 3, z: 2, color: GRAPH_COLORS[2], visible: true },
+  ]);
+  const [objects, setObjects] = usePersistentResearchState<Geometry3DObject[]>(`${storagePrefix}:geometry3d:objects`, [
+    { id: 1, type: 'triangle', points: [1, 2, 3], color: GRAPH_COLORS[0], visible: true, label: '△ABC' },
+  ]);
+  const [camera, setCamera] = usePersistentResearchState(`${storagePrefix}:geometry3d:camera`, { yaw: -.72, pitch: -.52, zoom: 1, panX: 0, panY: 0 });
+  const [command, setCommand] = useState('');
+  const [message, setMessage] = useState('');
+  const [selectedPoint, setSelectedPoint] = useState<number | null>(1);
+  const [selectedObject, setSelectedObject] = useState<number | null>(null);
+  const [moveAxis, setMoveAxis] = useState<'screen' | 'x' | 'y' | 'z'>('screen');
+  const [transform, setTransform] = useState({ dx: 1, dy: 0, dz: 0, angle: 30, scale: 2, axis: 'x' as 'x' | 'y' | 'z' });
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasSize = useResponsiveCanvasSize(canvasRef);
+  const drag = useRef<{ pointerId: number; x: number; y: number; yaw: number; pitch: number; panX: number; panY: number; pan: boolean; point?: Geometry3DPoint } | null>(null);
+  const projectedPoints = useRef<Array<{ id: number; sx: number; sy: number }>>([]);
+
+  const pointById = (id: number) => points.find((point) => point.id === id);
+  const nextPointId = () => Math.max(0, ...points.map((point) => point.id)) + 1;
+  const nextObjectId = () => Math.max(0, ...objects.map((object) => object.id)) + 1;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#fffefa'; context.fillRect(0, 0, canvas.width, canvas.height);
+    const cy = Math.cos(camera.yaw); const sy = Math.sin(camera.yaw);
+    const cp = Math.cos(camera.pitch); const sp = Math.sin(camera.pitch);
+    const scale = Math.min(canvas.width, canvas.height) * .075 * camera.zoom;
+    const project = (x: number, y: number, z: number) => {
+      const rx = x * cy - y * sy;
+      const ry = x * sy + y * cy;
+      const rz = z * cp - ry * sp;
+      const depth = z * sp + ry * cp;
+      const perspective = 1 / Math.max(.45, 1 + depth * .035);
+      return { x: canvas.width / 2 + (camera.panX ?? 0) + rx * scale * perspective, y: canvas.height / 2 + (camera.panY ?? 0) - rz * scale * perspective, depth, perspective };
+    };
+    const line = (a: { x: number; y: number }, b: { x: number; y: number }, color: string, width = 1.5) => {
+      context.beginPath(); context.moveTo(a.x, a.y); context.lineTo(b.x, b.y); context.strokeStyle = color; context.lineWidth = width; context.stroke();
+    };
+    for (const [axis, color] of [[{ x: 6, y: 0, z: 0 }, '#b84d42'], [{ x: 0, y: 6, z: 0 }, '#4e8b55'], [{ x: 0, y: 0, z: 6 }, '#4779ad']] as const) {
+      line(project(0, 0, 0), project(axis.x, axis.y, axis.z), color, 2);
+    }
+    const visibleObjects = objects.filter((object) => object.visible).map((object) => ({ object, depth: object.type === 'sphere' ? pointById(object.center)?.z ?? 0 : object.points.map((id) => pointById(id)?.z ?? 0).reduce((a, b) => a + b, 0) })).sort((a, b) => a.depth - b.depth);
+    for (const { object } of visibleObjects) {
+      context.strokeStyle = object.color; context.fillStyle = `${object.color}28`; context.lineWidth = selectedObject === object.id ? 4 : 2;
+      if (object.type === 'sphere') {
+        const center = pointById(object.center); if (!center) continue;
+        const projected = project(center.x, center.y, center.z);
+        context.beginPath(); context.arc(projected.x, projected.y, object.radius * scale * projected.perspective, 0, Math.PI * 2); context.fill(); context.stroke();
+        continue;
+      }
+      const vertices = object.points.map(pointById).filter((point): point is Geometry3DPoint => Boolean(point)).map((point) => project(point.x, point.y, point.z));
+      if (vertices.length < 2) continue;
+      context.beginPath(); context.moveTo(vertices[0].x, vertices[0].y);
+      vertices.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+      if (object.type === 'triangle') { context.closePath(); context.fill(); }
+      context.stroke();
+      if (object.type === 'vector') {
+        const a = vertices[vertices.length - 2]; const b = vertices[vertices.length - 1]; const angle = Math.atan2(b.y - a.y, b.x - a.x);
+        context.beginPath(); context.moveTo(b.x, b.y); context.lineTo(b.x - 12 * Math.cos(angle - .45), b.y - 12 * Math.sin(angle - .45)); context.lineTo(b.x - 12 * Math.cos(angle + .45), b.y - 12 * Math.sin(angle + .45)); context.closePath(); context.fillStyle = object.color; context.fill();
+      }
+    }
+    projectedPoints.current = [];
+    points.filter((point) => point.visible).forEach((point) => {
+      const projected = project(point.x, point.y, point.z);
+      projectedPoints.current.push({ id: point.id, sx: projected.x, sy: projected.y });
+      context.beginPath(); context.arc(projected.x, projected.y, selectedPoint === point.id ? 7 : 5, 0, Math.PI * 2); context.fillStyle = point.color; context.fill(); context.strokeStyle = '#fff'; context.lineWidth = 2; context.stroke();
+      context.fillStyle = '#332f2a'; context.font = '600 13px system-ui'; context.fillText(point.label, projected.x + 8, projected.y - 8);
+    });
+  }, [camera, canvasSize.height, canvasSize.width, objects, points, selectedObject, selectedPoint]);
+
+  function runCommand() {
+    const source = command.replace(/\\left|\\right/g, '').replace(/\\(?:operatorname|mathrm)\{([^{}]+)\}/g, '$1').replace(/[{}]/g, (c) => c === '{' ? '(' : ')').replace(/\\([a-z]+)/gi, '$1').replace(/\s+/g, '');
+    const match = source.match(/^([a-z]+)\((.*)\)$/i);
+    if (!match) { setMessage('Use point(x,y,z), segment(A,B), vector(A,B), triangle(A,B,C), sphere(A,r), or midpoint(A,B).'); return; }
+    const operation = match[1].toLowerCase(); const args = match[2].split(',');
+    const byLabel = (label: string) => points.find((point) => point.label.toLowerCase() === label.toLowerCase());
+    if (operation === 'point' && args.length === 3 && args.every((value) => Number.isFinite(Number(value)))) {
+      const id = nextPointId(); const label = geometryPointLabel(points.length);
+      setPoints((current) => [...current, { id, label, x: Number(args[0]), y: Number(args[1]), z: Number(args[2]), color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true }]); setSelectedPoint(id); setCommand(''); setMessage('Point created.'); return;
+    }
+    if (operation === 'midpoint' && args.length === 2) {
+      const a = byLabel(args[0]); const b = byLabel(args[1]); if (!a || !b) { setMessage('Create both named points first.'); return; }
+      const id = nextPointId(); setPoints((current) => [...current, { id, label: geometryPointLabel(current.length), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2, color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true }]); setSelectedPoint(id); setCommand(''); setMessage('Midpoint created.'); return;
+    }
+    if (operation === 'sphere' && args.length === 2) {
+      const center = byLabel(args[0]); const radius = Number(args[1]); if (!center || !(radius > 0)) { setMessage('Sphere needs an existing center and positive radius.'); return; }
+      const id = nextObjectId(); setObjects((current) => [...current, { id, type: 'sphere', center: center.id, radius, color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true, label: `sphere(${center.label},${radius})` }]); setSelectedObject(id); setCommand(''); setMessage('Sphere created.'); return;
+    }
+    const required = operation === 'triangle' ? 3 : 2; const resolved = args.map(byLabel);
+    if (!['segment', 'vector', 'triangle'].includes(operation) || args.length !== required || resolved.some((point) => !point)) { setMessage('Check the construction name, point labels, and number of arguments.'); return; }
+    const id = nextObjectId(); const pointIds = resolved.map((point) => point!.id);
+    setObjects((current) => [...current, { id, type: operation, points: pointIds, color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true, label: `${operation}(${args.join(',')})` } as Geometry3DObject]); setSelectedObject(id); setCommand(''); setMessage(`${operation} created.`);
+  }
+
+  const selected = objects.find((object) => object.id === selectedObject);
+  const measurement = selected ? (() => {
+    if (selected.type === 'sphere') return `radius ${selected.radius.toPrecision(4)} · volume ${(4 / 3 * Math.PI * selected.radius ** 3).toPrecision(5)}`;
+    const vertices = selected.points.map(pointById).filter((point): point is Geometry3DPoint => Boolean(point));
+    const distance = (a: Geometry3DPoint, b: Geometry3DPoint) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    if (vertices.length === 2) return `${selected.type === 'vector' ? 'magnitude' : 'length'} ${distance(vertices[0], vertices[1]).toPrecision(5)}`;
+    if (vertices.length === 3) {
+      const ab = { x: vertices[1].x - vertices[0].x, y: vertices[1].y - vertices[0].y, z: vertices[1].z - vertices[0].z };
+      const ac = { x: vertices[2].x - vertices[0].x, y: vertices[2].y - vertices[0].y, z: vertices[2].z - vertices[0].z };
+      const cross = { x: ab.y * ac.z - ab.z * ac.y, y: ab.z * ac.x - ab.x * ac.z, z: ab.x * ac.y - ab.y * ac.x };
+      const dot = ab.x * ac.x + ab.y * ac.y + ab.z * ac.z;
+      const angle = Math.acos(Math.max(-1, Math.min(1, dot / Math.max(1e-12, Math.hypot(ab.x, ab.y, ab.z) * Math.hypot(ac.x, ac.y, ac.z))))) * 180 / Math.PI;
+      return `triangle area ${(Math.hypot(cross.x, cross.y, cross.z) / 2).toPrecision(5)} · angle ${angle.toPrecision(4)}°`;
+    }
+    return '';
+  })() : '';
+
+  function copyTransform(kind: 'translate' | 'rotate' | 'reflect' | 'dilate') {
+    if (!selected) return;
+    const sourceIds = selected.type === 'sphere' ? [selected.center] : [...selected.points]; const idMap = new Map<number, number>();
+    const additions: Geometry3DPoint[] = sourceIds.map((id, index) => {
+      const source = pointById(id)!; const newId = nextPointId() + index; idMap.set(id, newId);
+      let { x, y, z } = source;
+      if (kind === 'translate') { x += transform.dx; y += transform.dy; z += transform.dz; }
+      if (kind === 'dilate') { x *= transform.scale; y *= transform.scale; z *= transform.scale; }
+      if (kind === 'reflect') { if (transform.axis === 'x') x *= -1; if (transform.axis === 'y') y *= -1; if (transform.axis === 'z') z *= -1; }
+      if (kind === 'rotate') { const angle = transform.angle * Math.PI / 180; const nx = x * Math.cos(angle) - y * Math.sin(angle); y = x * Math.sin(angle) + y * Math.cos(angle); x = nx; }
+      return { ...source, id: newId, label: `${source.label}′`, x, y, z };
+    });
+    const objectId = nextObjectId(); const copy = selected.type === 'sphere' ? { ...selected, id: objectId, center: idMap.get(selected.center)!, label: `${selected.label}′` } : { ...selected, id: objectId, points: selected.points.map((id) => idMap.get(id)!) as never, label: `${selected.label}′` };
+    setPoints((current) => [...current, ...additions]); setObjects((current) => [...current, copy]); setSelectedObject(objectId);
+  }
+
+  return <section className="geometry3d-lab">
+    <aside className="geometry3d-sidebar" aria-label="3D geometry expression rail">
+      <header><strong>3D constructions</strong><span>{points.length} points · {objects.length} objects</span></header>
+      <label>New construction<ResearchMathField id="research-geometry3d-command" label="3D geometry construction expression" placeholder="point(1,2,3)" value={command} onChange={setCommand} onEnter={runCommand} /></label>
+      <button type="button" className="research-primary" onClick={runCommand}>Construct</button>
+      {message && <p className="geometry-expression-help">{message}</p>}
+      <div className="geometry3d-list" aria-label="3D geometry objects">
+        {objects.map((object) => <button key={object.id} type="button" className={selectedObject === object.id ? 'is-active' : ''} onClick={() => { setSelectedObject(object.id); setSelectedPoint(null); }}><span style={{ '--graph-color': object.color } as React.CSSProperties} />{object.label}<small>{object.type}</small></button>)}
+      </div>
+      {measurement && <output className="geometry3d-measurement">{measurement}</output>}
+      {selected && <section className="geometry3d-style"><strong>Selected object</strong><label>Label<input value={selected.label} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, label: event.target.value } : object))} /></label><label>Color<input type="color" value={selected.color} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, color: event.target.value } : object))} /></label><label><input type="checkbox" checked={selected.visible} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, visible: event.target.checked } : object))} /> Visible</label>{selected.type === 'sphere' && <label>Radius {selected.radius.toFixed(2)}<input type="range" min=".1" max="10" step=".1" value={selected.radius} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id && object.type === 'sphere' ? { ...object, radius: Number(event.target.value) } : object))} /></label>}<button className="is-danger" onClick={() => { setObjects((items) => items.filter((object) => object.id !== selected.id)); setSelectedObject(null); }}>Delete selected object</button></section>}
+      <section className="geometry3d-transform"><strong>Transform a copy</strong><div><label>dx<input type="number" value={transform.dx} onChange={(event) => setTransform((value) => ({ ...value, dx: Number(event.target.value) }))} /></label><label>dy<input type="number" value={transform.dy} onChange={(event) => setTransform((value) => ({ ...value, dy: Number(event.target.value) }))} /></label><label>dz<input type="number" value={transform.dz} onChange={(event) => setTransform((value) => ({ ...value, dz: Number(event.target.value) }))} /></label></div><button disabled={!selected} onClick={() => copyTransform('translate')}>Translate copy</button><label>Angle °<input type="number" value={transform.angle} onChange={(event) => setTransform((value) => ({ ...value, angle: Number(event.target.value) }))} /></label><button disabled={!selected} onClick={() => copyTransform('rotate')}>Rotate about z</button><label>Scale<input type="number" value={transform.scale} onChange={(event) => setTransform((value) => ({ ...value, scale: Number(event.target.value) }))} /></label><button disabled={!selected} onClick={() => copyTransform('dilate')}>Dilate copy</button><label>Reflect axis<select value={transform.axis} onChange={(event) => setTransform((value) => ({ ...value, axis: event.target.value as 'x' | 'y' | 'z' }))}><option>x</option><option>y</option><option>z</option></select></label><button disabled={!selected} onClick={() => copyTransform('reflect')}>Reflect copy</button></section>
+    </aside>
+    <div className="geometry3d-stage">
+      <div className="graph-controls"><button aria-label="Zoom 3D geometry in" onClick={() => setCamera((view) => ({ ...view, zoom: Math.min(8, view.zoom * 1.25) }))}>+</button><button aria-label="Zoom 3D geometry out" onClick={() => setCamera((view) => ({ ...view, zoom: Math.max(.15, view.zoom / 1.25) }))}>−</button><button aria-label="Fit 3D geometry" onClick={() => setCamera({ yaw: -.72, pitch: -.52, zoom: 1, panX: 0, panY: 0 })}>Fit</button><button aria-label="Top 3D geometry camera" onClick={() => setCamera((view) => ({ ...view, yaw: 0, pitch: -1.5 }))}>Top</button><button aria-label="Front 3D geometry camera" onClick={() => setCamera((view) => ({ ...view, yaw: 0, pitch: 0 }))}>Front</button><button aria-label="Side 3D geometry camera" onClick={() => setCamera((view) => ({ ...view, yaw: -Math.PI / 2, pitch: 0 }))}>Side</button></div>
+      <div className="geometry3d-axis-controls"><span>Move point</span>{(['screen', 'x', 'y', 'z'] as const).map((axis) => <button key={axis} className={moveAxis === axis ? 'is-active' : ''} onClick={() => setMoveAxis(axis)}>{axis}</button>)}</div>
+      <canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} aria-label="Interactive 3D geometry canvas"
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId); const bounds = event.currentTarget.getBoundingClientRect(); const x = (event.clientX - bounds.left) * event.currentTarget.width / bounds.width; const y = (event.clientY - bounds.top) * event.currentTarget.height / bounds.height;
+          const nearest = projectedPoints.current.map((point) => ({ ...point, distance: Math.hypot(point.sx - x, point.sy - y) })).sort((a, b) => a.distance - b.distance)[0]; const point = nearest && nearest.distance < 18 ? pointById(nearest.id) : undefined;
+          if (point) setSelectedPoint(point.id); drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, yaw: camera.yaw, pitch: camera.pitch, panX: camera.panX ?? 0, panY: camera.panY ?? 0, pan: event.shiftKey, point };
+        }}
+        onPointerMove={(event) => { const current = drag.current; if (!current || current.pointerId !== event.pointerId) return; const dx = (event.clientX - current.x) / (30 * camera.zoom); const dy = (event.clientY - current.y) / (30 * camera.zoom); if (!current.point) { if (current.pan) setCamera((view) => ({ ...view, panX: current.panX + event.clientX - current.x, panY: current.panY + event.clientY - current.y })); else setCamera((view) => ({ ...view, yaw: current.yaw - (event.clientX - current.x) * .004, pitch: Math.max(-1.5, Math.min(1.5, current.pitch + (event.clientY - current.y) * .004)) })); return; } setPoints((items) => items.map((point) => point.id !== current.point!.id ? point : { ...point, x: moveAxis === 'y' || moveAxis === 'z' ? current.point!.x : current.point!.x + dx, y: moveAxis === 'x' || moveAxis === 'z' ? current.point!.y : current.point!.y - dy, z: moveAxis === 'z' ? current.point!.z - dy : current.point!.z })); }}
+        onPointerUp={(event) => { drag.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { drag.current = null; }}
+        onWheel={(event) => { event.preventDefault(); setCamera((view) => ({ ...view, zoom: Math.max(.15, Math.min(8, view.zoom * Math.exp(-event.deltaY * .0015))) })); }} />
+      {selectedPoint && pointById(selectedPoint) && <div className="geometry3d-point-editor">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}<input type="number" step=".1" value={pointById(selectedPoint)![axis]} onChange={(event) => setPoints((items) => items.map((point) => point.id === selectedPoint ? { ...point, [axis]: Number(event.target.value) } : point))} /></label>)}</div>}
+      <p className="geometry3d-help">Drag blank space to orbit · Shift-drag to pan · wheel/pinch to zoom · drag a point along the selected axis</p>
+    </div>
+  </section>;
+}
+
 interface ScientificHistoryEntry {
   id: number;
   expressionLatex: string;
@@ -2281,9 +2605,23 @@ function ScientificLab({ storagePrefix }: { storagePrefix: string }) {
   );
 }
 
-export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, notebookId = 'default' }: { initialTool?: ResearchTool; onClose: () => void; open?: boolean; notebookId?: string }) {
-  const storagePrefix = `mathkhata:research:${notebookId}`;
+export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, notebookId = 'default', workspaceObjectId = null }: { initialTool?: ResearchTool; onClose: () => void; open?: boolean; notebookId?: string; workspaceObjectId?: string | null }) {
+  const storagePrefix = workspaceObjectId ? `mathkhata:research-object:${workspaceObjectId}` : `mathkhata:research:${notebookId}`;
   const [tool, setTool] = usePersistentResearchState<ResearchTool>(`${storagePrefix}:tool`, initialTool);
+  const notebook = useNotebookStore((state) => state.notebook);
+  const setPaletteOpen = useNotebookStore((state) => state.setPaletteOpen);
+  const paletteOpen = useNotebookStore((state) => state.paletteOpen);
+  const resetResearchSection = useNotebookStore((state) => state.resetResearchSection);
+  const copyResearchToPage = useNotebookStore((state) => state.copyResearchToPage);
+  const updateResearchObjectPreview = useNotebookStore((state) => state.updateResearchObjectPreview);
+  const undo = useNotebookStore((state) => state.undo);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [destinationPageId, setDestinationPageId] = useState('');
+  const [restoreMessage, setRestoreMessage] = useState('');
+  useEffect(() => {
+    if (open && workspaceObjectId) setTool(initialTool);
+  }, [initialTool, open, setTool, workspaceObjectId]);
   useEffect(() => {
     if (!open) return undefined;
     const onEscape = (event: KeyboardEvent) => {
@@ -2301,18 +2639,58 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     ? 'Local interactive 3D: explicit, parametric, and sampled implicit surfaces; sliders, points, curves, traces, viewport locks, and sampled intersections.'
     : tool === 'geometry'
       ? 'Local dynamic geometry: constructions, expressions, multi-select styling, transformations, dragging, measurements, and line/circle intersections.'
+      : tool === 'geometry3d'
+        ? 'Local 3D geometry: points, segments, vectors, triangles, spheres, measurements, transforms, and an orbitable camera.'
       : 'All calculations run locally. Verify research-critical results with the checked solver or AION.';
+  const canCopy = tool !== 'scientific';
+  const performCopy = () => {
+    if (!notebook || !destinationPageId || !canCopy) return;
+    const preview = captureResearchPreview(panelRef.current);
+    copyResearchToPage(tool, destinationPageId, preview);
+    setCopyOpen(false);
+    onClose();
+  };
   return (
-    <aside className="research-tools-panel" aria-label="Research mathematics tools" data-testid="research-tools-panel" hidden={!open}>
-      <header><div><strong>Research workspace</strong><span>Graph · geometry · scientific</span></div><button type="button" aria-label="Close research tools" onClick={onClose}>×</button></header>
+    <aside ref={panelRef} className="research-tools-panel" aria-label="Research mathematics tools" data-testid="research-tools-panel" hidden={!open}>
+      <header><div><strong>{workspaceObjectId ? 'Edit page research copy' : 'Research workspace'}</strong><span>Graph · geometry · scientific</span></div><div className="research-header-actions">
+        {workspaceObjectId && <button type="button" onClick={() => {
+          const preview = captureResearchPreview(panelRef.current);
+          updateResearchObjectPreview(workspaceObjectId, preview);
+          setRestoreMessage('Page copy preview saved.');
+        }}>Save page copy</button>}
+        {!workspaceObjectId && canCopy && <button type="button" onClick={() => { setDestinationPageId(notebook?.pages[0]?.id ?? ''); setCopyOpen(true); }}>Copy to notebook</button>}
+        {!workspaceObjectId && <button type="button" onClick={() => {
+          if (!window.confirm(`Reset all saved data in ${TABS.find((tab) => tab.id === tool)?.label}? You can restore it with Undo.`)) return;
+          resetResearchSection(tool); setRestoreMessage(`${TABS.find((tab) => tab.id === tool)?.label} reset.`);
+        }}>Reset data</button>}
+        {!workspaceObjectId && <button type="button" onClick={() => {
+          if (!window.confirm('Reset every research section in this notebook? You can restore it with Undo.')) return;
+          resetResearchSection('all'); setRestoreMessage('All research sections reset.');
+        }}>Reset all</button>}
+        <button type="button" aria-label="Close research tools" onClick={onClose}>×</button>
+      </div></header>
       <nav aria-label="Research tool sections">{TABS.map((tab) => <button type="button" key={tab.id} className={tool === tab.id ? 'is-active' : ''} onClick={() => setTool(tab.id)}>{tab.label}</button>)}</nav>
+      <div className="research-math-toolbar" aria-label="Research mathematics input tools">
+        <button type="button" onClick={() => { if (!focusActiveMathfield()) return; if (window.mathVirtualKeyboard.visible) window.mathVirtualKeyboard.hide(); else window.mathVirtualKeyboard.show(); }}>⌨ Math keyboard</button>
+        <button type="button" data-math-menu-toggle="true" onClick={() => { if (dismissActiveMathfieldMenu()) return; showActiveMathfieldMenu(); }}>☰ Insert structures</button>
+        <button type="button" className={paletteOpen ? 'is-active' : ''} onClick={() => { dismissActiveMathfieldMenu(); setPaletteOpen(!paletteOpen); }}>Ω Symbols</button>
+      </div>
+      {restoreMessage && <div className="research-restore" role="status"><span>{restoreMessage}</span><button type="button" onClick={() => { undo(); setRestoreMessage('Research restored.'); }}>Restore</button><button type="button" aria-label="Dismiss restore message" onClick={() => setRestoreMessage('')}>×</button></div>}
       <div className="research-tools-panel__body">
         {tool === '2d' && <Graph2D storagePrefix={storagePrefix} />}
         {tool === '3d' && <Graph3D storagePrefix={storagePrefix} />}
         {tool === 'geometry' && <GeometryLab storagePrefix={storagePrefix} />}
+        {tool === 'geometry3d' && <Geometry3DLab storagePrefix={storagePrefix} />}
         {tool === 'scientific' && <ScientificLab storagePrefix={storagePrefix} />}
       </div>
       <footer>{footer}</footer>
+      {copyOpen && <div className="research-copy-dialog" role="dialog" aria-modal="true" aria-label="Copy research to notebook">
+        <header><strong>Copy independent snapshot</strong><button type="button" aria-label="Close copy dialog" onClick={() => setCopyOpen(false)}>×</button></header>
+        <p>The graph, constructions, camera, and styles are copied independently. Later source resets will not alter the page copy.</p>
+        <label>Destination page<select value={destinationPageId} onChange={(event) => setDestinationPageId(event.target.value)}>{notebook?.pages.map((page, index) => <option key={page.id} value={page.id}>Page {index + 1}{page.favorite ? ' ★' : ''}</option>)}</select></label>
+        <div className="research-placement-preview" aria-label="Research card placement preview"><span>Ruled page preview</span><i><b>{TABS.find((tab) => tab.id === tool)?.label}</b></i></div>
+        <div><button type="button" onClick={() => setCopyOpen(false)}>Cancel</button><button type="button" className="research-primary" onClick={performCopy}>Copy and open page</button></div>
+      </div>}
     </aside>
   );
 }

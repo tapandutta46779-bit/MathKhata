@@ -13,7 +13,7 @@ describe('structured notebook serialization', () => {
     expect(restored).toEqual(notebook);
     expect(JSON.parse(json)).toMatchObject({
       format: 'mathkhata-notebook',
-      schemaVersion: 2,
+      schemaVersion: 3,
       notebook: { title: 'Exact work' },
     });
   });
@@ -47,8 +47,32 @@ describe('structured notebook serialization', () => {
       })),
     };
     const restored = validateNotebook(legacy);
-    expect(restored.schemaVersion).toBe(2);
+    expect(restored.schemaVersion).toBe(3);
     expect(restored.pages[0].drawings).toEqual([]);
+    expect(restored.pages[0]).toMatchObject({ favorite: false, highlightColor: null });
+    expect(restored.research).toEqual({ values: {} });
+  });
+
+  it('migrates schema 2 drawings and page metadata without losing content', () => {
+    const notebook = createNotebook('Version two');
+    const legacy = {
+      ...notebook,
+      schemaVersion: 2,
+      research: undefined,
+      pages: notebook.pages.map((page) => ({
+        ...page,
+        favorite: undefined,
+        highlightColor: undefined,
+        drawings: [{
+          id: 'old-stroke', kind: 'pen', color: '#123456', width: 4, opacity: 1,
+          points: [{ x: 2, y: 3 }, { x: 8, y: 9 }], createdAt: page.createdAt, updatedAt: page.updatedAt,
+        }],
+      })),
+    };
+    const restored = validateNotebook(legacy);
+    expect(restored.schemaVersion).toBe(3);
+    expect(restored.pages[0].drawings[0].erasures).toEqual([]);
+    expect(restored.pages[0]).toMatchObject({ favorite: false, highlightColor: null });
   });
 
   it('rejects duplicate object identifiers', () => {
