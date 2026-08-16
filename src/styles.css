@@ -707,6 +707,8 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .research-copy-dialog select { padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: white; }
 .research-copy-dialog > div { display: flex; justify-content: flex-end; gap: 7px; }
 .research-copy-dialog > div button { padding: 7px 10px; border-radius: 7px; background: #eeeae1; font-size: 9px; font-weight: 700; }
+.research-copy-dialog > div .research-primary { color: #fff; border: 1px solid #713722; background: #9a482c; box-shadow: 0 3px 9px rgba(111,53,34,.24); }
+.research-copy-dialog > div .research-primary:hover { background: #843b25; }
 .research-copy-dialog .research-placement-preview { position: relative; display: block; height: 110px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: repeating-linear-gradient(#fffefa 0 19px,#dce9ec 20px); }
 .research-placement-preview > span { position: absolute; top: 5px; right: 7px; color: var(--muted); font-size: 7px; }
 .research-placement-preview > i { position: absolute; left: 12%; top: 31%; display: grid; place-items: center; width: 58%; height: 48%; border: 1px solid #bdb5a8; border-radius: 5px; color: #713c2a; background: rgba(255,255,255,.94); font-size: 8px; font-style: normal; }
@@ -864,6 +866,12 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .graph-mesh-control input[type="range"] { width: 100%; padding: 0; accent-color: var(--accent); }
 .graph-mesh-control input[type="number"] { width: 100%; }
 .graph-trace { position: absolute; left: 10px; bottom: 10px; padding: 6px 8px; border-left: 3px solid var(--graph-color); border-radius: 6px; color: #4d4941; background: rgba(255,254,250,.93); box-shadow: 0 3px 12px rgba(49,44,36,.1); font: 9px ui-monospace, monospace; }
+.research-marker-list { display: grid; gap: 5px; padding: 8px; border: 1px solid #d5d0c7; border-radius: 8px; background: #fffefa; }
+.research-marker-list > header { display: flex; justify-content: space-between; color: #5a5249; font-size: 8px; }
+.research-marker-list ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.research-marker-list li { display: grid; grid-template-columns: minmax(0,1fr) 24px; align-items: center; gap: 5px; color: #504943; font: 8px ui-monospace, monospace; }
+.research-marker-list li button { width: 24px; height: 24px; border-radius: 5px; color: #9b342b; background: #f7e5e1; }
+.research-graph-lab--loglog .graph-stage canvas { cursor: crosshair; }
 .graph-error { position: absolute; right: 10px; bottom: 10px; max-width: min(340px, calc(100% - 20px)); padding: 7px 9px; border-radius: 7px; background: rgba(249,229,225,.96); }
 .research-canvas-tool { display: grid; gap: 9px; justify-items: center; min-width: 0; }
 .research-expression-row { display: flex; flex-wrap: wrap; gap: 10px; width: min(760px, 100%); }

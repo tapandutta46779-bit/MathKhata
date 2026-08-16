@@ -74,7 +74,7 @@ export const researchObjectSchema = z.object({
   ...baseObjectShape,
   type: z.literal('research'),
   snapshot: z.object({
-    kind: z.enum(['2d', '3d', 'geometry', 'geometry3d']),
+    kind: z.enum(['2d', 'loglog', '3d', 'geometry', 'geometry3d']),
     title: z.string().min(1).max(200),
     values: z.record(z.string().max(300), researchValueSchema),
     previewDataUrl: z.string().max(8_000_000).nullable(),

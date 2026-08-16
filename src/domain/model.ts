@@ -65,7 +65,7 @@ export interface TextStyle {
   color: string;
 }
 
-export type ResearchToolKind = '2d' | '3d' | 'geometry' | 'geometry3d' | 'scientific';
+export type ResearchToolKind = '2d' | 'loglog' | '3d' | 'geometry' | 'geometry3d' | 'scientific';
 
 export type ResearchValue =
   | null

@@ -182,5 +182,9 @@ describe('notebook domain', () => {
     const resetSource = resetResearchValues(withSnapshot, ['2d:'], factories.now);
     expect(resetSource.research.values).toEqual({});
     expect(resetSource.pages[0].objects[0]).toMatchObject({ type: 'research', snapshot: { values: { '2d:expressions': [{ expression: 'x^2' }] } } });
+    const logSnapshot = createResearchObject({ x: 80, y: 90 }, {
+      kind: 'loglog', title: 'Log-Log Graph', values: { 'loglog:expressions': [{ expression: 'y=x^2' }] }, previewDataUrl: null,
+    }, factories);
+    expect(logSnapshot.snapshot.kind).toBe('loglog');
   });
 });

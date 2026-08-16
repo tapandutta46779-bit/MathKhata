@@ -29,6 +29,7 @@
     "@huggingface/transformers": "^4.2.0",
     "@mlc-ai/web-llm": "^0.2.84",
     "dexie": "4.4.4",
+    "jspdf": "^4.2.1",
     "mathlive": "0.110.0",
     "nerdamer-prime": "1.5.0",
     "react": "19.2.8",

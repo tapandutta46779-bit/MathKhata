@@ -371,6 +371,7 @@ test('voice, research tools, and floating calculator remain available', async ({
   await research.getByRole('button', { name: '3D Geometry', exact: true }).click();
   await research.getByRole('button', { name: 'Copy to notebook' }).click();
   await expect(research.getByRole('dialog', { name: 'Copy research to notebook' })).toBeVisible();
+  await expect(research.getByRole('button', { name: 'Copy and open page' })).toHaveCSS('background-color', 'rgb(154, 72, 44)');
   await research.getByRole('button', { name: 'Copy and open page' }).click();
   await expect(research).toBeHidden();
   const researchCard = page.locator('.research-object-card');
@@ -406,8 +407,67 @@ test('new research workspaces and Reset all contain no sample equations', async 
   await expect(research.getByLabel('3D surface expression 1')).toHaveCount(0);
   await research.getByRole('button', { name: '2D Graph', exact: true }).click();
   await expect(research.getByLabel('Expression 1', { exact: true })).toHaveCount(0);
+  await research.getByRole('button', { name: 'Log-Log Graph', exact: true }).click();
+  await expect(research.getByLabel('Log-log expression 1', { exact: true })).toHaveCount(0);
   await research.getByRole('button', { name: 'Scientific', exact: true }).click();
   await expect.poll(() => research.getByLabel('Scientific expression').evaluate((element: any) => element.value)).toBe('');
+});
+
+test('research exports PDFs, splits signed integral shading, and marks 2D/log-log crossings', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
+  const research = page.getByTestId('research-tools-panel');
+  await research.getByRole('button', { name: '+ Add expression' }).click();
+  await research.getByLabel('Expression 1', { exact: true }).fill('y=x');
+  await research.getByRole('button', { name: '+ Add expression' }).click();
+  await research.getByLabel('Expression 2', { exact: true }).fill('y=-x');
+  await research.getByLabel('Graph calculus function').selectOption('1');
+  await research.getByLabel('Lower a').fill('-1');
+  await research.getByLabel('Upper b').fill('1');
+  await research.getByRole('button', { name: 'Measure definite integral' }).click();
+  const canvas = research.getByLabel('Interactive 2D graph');
+  await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => {
+    const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
+    let positive = 0; let negative = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index]; const green = pixels[index + 1]; const blue = pixels[index + 2];
+      if (green > red + 12 && green > blue + 4) positive += 1;
+      if (red > green + 12 && red > blue + 12) negative += 1;
+    }
+    return { positive, negative };
+  })).toMatchObject({ positive: expect.any(Number), negative: expect.any(Number) });
+  const colors = await canvas.evaluate((element: HTMLCanvasElement) => {
+    const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height).data;
+    let positive = 0; let negative = 0;
+    for (let index = 0; index < pixels.length; index += 4) { const red = pixels[index]; const green = pixels[index + 1]; const blue = pixels[index + 2]; if (green > red + 12 && green > blue + 4) positive += 1; if (red > green + 12 && red > blue + 12) negative += 1; }
+    return { positive, negative };
+  });
+  expect(colors.positive).toBeGreaterThan(20);
+  expect(colors.negative).toBeGreaterThan(20);
+  const box = await canvas.boundingBox(); expect(box).not.toBeNull();
+  await expect.poll(async () => {
+    await page.mouse.move(box!.x + box!.width / 2 + 24, box!.y + box!.height / 2);
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    return research.getByText(/Intersection: x/).count();
+  }).toBe(1);
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await expect(research.getByLabel('Saved graph intersections')).toContainText('Lines 1 & 2');
+
+  const downloadPromise = page.waitForEvent('download');
+  await research.getByRole('button', { name: 'Download PDF' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('math-notebook-2d-graph.pdf');
+  await download.saveAs('test-results/research-2d-graph.pdf');
+
+  await research.getByRole('button', { name: 'Log-Log Graph', exact: true }).click();
+  await research.getByRole('button', { name: '+ Add expression' }).click();
+  await research.getByLabel('Log-log expression 1', { exact: true }).fill('y=x');
+  await research.getByRole('button', { name: '+ Add expression' }).click();
+  await research.getByLabel('Log-log expression 2', { exact: true }).fill('y=x^2');
+  const logCanvas = research.getByLabel('Interactive log-log graph');
+  await expect.poll(() => logCanvas.evaluate((element: HTMLCanvasElement) => element.toDataURL().length)).toBeGreaterThan(10_000);
+  await research.getByRole('button', { name: 'Guide', exact: true }).click();
+  await expect(research.getByLabel('Log-Log Graph guide complete supported features')).toContainText('base-10 logarithmic');
 });
 
 test('page selection manages favorites, highlights, printing, deletion, and undo without reordering', async ({ page }) => {

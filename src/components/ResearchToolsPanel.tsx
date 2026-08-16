@@ -42,11 +42,14 @@ import {
   orbitGeometry3DCamera,
   type Geometry3DPrimitive,
 } from '../research/geometry3dPrimitives';
+import { downloadResearchPdf, type ResearchPdfSection } from '../research/researchPdf';
+import { splitSignedAreaSegment } from '../research/signedArea';
 
 export type ResearchTool = ResearchToolKind;
 
 const TABS: Array<{ id: ResearchTool; label: string }> = [
   { id: '2d', label: '2D Graph' },
+  { id: 'loglog', label: 'Log-Log Graph' },
   { id: '3d', label: '3D Surface' },
   { id: 'geometry', label: 'Geometry' },
   { id: 'geometry3d', label: '3D Geometry' },
@@ -60,6 +63,14 @@ const RESEARCH_GUIDES: Record<ResearchTool, { title: string; sections: Array<{ h
       { heading: 'Plot', items: ['Functions: y=sin(x), y=x^2+1, or just sin(x)', 'Vertical lines: x=2', 'Implicit relations: (x-2)^2+(y+1)^2=9', 'Points and parametric curves: (1,3) or (cos(t),sin(t))', 'One-letter sliders: a=2, then y=a sin(x)', 'Restrictions: y=x^2 {x>0}'] },
       { heading: 'Calculate', items: ['Insert a definite integral, derivative, finite sum/product, or determinant as its own expression line for a checked result.', 'Measure from graph selects a plotted y-function, shades a definite integral, or draws the numerical tangent at x.', 'An unsupported calculation never disables other valid graph lines.'] },
       { heading: 'Navigate', items: ['Drag blank graph paper to pan.', 'Wheel or +/− zooms around the pointer.', 'Move over a curve to inspect x and y; Settings controls axes, grid, labels, and bounds.'] },
+    ],
+  },
+  loglog: {
+    title: 'Log-Log Graph guide',
+    sections: [
+      { heading: 'Plot positive data', items: ['Enter y=x^a, y=3x^2, or another positive-valued function.', 'Both axes use base-10 logarithmic scales; zero and negative coordinates cannot appear.', 'Use parameters such as a=2 on separate lines.'] },
+      { heading: 'Read and measure', items: ['Hover a curve or supported crossing to inspect the original x and y coordinates.', 'Click a crossing to keep a marker; remove saved markers from the expression rail.', 'Straight-line slope on a log-log graph is the power-law exponent.'] },
+      { heading: 'Navigate', items: ['Drag to pan by decades; wheel or +/− zooms around the pointer.', 'Reset returns to a useful positive range.', 'Download PDF exports the graph with its equations, markers, and viewport details.'] },
     ],
   },
   '3d': {
@@ -165,6 +176,34 @@ function captureResearchPreview(panel: HTMLElement | null): string | null {
   } catch {
     return null;
   }
+}
+
+function collectResearchPdfSections(panel: HTMLElement | null, tool: ResearchTool): ResearchPdfSection[] {
+  if (!panel) return [];
+  const values = [...panel.querySelectorAll<MathfieldElement>('math-field')]
+    .map((field) => field.value.trim())
+    .filter(Boolean);
+  const sectionFor = (heading: string, selector: string) => ({
+    heading,
+    lines: [...panel.querySelectorAll<HTMLElement>(selector)]
+      .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
+      .filter(Boolean),
+  });
+  if (tool === 'scientific') {
+    return [
+      { heading: 'Complete scientific history', lines: values },
+      sectionFor('Numerical checks', '.scientific-history-row small'),
+    ];
+  }
+  return [
+    { heading: 'Equations and constructions', lines: values },
+    sectionFor('Parameters and measurements', '.graph-parameter, .graph-calculus output, .geometry-expression-row, .geometry-point-list > div, .geometry3d-points > div > div, .geometry3d-list button, .geometry3d-measurement, .research-marker-list li'),
+    sectionFor('Viewport and method', '.graph-settings-popover label, .geometry-options label, .geometry3d-help, .graph-expression-list > p'),
+  ];
+}
+
+function slugifyResearchFilename(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'research';
 }
 
 const GRAPH_COLORS = ['#9a482c', '#3777a5', '#6b8e4e', '#8e5aa4', '#d18425', '#258f87'];
@@ -357,6 +396,14 @@ interface Graph2DSettings {
   yLabel: string;
 }
 
+interface GraphIntersectionMarker {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
+  label: string;
+}
+
 function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   const [expressions, setExpressions] = usePersistentResearchState<GraphExpression[]>(`${storagePrefix}:2d:expressions`, []);
   const [viewport, setViewport] = usePersistentResearchState(`${storagePrefix}:2d:viewport`, { centerX: 0, centerY: 0, scale: 52 });
@@ -379,6 +426,8 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
   const [trace, setTrace] = useState<{ x: number; y: number; color: string } | null>(null);
+  const [hoverIntersection, setHoverIntersection] = useState<GraphIntersectionMarker | null>(null);
+  const [intersectionMarkers, setIntersectionMarkers] = usePersistentResearchState<GraphIntersectionMarker[]>(`${storagePrefix}:2d:intersection-markers`, []);
   const [calculus, setCalculus] = useState({ expressionId: 0, lower: 0, upper: 1, point: 0 });
   const [calculusOverlay, setCalculusOverlay] = useState<null | { kind: 'integral' | 'derivative'; expressionId: number; value: number; lower?: number; upper?: number; point?: number; slope?: number; y?: number }>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -386,6 +435,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ pointerX: number; pointerY: number; centerX: number; centerY: number } | null>(null);
   const evaluatorsRef = useRef<Array<{ id: number; color: string; evaluate: (values: Record<string, number>) => number }>>([]);
+  const intersectionCandidatesRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
 
   useEffect(() => {
     if (!settingsOpen) return undefined;
@@ -626,23 +676,61 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           }
           context.stroke();
         }
+        const intersectionCandidates: Array<GraphIntersectionMarker & { screenX: number; screenY: number }> = [];
+        const yFunctions = evaluatorsRef.current;
+        for (let firstIndex = 0; firstIndex < yFunctions.length; firstIndex += 1) {
+          for (let secondIndex = firstIndex + 1; secondIndex < yFunctions.length; secondIndex += 1) {
+            const first = yFunctions[firstIndex]; const second = yFunctions[secondIndex];
+            let previousX = worldLeft;
+            let previousDelta = first.evaluate({ x: previousX }) - second.evaluate({ x: previousX });
+            for (let sample = 1; sample <= Math.max(160, Math.round(width / 3)); sample += 1) {
+              const x = worldLeft + (worldRight - worldLeft) * sample / Math.max(160, Math.round(width / 3));
+              const delta = first.evaluate({ x }) - second.evaluate({ x });
+              if (Number.isFinite(previousDelta) && Number.isFinite(delta) && (previousDelta === 0 || delta === 0 || previousDelta * delta < 0)) {
+                let left = previousX; let right = x;
+                for (let iteration = 0; iteration < 18; iteration += 1) {
+                  const middle = (left + right) / 2;
+                  const leftDelta = first.evaluate({ x: left }) - second.evaluate({ x: left });
+                  const middleDelta = first.evaluate({ x: middle }) - second.evaluate({ x: middle });
+                  if (leftDelta * middleDelta <= 0) right = middle; else left = middle;
+                }
+                const crossingX = (left + right) / 2;
+                const crossingY = (first.evaluate({ x: crossingX }) + second.evaluate({ x: crossingX })) / 2;
+                const candidate = { id: `${first.id}-${second.id}-${crossingX.toPrecision(8)}`, x: crossingX, y: crossingY, color: '#3f315c', label: `Lines ${first.id} & ${second.id}`, screenX: screenX(crossingX), screenY: screenY(crossingY) };
+                if ([candidate.screenX, candidate.screenY].every(Number.isFinite) && !intersectionCandidates.some((item) => Math.hypot(item.screenX - candidate.screenX, item.screenY - candidate.screenY) < 7)) intersectionCandidates.push(candidate);
+              }
+              previousX = x; previousDelta = delta;
+            }
+          }
+        }
+        intersectionCandidatesRef.current = intersectionCandidates;
+        for (const marker of intersectionMarkers) {
+          context.save(); context.fillStyle = marker.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
+          context.beginPath(); context.arc(screenX(marker.x), screenY(marker.y), 6, 0, Math.PI * 2); context.fill(); context.stroke();
+          context.fillStyle = '#3f315c'; context.font = 'bold 10px ui-monospace, monospace'; context.fillText(`(${Number(marker.x.toPrecision(5))}, ${Number(marker.y.toPrecision(5))})`, screenX(marker.x) + 8, screenY(marker.y) - 8); context.restore();
+        }
+        if (hoverIntersection) {
+          context.save(); context.strokeStyle = '#3f315c'; context.lineWidth = 2; context.setLineDash([3, 2]);
+          context.beginPath(); context.arc(screenX(hoverIntersection.x), screenY(hoverIntersection.y), 8, 0, Math.PI * 2); context.stroke(); context.restore();
+        }
         if (calculusOverlay) {
           const selected = evaluatorsRef.current.find((entry) => entry.id === calculusOverlay.expressionId);
           if (selected && calculusOverlay.kind === 'integral' && calculusOverlay.lower !== undefined && calculusOverlay.upper !== undefined) {
             const lower = Math.min(calculusOverlay.lower, calculusOverlay.upper);
             const upper = Math.max(calculusOverlay.lower, calculusOverlay.upper);
             context.save();
-            context.fillStyle = `${selected.color}33`;
-            context.beginPath();
-            context.moveTo(screenX(lower), screenY(0));
-            for (let index = 0; index <= 240; index += 1) {
-              const x = lower + (upper - lower) * index / 240;
-              const y = selected.evaluate({ x });
-              if (Number.isFinite(y)) context.lineTo(screenX(x), screenY(y));
+            const fillSignedArea = (x0: number, y0: number, x1: number, y1: number, positive: boolean) => {
+              context.fillStyle = positive ? 'rgba(43,132,92,.34)' : 'rgba(210,73,55,.34)';
+              context.beginPath(); context.moveTo(screenX(x0), screenY(0)); context.lineTo(screenX(x0), screenY(y0)); context.lineTo(screenX(x1), screenY(y1)); context.lineTo(screenX(x1), screenY(0)); context.closePath(); context.fill();
+            };
+            for (let index = 0; index < 240; index += 1) {
+              const x0 = lower + (upper - lower) * index / 240;
+              const x1 = lower + (upper - lower) * (index + 1) / 240;
+              const y0 = selected.evaluate({ x: x0 }); const y1 = selected.evaluate({ x: x1 });
+              for (const segment of splitSignedAreaSegment(x0, y0, x1, y1)) {
+                fillSignedArea(segment.x0, segment.y0, segment.x1, segment.y1, segment.positive);
+              }
             }
-            context.lineTo(screenX(upper), screenY(0));
-            context.closePath();
-            context.fill();
             context.restore();
           }
           if (selected && calculusOverlay.kind === 'derivative' && calculusOverlay.point !== undefined && calculusOverlay.slope !== undefined && calculusOverlay.y !== undefined) {
@@ -664,10 +752,34 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
     };
     void draw();
     return () => { cancelled = true; };
-  }, [calculusOverlay, canvasSize.height, canvasSize.width, expressions, settings, viewport]);
+  }, [calculusOverlay, canvasSize.height, canvasSize.width, expressions, hoverIntersection, intersectionMarkers, settings, viewport]);
 
   const updateExpression = (id: number, patch: Partial<GraphExpression>) => {
     setExpressions((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
+  };
+
+  const resolveCalculusEvaluator = async () => {
+    const parameters: Record<string, number> = {};
+    expressions.forEach((entry) => {
+      const match = entry.expression.trim().match(/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/);
+      if (match && !['x', 'y'].includes(match[1])) parameters[match[1]] = Number(match[2]);
+    });
+    const candidates = expressions.filter((entry) => {
+      const source = entry.expression.trim();
+      return source && !isResearchCalculationLatex(source) && (/^y\s*=/i.test(source) || !source.includes('='));
+    });
+    const sourceEntry = candidates.find((entry) => entry.id === calculus.expressionId) ?? candidates[0];
+    if (!sourceEntry) return null;
+    const source = sourceEntry.expression.trim();
+    const expression = source.match(/^y\s*=\s*(.+)$/i)?.[1] ?? source;
+    try {
+      const compiled = await numericEvaluatorWithRestrictions(expression, [...Object.keys(parameters), 'x']);
+      const resolved = { id: sourceEntry.id, color: sourceEntry.color, evaluate: (values: Record<string, number>) => compiled({ ...parameters, ...values }) };
+      evaluatorsRef.current = [...evaluatorsRef.current.filter((entry) => entry.id !== resolved.id), resolved];
+      return resolved;
+    } catch {
+      return null;
+    }
   };
 
   const applyAxisBounds = () => {
@@ -719,21 +831,21 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           <header><strong>Measure from graph</strong><span>Numerical check</span></header>
           <label>Function<select aria-label="Graph calculus function" value={calculus.expressionId || ''} onChange={(event) => setCalculus((current) => ({ ...current, expressionId: Number(event.target.value) }))}>
             <option value="">Choose a plotted y-function</option>
-            {expressions.filter((entry) => entry.expression.trim() && !isResearchCalculationLatex(entry.expression)).map((entry, index) => <option key={entry.id} value={entry.id}>Line {index + 1}: {entry.expression}</option>)}
+            {expressions.filter((entry) => { const source = entry.expression.trim(); return source && !isResearchCalculationLatex(source) && (/^y\s*=/i.test(source) || !source.includes('=')); }).map((entry, index) => <option key={entry.id} value={entry.id}>Line {index + 1}: {entry.expression}</option>)}
           </select></label>
           <div className="graph-calculus__bounds"><label>Lower a<input type="number" step="any" value={calculus.lower} onChange={(event) => setCalculus((current) => ({ ...current, lower: Number(event.target.value) }))} /></label><label>Upper b<input type="number" step="any" value={calculus.upper} onChange={(event) => setCalculus((current) => ({ ...current, upper: Number(event.target.value) }))} /></label></div>
-          <button type="button" onClick={() => {
-            const selected = evaluatorsRef.current.find((entry) => entry.id === calculus.expressionId) ?? evaluatorsRef.current[0];
+          <button type="button" onClick={() => void (async () => {
+            const selected = await resolveCalculusEvaluator();
             if (!selected) { setError('Choose a valid plotted y-function before measuring an integral.'); return; }
             const value = simpsonIntegral((x) => selected.evaluate({ x }), calculus.lower, calculus.upper);
             if (!Number.isFinite(value)) { setError('The numerical integral is undefined or discontinuous on these bounds.'); return; }
             setCalculus((current) => ({ ...current, expressionId: selected.id }));
             setCalculusOverlay({ kind: 'integral', expressionId: selected.id, value, lower: calculus.lower, upper: calculus.upper });
             setError('');
-          }}>Measure definite integral</button>
+          })()}>Measure definite integral</button>
           <label>At x<input type="number" step="any" value={calculus.point} onChange={(event) => setCalculus((current) => ({ ...current, point: Number(event.target.value) }))} /></label>
-          <button type="button" onClick={() => {
-            const selected = evaluatorsRef.current.find((entry) => entry.id === calculus.expressionId) ?? evaluatorsRef.current[0];
+          <button type="button" onClick={() => void (async () => {
+            const selected = await resolveCalculusEvaluator();
             if (!selected) { setError('Choose a valid plotted y-function before measuring a derivative.'); return; }
             const h = Math.max(1e-6, Math.abs(calculus.point) * 1e-5);
             const y = selected.evaluate({ x: calculus.point });
@@ -742,9 +854,10 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
             setCalculus((current) => ({ ...current, expressionId: selected.id }));
             setCalculusOverlay({ kind: 'derivative', expressionId: selected.id, value: slope, point: calculus.point, slope, y });
             setError('');
-          }}>Measure derivative and tangent</button>
+          })()}>Measure derivative and tangent</button>
           {calculusOverlay && <output><b>{calculusOverlay.kind === 'integral' ? 'Integral' : 'Derivative'}</b> ≈ {Number(calculusOverlay.value.toPrecision(12))}<button type="button" onClick={() => setCalculusOverlay(null)}>Clear overlay</button></output>}
         </section>
+        {intersectionMarkers.length > 0 && <section className="research-marker-list" aria-label="Saved graph intersections"><header><strong>Marked intersections</strong><span>{intersectionMarkers.length}</span></header><ul>{intersectionMarkers.map((marker) => <li key={marker.id}><span>{marker.label}: ({Number(marker.x.toPrecision(6))}, {Number(marker.y.toPrecision(6))})</span><button type="button" aria-label={`Delete intersection marker at ${marker.x}, ${marker.y}`} onClick={() => setIntersectionMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
         <p>Write complete lines: <b>y=sin(x)</b>, <b>x=2</b>, <b>(x-2)^2+(y+1)^2=9</b>, <b>(cos(t),sin(t))</b>, or <b>a=2</b>.</p>
       </aside>
       <div className="graph-stage">
@@ -776,6 +889,14 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           height={canvasSize.height}
           aria-label="Interactive 2D graph"
           onPointerDown={(event) => {
+            const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect();
+            const pixelX = (event.clientX - bounds.left) * canvas.width / bounds.width; const pixelY = (event.clientY - bounds.top) * canvas.height / bounds.height;
+            const crossing = intersectionCandidatesRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0];
+            if (crossing && crossing.distance <= 15) {
+              const marker: GraphIntersectionMarker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, color: crossing.candidate.color, label: crossing.candidate.label };
+              setIntersectionMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]);
+              setHoverIntersection(marker); return;
+            }
             if (settings.lockViewport) return;
             event.currentTarget.setPointerCapture(event.pointerId);
             dragRef.current = { pointerX: event.clientX, pointerY: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY };
@@ -795,15 +916,19 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
               setTrace(null);
               return;
             }
-            const x = viewport.centerX + ((event.clientX - bounds.left) * ratioX - canvas.width / 2) / viewport.scale;
+            const pixelX = (event.clientX - bounds.left) * ratioX; const pixelY = (event.clientY - bounds.top) * ratioY;
+            const crossing = intersectionCandidatesRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0];
+            if (crossing && crossing.distance <= 15) { setHoverIntersection(crossing.candidate); setTrace(null); return; }
+            setHoverIntersection(null);
+            const x = viewport.centerX + (pixelX - canvas.width / 2) / viewport.scale;
             const candidates = evaluatorsRef.current.map((entry) => ({ x, y: entry.evaluate({ x }), color: entry.color })).filter((point) => Number.isFinite(point.y));
-            const mouseY = viewport.centerY - ((event.clientY - bounds.top) * ratioY - canvas.height / 2) / viewport.scale;
+            const mouseY = viewport.centerY - (pixelY - canvas.height / 2) / viewport.scale;
             candidates.sort((left, right) => Math.abs(left.y - mouseY) - Math.abs(right.y - mouseY));
             setTrace(candidates[0] ?? null);
           }}
           onPointerUp={(event) => { dragRef.current = null; event.currentTarget.releasePointerCapture(event.pointerId); }}
           onPointerCancel={() => { dragRef.current = null; }}
-          onPointerLeave={() => { if (!dragRef.current) setTrace(null); }}
+          onPointerLeave={() => { if (!dragRef.current) { setTrace(null); setHoverIntersection(null); } }}
           onWheel={(event) => {
             event.preventDefault();
             if (settings.lockViewport) return;
@@ -823,11 +948,114 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
             });
           }}
         />
-        {trace && <output className="graph-trace" style={{ '--graph-color': trace.color } as React.CSSProperties}>x = {trace.x.toFixed(4)} · y = {trace.y.toFixed(4)}</output>}
+        {(hoverIntersection || trace) && <output className="graph-trace" style={{ '--graph-color': (hoverIntersection ?? trace)!.color } as React.CSSProperties}>{hoverIntersection ? <>Intersection: x = {hoverIntersection.x.toFixed(5)} · y = {hoverIntersection.y.toFixed(5)} · click to mark</> : <>x = {trace!.x.toFixed(4)} · y = {trace!.y.toFixed(4)}</>}</output>}
         {error && <p className="research-tool-error graph-error">{error}</p>}
       </div>
     </section>
   );
+}
+
+function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
+  const [expressions, setExpressions] = usePersistentResearchState<GraphExpression[]>(`${storagePrefix}:loglog:expressions`, []);
+  const [viewport, setViewport] = usePersistentResearchState(`${storagePrefix}:loglog:viewport`, { centerX: .5, centerY: .5, scale: 92 });
+  const [markers, setMarkers] = usePersistentResearchState<GraphIntersectionMarker[]>(`${storagePrefix}:loglog:intersection-markers`, []);
+  const [hover, setHover] = useState<GraphIntersectionMarker | null>(null);
+  const [trace, setTrace] = useState<{ x: number; y: number; color: string } | null>(null);
+  const [error, setError] = useState('');
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasSize = useResponsiveCanvasSize(canvasRef);
+  const dragRef = useRef<{ x: number; y: number; centerX: number; centerY: number } | null>(null);
+  const evaluatorsRef = useRef<Array<{ id: number; color: string; evaluate: (values: Record<string, number>) => number }>>([]);
+  const crossingsRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const canvas = canvasRef.current; const context = canvas?.getContext('2d');
+      if (!canvas || !context) return;
+      const width = canvas.width; const height = canvas.height;
+      context.fillStyle = '#fffefa'; context.fillRect(0, 0, width, height);
+      const logLeft = viewport.centerX - width / (2 * viewport.scale); const logRight = viewport.centerX + width / (2 * viewport.scale);
+      const logBottom = viewport.centerY - height / (2 * viewport.scale); const logTop = viewport.centerY + height / (2 * viewport.scale);
+      const screenX = (x: number) => width / 2 + (Math.log10(x) - viewport.centerX) * viewport.scale;
+      const screenY = (y: number) => height / 2 - (Math.log10(y) - viewport.centerY) * viewport.scale;
+      const drawLogAxis = (vertical: boolean, minimum: number, maximum: number) => {
+        for (let decade = Math.floor(minimum); decade <= Math.ceil(maximum); decade += 1) {
+          for (let multiplier = 1; multiplier <= 9; multiplier += 1) {
+            const logValue = decade + Math.log10(multiplier);
+            if (logValue < minimum || logValue > maximum) continue;
+            const pixel = vertical ? height / 2 - (logValue - viewport.centerY) * viewport.scale : width / 2 + (logValue - viewport.centerX) * viewport.scale;
+            context.strokeStyle = multiplier === 1 ? '#d0cbc1' : '#eeebe4'; context.lineWidth = multiplier === 1 ? 1.2 : .65;
+            context.beginPath(); if (vertical) { context.moveTo(0, pixel); context.lineTo(width, pixel); } else { context.moveTo(pixel, 0); context.lineTo(pixel, height); } context.stroke();
+            if (multiplier === 1) { context.fillStyle = '#777168'; context.font = '9px ui-monospace, monospace'; context.fillText(`10^${decade}`, vertical ? 5 : pixel + 3, vertical ? pixel - 4 : height - 8); }
+          }
+        }
+      };
+      drawLogAxis(false, logLeft, logRight); drawLogAxis(true, logBottom, logTop);
+      const parameters: Record<string, number> = {};
+      expressions.forEach((entry) => { const match = entry.expression.trim().match(/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/); if (match && !['x', 'y'].includes(match[1])) parameters[match[1]] = Number(match[2]); });
+      const compiled: typeof evaluatorsRef.current = [];
+      const issues: string[] = [];
+      for (const [index, entry] of expressions.filter((item) => item.visible && item.expression.trim()).entries()) {
+        const source = entry.expression.trim();
+        if (/^([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(-?\d*\.?\d+)$/.test(source) && !/^[xy]\s*=/.test(source)) continue;
+        try {
+          const explicit = source.match(/^y\s*=\s*(.+)$/i)?.[1] ?? source;
+          compiled.push({ id: entry.id, color: entry.color, evaluate: await numericEvaluatorWithRestrictions(explicit, [...Object.keys(parameters), 'x']) });
+        } catch { issues.push(`Line ${index + 1} is not a positive graphable y-function.`); }
+      }
+      if (cancelled) return;
+      evaluatorsRef.current = compiled.map((entry) => ({ ...entry, evaluate: (values) => entry.evaluate({ ...parameters, ...values }) }));
+      for (const entry of evaluatorsRef.current) {
+        context.strokeStyle = entry.color; context.lineWidth = 2.25; context.lineJoin = 'round'; context.beginPath(); let drawing = false;
+        for (let pixel = 0; pixel <= width; pixel += 2) {
+          const x = 10 ** (logLeft + pixel / viewport.scale); const y = entry.evaluate({ x }); const py = y > 0 ? screenY(y) : Number.NaN;
+          if (!Number.isFinite(py) || py < -height * 3 || py > height * 4) drawing = false;
+          else if (!drawing) { context.moveTo(pixel, py); drawing = true; } else context.lineTo(pixel, py);
+        }
+        context.stroke();
+      }
+      const crossings: Array<GraphIntersectionMarker & { screenX: number; screenY: number }> = [];
+      for (let a = 0; a < evaluatorsRef.current.length; a += 1) for (let b = a + 1; b < evaluatorsRef.current.length; b += 1) {
+        const first = evaluatorsRef.current[a]; const second = evaluatorsRef.current[b]; let previousLogX = logLeft;
+        let previous = first.evaluate({ x: 10 ** previousLogX }) - second.evaluate({ x: 10 ** previousLogX });
+        for (let sample = 1; sample <= Math.max(180, Math.round(width / 3)); sample += 1) {
+          const logX = logLeft + (logRight - logLeft) * sample / Math.max(180, Math.round(width / 3)); const x = 10 ** logX;
+          const delta = first.evaluate({ x }) - second.evaluate({ x });
+          if (Number.isFinite(previous) && Number.isFinite(delta) && previous * delta <= 0) {
+            let left = previousLogX; let right = logX;
+            for (let i = 0; i < 18; i += 1) { const middle = (left + right) / 2; const leftDelta = first.evaluate({ x: 10 ** left }) - second.evaluate({ x: 10 ** left }); const middleDelta = first.evaluate({ x: 10 ** middle }) - second.evaluate({ x: 10 ** middle }); if (leftDelta * middleDelta <= 0) right = middle; else left = middle; }
+            const crossingX = 10 ** ((left + right) / 2); const crossingY = (first.evaluate({ x: crossingX }) + second.evaluate({ x: crossingX })) / 2;
+            if (crossingY > 0) { const candidate = { id: `${first.id}-${second.id}-${crossingX.toPrecision(8)}`, x: crossingX, y: crossingY, color: '#3f315c', label: `Lines ${first.id} & ${second.id}`, screenX: screenX(crossingX), screenY: screenY(crossingY) }; if (!crossings.some((item) => Math.hypot(item.screenX - candidate.screenX, item.screenY - candidate.screenY) < 7)) crossings.push(candidate); }
+          }
+          previousLogX = logX; previous = delta;
+        }
+      }
+      crossingsRef.current = crossings;
+      for (const marker of markers) { context.fillStyle = marker.color; context.strokeStyle = '#fff'; context.lineWidth = 2; context.beginPath(); context.arc(screenX(marker.x), screenY(marker.y), 6, 0, Math.PI * 2); context.fill(); context.stroke(); }
+      if (hover) { context.strokeStyle = '#3f315c'; context.lineWidth = 2; context.setLineDash([3, 2]); context.beginPath(); context.arc(screenX(hover.x), screenY(hover.y), 8, 0, Math.PI * 2); context.stroke(); context.setLineDash([]); }
+      setError(issues.join(' '));
+    })().catch(() => { evaluatorsRef.current = []; crossingsRef.current = []; setError('Use positive x and y values, for example y=x^2 or y=3x^0.5.'); });
+    return () => { cancelled = true; };
+  }, [canvasSize.height, canvasSize.width, expressions, hover, markers, viewport]);
+
+  const updateExpression = (id: number, patch: Partial<GraphExpression>) => setExpressions((current) => current.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
+  return <section className="research-graph-lab research-graph-lab--loglog">
+    <aside className="graph-expression-list" aria-label="Log-log graph expressions"><header><strong>Log-log expressions</strong><span>{expressions.length}/12</span></header>
+      {expressions.map((entry, index) => <div className="graph-expression" key={entry.id}><button type="button" className={`graph-color${entry.visible ? ' is-visible' : ''}`} style={{ '--graph-color': entry.color } as React.CSSProperties} aria-label={`${entry.visible ? 'Hide' : 'Show'} log-log expression ${index + 1}`} onClick={() => updateExpression(entry.id, { visible: !entry.visible })} /><label><span>{index + 1}</span><ResearchMathField id={`research-loglog-${entry.id}`} label={`Log-log expression ${index + 1}`} placeholder="y=x^2" value={entry.expression} onChange={(expression) => updateExpression(entry.id, { expression })} /></label><button type="button" aria-label={`Remove log-log expression ${index + 1}`} onClick={() => setExpressions((current) => current.filter((item) => item.id !== entry.id))}>×</button></div>)}
+      <button type="button" className="graph-add-expression" disabled={expressions.length >= 12} onClick={() => setExpressions((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, expression: '', color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true }])}>+ Add expression</button>
+      {markers.length > 0 && <section className="research-marker-list" aria-label="Saved log-log intersections"><header><strong>Marked intersections</strong><span>{markers.length}</span></header><ul>{markers.map((marker) => <li key={marker.id}><span>({Number(marker.x.toPrecision(6))}, {Number(marker.y.toPrecision(6))})</span><button type="button" aria-label={`Delete log-log intersection ${marker.id}`} onClick={() => setMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
+      <p>Both axes require positive values. Try <b>y=x^2</b>, <b>y=3x^.5</b>, and <b>a=2</b>.</p>
+    </aside>
+    <div className="graph-stage"><div className="graph-controls" aria-label="Log-log graph view controls"><button type="button" aria-label="Zoom log-log graph in" onClick={() => setViewport((view) => ({ ...view, scale: Math.min(360, view.scale * 1.25) }))}>+</button><button type="button" aria-label="Zoom log-log graph out" onClick={() => setViewport((view) => ({ ...view, scale: Math.max(28, view.scale / 1.25) }))}>−</button><button type="button" aria-label="Reset log-log graph" onClick={() => setViewport({ centerX: .5, centerY: .5, scale: 92 })}>⌂</button></div>
+      <canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} aria-label="Interactive log-log graph"
+        onPointerDown={(event) => { const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const x = (event.clientX - bounds.left) * canvas.width / bounds.width; const y = (event.clientY - bounds.top) * canvas.height / bounds.height; const crossing = crossingsRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - x, candidate.screenY - y) })).sort((a, b) => a.distance - b.distance)[0]; if (crossing && crossing.distance <= 15) { const marker: GraphIntersectionMarker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, color: crossing.candidate.color, label: crossing.candidate.label }; setMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); return; } event.currentTarget.setPointerCapture(event.pointerId); dragRef.current = { x: event.clientX, y: event.clientY, centerX: viewport.centerX, centerY: viewport.centerY }; }}
+        onPointerMove={(event) => { const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const pixelX = (event.clientX - bounds.left) * canvas.width / bounds.width; const pixelY = (event.clientY - bounds.top) * canvas.height / bounds.height; if (dragRef.current) { const drag = dragRef.current; setViewport((view) => ({ ...view, centerX: drag.centerX - (event.clientX - drag.x) * canvas.width / bounds.width / view.scale, centerY: drag.centerY + (event.clientY - drag.y) * canvas.height / bounds.height / view.scale })); setHover(null); setTrace(null); return; } const crossing = crossingsRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0]; if (crossing && crossing.distance <= 15) { setHover(crossing.candidate); setTrace(null); return; } setHover(null); const x = 10 ** (viewport.centerX + (pixelX - canvas.width / 2) / viewport.scale); const mouseLogY = viewport.centerY - (pixelY - canvas.height / 2) / viewport.scale; const candidates = evaluatorsRef.current.map((entry) => ({ x, y: entry.evaluate({ x }), color: entry.color })).filter((point) => point.y > 0).sort((a, b) => Math.abs(Math.log10(a.y) - mouseLogY) - Math.abs(Math.log10(b.y) - mouseLogY)); setTrace(candidates[0] ?? null); }}
+        onPointerUp={(event) => { dragRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { dragRef.current = null; }} onPointerLeave={() => { if (!dragRef.current) { setHover(null); setTrace(null); } }}
+        onWheel={(event) => { event.preventDefault(); const canvas = event.currentTarget; const bounds = canvas.getBoundingClientRect(); const px = (event.clientX - bounds.left) * canvas.width / bounds.width; const py = (event.clientY - bounds.top) * canvas.height / bounds.height; setViewport((view) => { const anchorX = view.centerX + (px - canvas.width / 2) / view.scale; const anchorY = view.centerY - (py - canvas.height / 2) / view.scale; const scale = Math.max(28, Math.min(360, view.scale * Math.exp(-event.deltaY * .0015))); return { centerX: anchorX - (px - canvas.width / 2) / scale, centerY: anchorY + (py - canvas.height / 2) / scale, scale }; }); }} />
+      {(hover || trace) && <output className="graph-trace" style={{ '--graph-color': (hover ?? trace)!.color } as React.CSSProperties}>{hover ? <>Intersection: x = {hover.x.toPrecision(6)} · y = {hover.y.toPrecision(6)} · click to mark</> : <>x = {trace!.x.toPrecision(6)} · y = {trace!.y.toPrecision(6)}</>}</output>}{error && <p className="research-tool-error graph-error">{error}</p>}
+    </div>
+  </section>;
 }
 
 interface SurfaceExpression {
@@ -904,6 +1132,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState('');
   const [trace, setTrace] = useState<{ x: number; y: number; z: number; color: string; expression: string } | null>(null);
+  const [markedIntersections, setMarkedIntersections] = usePersistentResearchState<Array<{ id: string; x: number; y: number; z: number }>>(`${storagePrefix}:3d:intersection-markers`, []);
   const [volumeCalculation, setVolumeCalculation] = useState({ integrand: '', dimensions: 2 as 2 | 3, xMin: 0, xMax: 1, yMin: 0, yMax: 1, zMin: 0, zMax: 1 });
   const [volumeResult, setVolumeResult] = useState<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1294,6 +1523,12 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             for (let value = Math.ceil(zMin / tickEvery) * tickEvery; value <= zMax + .001; value += tickEvery) drawTick(value, axisX, axisY, value);
           }
         }
+        for (const marker of markedIntersections) {
+          const point = project(marker.x, marker.y, marker.z);
+          context.save(); context.fillStyle = '#3f315c'; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
+          context.beginPath(); context.arc(point.x, point.y, 6, 0, Math.PI * 2); context.fill(); context.stroke();
+          context.fillStyle = '#3f315c'; context.font = 'bold 9px ui-monospace, monospace'; context.fillText(`(${marker.x.toFixed(2)}, ${marker.y.toFixed(2)}, ${marker.z.toFixed(2)})`, point.x + 7, point.y - 7); context.restore();
+        }
         tracePointsRef.current = tracePoints;
         setError(issues.join(' '));
       } catch {
@@ -1303,7 +1538,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
     };
     void draw();
     return () => { cancelled = true; };
-  }, [bounds, camera, canvasSize.height, canvasSize.width, curves3D, domain, implicitSurfaces, parameters, parametricSurfaces, perspectiveStrength, points3D, projection, renderMode, resolution, showAxes, showCube, showGrid, showNumbers, showSurfaceIntersections, surfaces]);
+  }, [bounds, camera, canvasSize.height, canvasSize.width, curves3D, domain, implicitSurfaces, markedIntersections, parameters, parametricSurfaces, perspectiveStrength, points3D, projection, renderMode, resolution, showAxes, showCube, showGrid, showNumbers, showSurfaceIntersections, surfaces]);
 
   const updateSurface = (id: number, patch: Partial<SurfaceExpression>) => {
     setSurfaces((current) => current.map((surface) => surface.id === id ? { ...surface, ...patch } : surface));
@@ -1420,7 +1655,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           </div>)}
           <div className="graph-object-adders"><button type="button" onClick={() => setPoints3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: '1', y: '1', z: '1', color: GRAPH_COLORS[(surfaces.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Point</button><button type="button" onClick={() => setCurves3D((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: 'cos(t)', y: 'sin(t)', z: 't/3', tMin: -6.28, tMax: 6.28, color: GRAPH_COLORS[(surfaces.length + points3D.length + current.length) % GRAPH_COLORS.length], visible: true }])}>+ Parametric curve</button><button type="button" onClick={() => setParametricSurfaces((current) => [...current, { id: Math.max(0, ...current.map((entry) => entry.id)) + 1, x: '(2+cos(v))*cos(u)', y: '(2+cos(v))*sin(u)', z: 'sin(v)', uMin: 0, uMax: 6.28, vMin: 0, vMax: 6.28, color: GRAPH_COLORS[(surfaces.length + points3D.length + curves3D.length + current.length) % GRAPH_COLORS.length], visible: true, opacity: .62 }])}>+ Parametric surface</button></div>
         </section>
-        <p>Drag to orbit · wheel to zoom · hover to inspect · restrict explicit/implicit expressions with {'{x>-2}{x<2}'}</p>
+        {markedIntersections.length > 0 && <section className="research-marker-list" aria-label="Saved 3D intersections"><header><strong>Marked intersections</strong><span>{markedIntersections.length}</span></header><ul>{markedIntersections.map((marker) => <li key={marker.id}><span>({marker.x.toFixed(3)}, {marker.y.toFixed(3)}, {marker.z.toFixed(3)})</span><button type="button" aria-label={`Delete 3D intersection ${marker.id}`} onClick={() => setMarkedIntersections((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
+        <p>Drag to orbit · wheel to zoom · hover to inspect · click a sampled surface crossing to mark it · restrict expressions with {'{x>-2}{x<2}'}</p>
       </aside>
       <div className="graph-stage">
         <div className="graph-controls" aria-label="3D graph view controls" ref={settingsRef}>
@@ -1494,6 +1730,9 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           height={canvasSize.height}
           aria-label="Interactive 3D graph"
           onPointerDown={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect(); const pointerX = (event.clientX - bounds.left) * event.currentTarget.width / bounds.width; const pointerY = (event.clientY - bounds.top) * event.currentTarget.height / bounds.height;
+            const crossing = tracePointsRef.current.filter((point) => point.expression === 'surface intersection').map((point) => ({ point, distance: Math.hypot(point.screenX - pointerX, point.screenY - pointerY) })).sort((a, b) => a.distance - b.distance)[0];
+            if (crossing && crossing.distance <= 18) { const point = crossing.point; const marker = { id: `${point.x.toPrecision(7)}-${point.y.toPrecision(7)}-${point.z.toPrecision(7)}`, x: point.x, y: point.y, z: point.z }; setMarkedIntersections((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); setTrace({ x: point.x, y: point.y, z: point.z, color: point.color, expression: point.expression }); return; }
             if (lockRotation) return;
             event.currentTarget.setPointerCapture(event.pointerId);
             dragRef.current = { x: event.clientX, y: event.clientY, yaw: camera.yaw, pitch: camera.pitch };
@@ -1535,7 +1774,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             setCamera((view) => ({ ...view, zoom: Math.max(.45, Math.min(2.6, view.zoom * Math.exp(-deltaY * .0015))) }));
           }}
         />
-        {trace && <output className="graph-trace graph-trace--3d" style={{ '--graph-color': trace.color } as React.CSSProperties}>x = {trace.x.toFixed(3)} · y = {trace.y.toFixed(3)} · z = {trace.z.toFixed(3)}</output>}
+        {trace && <output className="graph-trace graph-trace--3d" style={{ '--graph-color': trace.color } as React.CSSProperties}>{trace.expression === 'surface intersection' ? 'Surface crossing · click to mark · ' : ''}x = {trace.x.toFixed(3)} · y = {trace.y.toFixed(3)} · z = {trace.z.toFixed(3)}</output>}
         {error && <p className="research-tool-error graph-error">{error}</p>}
       </div>
     </section>
@@ -1605,6 +1844,8 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
   const [commandError, setCommandError] = useState('');
   const [transform, setTransform] = useState({ dx: 2, dy: 1, angle: 90, scale: 2 });
   const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
+  const [hoverGeometryIntersection, setHoverGeometryIntersection] = useState<GraphIntersectionMarker | null>(null);
+  const [geometryIntersectionMarkers, setGeometryIntersectionMarkers] = usePersistentResearchState<GraphIntersectionMarker[]>(`${storagePrefix}:geometry:intersection-markers`, []);
   const [interactionNotice, setInteractionNotice] = useState('Move mode: drag a point, an object, or the blank paper.');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasSize = useResponsiveCanvasSize(canvasRef);
@@ -1618,6 +1859,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     anchorWorldX: number;
     anchorWorldY: number;
   } | null>(null);
+  const geometryIntersectionCandidatesRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
   const dragRef = useRef<
     | { kind: 'point'; pointId: number }
     | { kind: 'object'; objectId: number; startWorld: { x: number; y: number }; points: Array<{ id: number; x: number; y: number }> }
@@ -1843,11 +2085,10 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       const accepts = (object: typeof linearObjects[number], parameter: number) => (
         object.type === 'line' || (object.type === 'ray' ? parameter >= -1e-7 : parameter >= -1e-7 && parameter <= 1 + 1e-7)
       );
+      const candidates: Array<GraphIntersectionMarker & { screenX: number; screenY: number }> = [];
       const drawIntersection = (intersection: { x: number; y: number }) => {
-        const x = screenX(intersection.x); const y = screenY(intersection.y);
-        context.fillStyle = '#8e5aa4'; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
-        context.beginPath(); context.arc(x, y, 5, 0, Math.PI * 2); context.fill(); context.stroke();
-        drawMeasurement(`(${intersection.x.toFixed(2)}, ${intersection.y.toFixed(2)})`, x, y + 15);
+        const candidate = { id: `${intersection.x.toPrecision(8)}-${intersection.y.toPrecision(8)}`, x: intersection.x, y: intersection.y, color: '#8e5aa4', label: 'Geometry crossing', screenX: screenX(intersection.x), screenY: screenY(intersection.y) };
+        if (!candidates.some((item) => Math.hypot(item.screenX - candidate.screenX, item.screenY - candidate.screenY) < 5)) candidates.push(candidate);
       };
       for (let firstIndex = 0; firstIndex < linearObjects.length; firstIndex += 1) {
         for (let lastIndex = firstIndex + 1; lastIndex < linearObjects.length; lastIndex += 1) {
@@ -1882,6 +2123,17 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           circleCircleIntersections(firstCenter, geometryDistance(firstCenter, firstEdge), lastCenter, geometryDistance(lastCenter, lastEdge)).forEach(drawIntersection);
         }
       }
+      geometryIntersectionCandidatesRef.current = candidates;
+      for (const marker of geometryIntersectionMarkers) {
+        const x = screenX(marker.x); const y = screenY(marker.y);
+        context.fillStyle = marker.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2; context.beginPath(); context.arc(x, y, 5.5, 0, Math.PI * 2); context.fill(); context.stroke();
+        drawMeasurement(`(${marker.x.toFixed(3)}, ${marker.y.toFixed(3)})`, x, y + 15);
+      }
+      if (hoverGeometryIntersection) {
+        context.save(); context.strokeStyle = '#3f315c'; context.lineWidth = 2; context.setLineDash([3, 2]); context.beginPath(); context.arc(screenX(hoverGeometryIntersection.x), screenY(hoverGeometryIntersection.y), 8, 0, Math.PI * 2); context.stroke(); context.restore();
+      }
+    } else {
+      geometryIntersectionCandidatesRef.current = [];
     }
     if (pendingPointIds.length) {
       const pending = pendingPointIds.map(getPoint).filter((point): point is GeometryPoint => Boolean(point));
@@ -1899,7 +2151,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       context.fillStyle = '#292821'; context.font = 'bold 11px ui-monospace, monospace'; context.textAlign = 'left'; context.textBaseline = 'bottom';
       context.fillText(point.label, screenX(point.x) + 7, screenY(point.y) - 6);
     });
-  }, [angleUnit, canvasSize.height, canvasSize.width, hoverPoint, objects, pendingPointIds, points, selectedObjectIds, showAxes, showGrid, showIntersections, showMeasurements, showMinorGrid, viewport]);
+  }, [angleUnit, canvasSize.height, canvasSize.width, geometryIntersectionMarkers, hoverGeometryIntersection, hoverPoint, objects, pendingPointIds, points, selectedObjectIds, showAxes, showGrid, showIntersections, showMeasurements, showMinorGrid, viewport]);
 
   const pointById = (id: number) => points.find((point) => point.id === id);
   const distanceToGeometryPath = (world: { x: number; y: number }, start: GeometryPoint, end: GeometryPoint, mode: 'segment' | 'line' | 'ray') => {
@@ -2175,6 +2427,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
           <strong>Points</strong>
           {points.map((point) => <div key={point.id} title={point.constraint ? `Constrained: ${point.constraint.type}` : 'Free point'}><b>{point.label}{point.constraint ? '◇' : ''}</b><label>x <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} x coordinate`} value={Number(point.x.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, x: Number(event.target.value) } : entry))} /></label><label>y <input type="number" step="0.25" disabled={Boolean(point.constraint)} aria-label={`Point ${point.label} y coordinate`} value={Number(point.y.toFixed(4))} onChange={(event) => setPoints((current) => current.map((entry) => entry.id === point.id ? { ...entry, y: Number(event.target.value) } : entry))} /></label></div>)}
         </div>
+        {geometryIntersectionMarkers.length > 0 && <section className="research-marker-list" aria-label="Saved geometry intersections"><header><strong>Marked intersections</strong><span>{geometryIntersectionMarkers.length}</span></header><ul>{geometryIntersectionMarkers.map((marker) => <li key={marker.id}><span>({marker.x.toFixed(4)}, {marker.y.toFixed(4)})</span><button type="button" aria-label={`Delete geometry intersection ${marker.id}`} onClick={() => setGeometryIntersectionMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
         <details className="geometry-settings-panel">
           <summary>Graph paper settings</summary>
           <div className="geometry-options">
@@ -2251,6 +2504,11 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
               x: viewport.centerX + (pixelX - canvas.width / 2) / viewport.scale,
               y: viewport.centerY - (pixelY - canvas.height / 2) / viewport.scale,
             };
+            const crossing = geometryIntersectionCandidatesRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0];
+            if (showIntersections && crossing && crossing.distance <= 15) {
+              const marker: GraphIntersectionMarker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, color: crossing.candidate.color, label: crossing.candidate.label };
+              setGeometryIntersectionMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); setHoverGeometryIntersection(marker); setInteractionNotice(`Marked intersection (${marker.x.toFixed(3)}, ${marker.y.toFixed(3)}).`); return;
+            }
             const snapStep = Math.max(Number.EPSILON, gridStep(viewport.scale) / 4);
             const snapped = snap ? { x: Math.round(world.x / snapStep) * snapStep, y: Math.round(world.y / snapStep) * snapStep } : world;
             const hit = points.find((point) => Math.hypot((point.x - world.x) * viewport.scale, (point.y - world.y) * viewport.scale) <= 10);
@@ -2413,9 +2671,13 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
               setViewport((view) => ({ ...view, centerX: drag.centerX - (event.clientX - drag.x) * ratioX / view.scale, centerY: drag.centerY + (event.clientY - drag.y) * ratioY / view.scale }));
               return;
             }
+            const pixelX = (event.clientX - bounds.left) * ratioX; const pixelY = (event.clientY - bounds.top) * ratioY;
+            const crossing = geometryIntersectionCandidatesRef.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.screenX - pixelX, candidate.screenY - pixelY) })).sort((a, b) => a.distance - b.distance)[0];
+            if (showIntersections && crossing && crossing.distance <= 15) { setHoverGeometryIntersection(crossing.candidate); setHoverPoint({ x: crossing.candidate.x, y: crossing.candidate.y }); return; }
+            setHoverGeometryIntersection(null);
             setHoverPoint({
-              x: viewport.centerX + ((event.clientX - bounds.left) * ratioX - canvas.width / 2) / viewport.scale,
-              y: viewport.centerY - ((event.clientY - bounds.top) * ratioY - canvas.height / 2) / viewport.scale,
+              x: viewport.centerX + (pixelX - canvas.width / 2) / viewport.scale,
+              y: viewport.centerY - (pixelY - canvas.height / 2) / viewport.scale,
             });
           }}
           onPointerUp={(event) => {
@@ -2435,7 +2697,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             touchPointersRef.current.delete(event.pointerId);
             if (touchPointersRef.current.size < 2) pinchRef.current = null;
           }}
-          onPointerLeave={() => { if (!dragRef.current) setHoverPoint(null); }}
+          onPointerLeave={() => { if (!dragRef.current) { setHoverPoint(null); setHoverGeometryIntersection(null); } }}
           onWheel={(event) => {
             event.preventDefault();
             if (lockViewport) return;
@@ -2454,7 +2716,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
             });
           }}
         />
-        {hoverPoint && <output className="geometry-coordinates">x = {hoverPoint.x.toFixed(2)} · y = {hoverPoint.y.toFixed(2)}</output>}
+        {hoverPoint && <output className="geometry-coordinates">{hoverGeometryIntersection ? 'Intersection · click to mark · ' : ''}x = {hoverPoint.x.toFixed(3)} · y = {hoverPoint.y.toFixed(3)}</output>}
         <output className="geometry-interaction-notice" aria-live="polite">{interactionNotice}</output>
       </div>
     </section>
@@ -2480,6 +2742,18 @@ const GEOMETRY_3D_OBJECTS: ReadonlyArray<{ primitive: Geometry3DPrimitive; label
   { primitive: 'paraboloid', label: 'Paraboloid', dimensions: [1.6, 1.6, 3] },
 ];
 
+function segmentIntersection3D(a: Geometry3DPoint, b: Geometry3DPoint, c: Geometry3DPoint, d: Geometry3DPoint): { x: number; y: number; z: number } | null {
+  const u = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z }; const v = { x: d.x - c.x, y: d.y - c.y, z: d.z - c.z }; const w = { x: a.x - c.x, y: a.y - c.y, z: a.z - c.z };
+  const dot = (p: typeof u, q: typeof u) => p.x * q.x + p.y * q.y + p.z * q.z;
+  const uu = dot(u, u); const uv = dot(u, v); const vv = dot(v, v); const uw = dot(u, w); const vw = dot(v, w); const denominator = uu * vv - uv * uv;
+  if (Math.abs(denominator) < 1e-10) return null;
+  const s = (uv * vw - vv * uw) / denominator; const t = (uu * vw - uv * uw) / denominator;
+  if (s < -1e-6 || s > 1 + 1e-6 || t < -1e-6 || t > 1 + 1e-6) return null;
+  const first = { x: a.x + s * u.x, y: a.y + s * u.y, z: a.z + s * u.z }; const second = { x: c.x + t * v.x, y: c.y + t * v.y, z: c.z + t * v.z };
+  if (Math.hypot(first.x - second.x, first.y - second.y, first.z - second.z) > 1e-3) return null;
+  return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2, z: (first.z + second.z) / 2 };
+}
+
 function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
   const [points, setPoints] = usePersistentResearchState<Geometry3DPoint[]>(`${storagePrefix}:geometry3d:points`, []);
   const [objects, setObjects] = usePersistentResearchState<Geometry3DObject[]>(`${storagePrefix}:geometry3d:objects`, []);
@@ -2488,12 +2762,15 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
   const [message, setMessage] = useState('');
   const [selectedPoint, setSelectedPoint] = useState<number | null>(null);
   const [selectedObject, setSelectedObject] = useState<number | null>(null);
+  const [hoverIntersection, setHoverIntersection] = useState<{ id: string; x: number; y: number; z: number } | null>(null);
+  const [intersectionMarkers, setIntersectionMarkers] = usePersistentResearchState<Array<{ id: string; x: number; y: number; z: number }>>(`${storagePrefix}:geometry3d:intersection-markers`, []);
   const [moveAxis, setMoveAxis] = useState<'screen' | 'x' | 'y' | 'z'>('screen');
   const [transform, setTransform] = useState({ dx: 1, dy: 0, dz: 0, angle: 30, scale: 2, axis: 'x' as 'x' | 'y' | 'z' });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasSize = useResponsiveCanvasSize(canvasRef);
   const drag = useRef<{ pointerId: number; x: number; y: number; yaw: number; pitch: number; panX: number; panY: number; pan: boolean; point?: Geometry3DPoint } | null>(null);
   const projectedPoints = useRef<Array<{ id: number; sx: number; sy: number }>>([]);
+  const projectedIntersections = useRef<Array<{ id: string; x: number; y: number; z: number; sx: number; sy: number }>>([]);
 
   const pointById = (id: number) => points.find((point) => point.id === id);
   const nextPointId = () => Math.max(0, ...points.map((point) => point.id)) + 1;
@@ -2601,13 +2878,29 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
       }
     }
     projectedPoints.current = [];
+    const edges: Array<[Geometry3DPoint, Geometry3DPoint]> = [];
+    objects.filter((object): object is Extract<Geometry3DObject, { type: 'segment' | 'vector' | 'triangle' }> => object.visible && object.type !== 'sphere' && object.type !== 'solid').forEach((object) => {
+      const vertices = object.points.map(pointById).filter((point): point is Geometry3DPoint => Boolean(point));
+      if (vertices.length === 2) edges.push([vertices[0], vertices[1]]);
+      if (vertices.length === 3) edges.push([vertices[0], vertices[1]], [vertices[1], vertices[2]], [vertices[2], vertices[0]]);
+    });
+    const candidates: typeof projectedIntersections.current = [];
+    for (let first = 0; first < edges.length; first += 1) for (let second = first + 1; second < edges.length; second += 1) {
+      if (edges[first].some((point) => edges[second].some((other) => other.id === point.id))) continue;
+      const intersection = segmentIntersection3D(...edges[first], ...edges[second]); if (!intersection) continue;
+      const projected = project(intersection.x, intersection.y, intersection.z); const candidate = { id: `${intersection.x.toPrecision(8)}-${intersection.y.toPrecision(8)}-${intersection.z.toPrecision(8)}`, ...intersection, sx: projected.x, sy: projected.y };
+      if (!candidates.some((item) => Math.hypot(item.sx - candidate.sx, item.sy - candidate.sy) < 6)) candidates.push(candidate);
+    }
+    projectedIntersections.current = candidates;
+    intersectionMarkers.forEach((marker) => { const projected = project(marker.x, marker.y, marker.z); context.beginPath(); context.arc(projected.x, projected.y, 6, 0, Math.PI * 2); context.fillStyle = '#8e5aa4'; context.fill(); context.strokeStyle = '#fff'; context.lineWidth = 2; context.stroke(); context.fillStyle = '#3f315c'; context.font = 'bold 9px ui-monospace, monospace'; context.fillText(`(${marker.x.toFixed(2)}, ${marker.y.toFixed(2)}, ${marker.z.toFixed(2)})`, projected.x + 8, projected.y - 8); });
+    if (hoverIntersection) { const projected = project(hoverIntersection.x, hoverIntersection.y, hoverIntersection.z); context.save(); context.strokeStyle = '#3f315c'; context.lineWidth = 2; context.setLineDash([3, 2]); context.beginPath(); context.arc(projected.x, projected.y, 9, 0, Math.PI * 2); context.stroke(); context.restore(); }
     points.filter((point) => point.visible).forEach((point) => {
       const projected = project(point.x, point.y, point.z);
       projectedPoints.current.push({ id: point.id, sx: projected.x, sy: projected.y });
       context.beginPath(); context.arc(projected.x, projected.y, selectedPoint === point.id ? 7 : 5, 0, Math.PI * 2); context.fillStyle = point.color; context.fill(); context.strokeStyle = '#fff'; context.lineWidth = 2; context.stroke();
       context.fillStyle = '#332f2a'; context.font = '600 13px system-ui'; context.fillText(point.label, projected.x + 8, projected.y - 8);
     });
-  }, [camera, canvasSize.height, canvasSize.width, objects, points, selectedObject, selectedPoint]);
+  }, [camera, canvasSize.height, canvasSize.width, hoverIntersection, intersectionMarkers, objects, points, selectedObject, selectedPoint]);
 
   function addPrimitive(
     primitive: Geometry3DPrimitive,
@@ -2766,6 +3059,7 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
       <div className="geometry3d-list" aria-label="3D geometry objects">
         {objects.map((object) => <button key={object.id} type="button" className={selectedObject === object.id ? 'is-active' : ''} onClick={() => { setSelectedObject(object.id); setSelectedPoint(null); }}><span style={{ '--graph-color': object.color } as React.CSSProperties} />{object.label}<small>{object.type}</small></button>)}
       </div>
+      {intersectionMarkers.length > 0 && <section className="research-marker-list" aria-label="Saved 3D geometry intersections"><header><strong>Marked crossings</strong><span>{intersectionMarkers.length}</span></header><ul>{intersectionMarkers.map((marker) => <li key={marker.id}><span>({marker.x.toFixed(3)}, {marker.y.toFixed(3)}, {marker.z.toFixed(3)})</span><button type="button" aria-label={`Delete 3D geometry crossing ${marker.id}`} onClick={() => setIntersectionMarkers((current) => current.filter((item) => item.id !== marker.id))}>×</button></li>)}</ul></section>}
       {measurement && <output className="geometry3d-measurement">{measurement}</output>}
       {selected && <section className="geometry3d-style"><strong>Selected object</strong><label>Label<input value={selected.label} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, label: event.target.value } : object))} /></label><label>Color<input type="color" value={selected.color} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, color: event.target.value } : object))} /></label><label><input type="checkbox" checked={selected.visible} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, visible: event.target.checked } : object))} /> Visible</label>{selected.type === 'sphere' && <label>Radius {selected.radius.toFixed(2)}<input type="range" min=".1" max="10" step=".1" value={selected.radius} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id && object.type === 'sphere' ? { ...object, radius: Number(event.target.value) } : object))} /></label>}{selected.type === 'solid' && <div className="geometry3d-dimensions">{(['x', 'y', 'z'] as const).map((axis, index) => {
         const oneSize = ['cube', 'sphere', 'tetrahedron', 'octahedron'].includes(selected.primitive);
@@ -2790,13 +3084,17 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
       <canvas ref={canvasRef} width={canvasSize.width} height={canvasSize.height} aria-label="Interactive 3D geometry canvas" data-camera-yaw={camera.yaw} data-camera-pitch={camera.pitch}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId); const bounds = event.currentTarget.getBoundingClientRect(); const x = (event.clientX - bounds.left) * event.currentTarget.width / bounds.width; const y = (event.clientY - bounds.top) * event.currentTarget.height / bounds.height;
+          const crossing = projectedIntersections.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.sx - x, candidate.sy - y) })).sort((a, b) => a.distance - b.distance)[0];
+          if (crossing && crossing.distance <= 17) { const marker = { id: crossing.candidate.id, x: crossing.candidate.x, y: crossing.candidate.y, z: crossing.candidate.z }; setIntersectionMarkers((current) => current.some((item) => item.id === marker.id) ? current : [...current, marker]); setHoverIntersection(marker); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return; }
           const nearest = projectedPoints.current.map((point) => ({ ...point, distance: Math.hypot(point.sx - x, point.sy - y) })).sort((a, b) => a.distance - b.distance)[0]; const point = nearest && nearest.distance < 18 ? pointById(nearest.id) : undefined;
           if (point) setSelectedPoint(point.id); drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, yaw: camera.yaw, pitch: camera.pitch, panX: camera.panX ?? 0, panY: camera.panY ?? 0, pan: event.shiftKey, point };
         }}
-        onPointerMove={(event) => { const current = drag.current; if (!current || current.pointerId !== event.pointerId) return; const dx = (event.clientX - current.x) / (30 * camera.zoom); const dy = (event.clientY - current.y) / (30 * camera.zoom); if (!current.point) { if (current.pan) setCamera((view) => ({ ...view, panX: current.panX + event.clientX - current.x, panY: current.panY + event.clientY - current.y })); else setCamera((view) => orbitGeometry3DCamera({ ...view, yaw: current.yaw, pitch: current.pitch }, event.clientX - current.x, event.clientY - current.y)); return; } setPoints((items) => items.map((point) => point.id !== current.point!.id ? point : { ...point, x: moveAxis === 'y' || moveAxis === 'z' ? current.point!.x : current.point!.x + dx, y: moveAxis === 'x' || moveAxis === 'z' ? current.point!.y : current.point!.y - dy, z: moveAxis === 'z' ? current.point!.z - dy : current.point!.z })); }}
+        onPointerMove={(event) => { const current = drag.current; if (!current || current.pointerId !== event.pointerId) { const bounds = event.currentTarget.getBoundingClientRect(); const x = (event.clientX - bounds.left) * event.currentTarget.width / bounds.width; const y = (event.clientY - bounds.top) * event.currentTarget.height / bounds.height; const crossing = projectedIntersections.current.map((candidate) => ({ candidate, distance: Math.hypot(candidate.sx - x, candidate.sy - y) })).sort((a, b) => a.distance - b.distance)[0]; setHoverIntersection(crossing && crossing.distance <= 17 ? crossing.candidate : null); return; } setHoverIntersection(null); const dx = (event.clientX - current.x) / (30 * camera.zoom); const dy = (event.clientY - current.y) / (30 * camera.zoom); if (!current.point) { if (current.pan) setCamera((view) => ({ ...view, panX: current.panX + event.clientX - current.x, panY: current.panY + event.clientY - current.y })); else setCamera((view) => orbitGeometry3DCamera({ ...view, yaw: current.yaw, pitch: current.pitch }, event.clientX - current.x, event.clientY - current.y)); return; } setPoints((items) => items.map((point) => point.id !== current.point!.id ? point : { ...point, x: moveAxis === 'y' || moveAxis === 'z' ? current.point!.x : current.point!.x + dx, y: moveAxis === 'x' || moveAxis === 'z' ? current.point!.y : current.point!.y - dy, z: moveAxis === 'z' ? current.point!.z - dy : current.point!.z })); }}
         onPointerUp={(event) => { drag.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { drag.current = null; }}
+        onPointerLeave={() => { if (!drag.current) setHoverIntersection(null); }}
         onWheel={(event) => { event.preventDefault(); setCamera((view) => ({ ...view, zoom: Math.max(.15, Math.min(8, view.zoom * Math.exp(-event.deltaY * .0015))) })); }} />
       {selectedPoint && pointById(selectedPoint) && <div className="geometry3d-point-editor">{(['x', 'y', 'z'] as const).map((axis) => <label key={axis}>{axis}<input type="number" step=".1" value={pointById(selectedPoint)![axis]} onChange={(event) => setPoints((items) => items.map((point) => point.id === selectedPoint ? { ...point, [axis]: Number(event.target.value) } : point))} /></label>)}<button type="button" aria-label={`Delete selected point ${pointById(selectedPoint)!.label}`} onClick={() => deletePoint(selectedPoint)}>Delete point</button></div>}
+      {hoverIntersection && <output className="graph-trace graph-trace--3d" style={{ '--graph-color': '#8e5aa4' } as React.CSSProperties}>Crossing: x = {hoverIntersection.x.toFixed(3)} · y = {hoverIntersection.y.toFixed(3)} · z = {hoverIntersection.z.toFixed(3)} · click to mark</output>}
       <p className="geometry3d-help">Drag blank space to orbit · Shift-drag to pan · wheel/pinch to zoom · drag a point along the selected axis</p>
     </div>
   </section>;
@@ -2947,6 +3245,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
   const [guideOpen, setGuideOpen] = useState(false);
   const [destinationPageId, setDestinationPageId] = useState('');
   const [restoreMessage, setRestoreMessage] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
   useEffect(() => {
     if (open && workspaceObjectId) setTool(initialTool);
   }, [initialTool, open, setTool, workspaceObjectId]);
@@ -2966,6 +3265,8 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
   }, [guideOpen, onClose, open]);
   const footer = guideOpen
     ? 'This guide documents the current local implementation. Unsupported input is reported instead of being silently approximated.'
+    : tool === 'loglog'
+    ? 'Base-10 log-log graphing for positive data, power laws, curve inspection, and persistent intersection markers.'
     : tool === '3d'
     ? 'Local interactive 3D: explicit, parametric, and sampled implicit surfaces; sliders, points, curves, traces, viewport locks, and sampled intersections.'
     : tool === 'geometry'
@@ -2981,6 +3282,24 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     setCopyOpen(false);
     onClose();
   };
+  const performPdfExport = async () => {
+    const title = TABS.find((tab) => tab.id === tool)?.label ?? 'Research';
+    setExportingPdf(true);
+    try {
+      await downloadResearchPdf({
+        title: `${title} — Math Notebook`,
+        subtitle: tool === 'scientific' ? 'Complete scientific calculation history' : 'Graph, equations, parameters, measurements, and saved intersection markers',
+        imageDataUrl: tool === 'scientific' ? null : captureResearchPreview(panelRef.current),
+        sections: collectResearchPdfSections(panelRef.current, tool),
+        filename: `math-notebook-${slugifyResearchFilename(title)}.pdf`,
+      });
+      setRestoreMessage(`${title} PDF downloaded.`);
+    } catch (exportError) {
+      setRestoreMessage(exportError instanceof Error ? `PDF export failed: ${exportError.message}` : 'PDF export failed.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
   return (
     <aside ref={panelRef} className="research-tools-panel" aria-label="Research mathematics tools" data-testid="research-tools-panel" hidden={!open}>
       <header><div><strong>{workspaceObjectId ? 'Edit page research copy' : 'Research workspace'}</strong><span>Graph · geometry · scientific</span></div><div className="research-header-actions">
@@ -2990,6 +3309,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
           setRestoreMessage('Page copy preview saved.');
         }}>Save page copy</button>}
         {!workspaceObjectId && canCopy && <button type="button" onClick={() => { setDestinationPageId(notebook?.pages[0]?.id ?? ''); setCopyOpen(true); }}>Copy to notebook</button>}
+        {!guideOpen && <button type="button" disabled={exportingPdf} onClick={() => void performPdfExport()}>{exportingPdf ? 'Preparing PDF…' : 'Download PDF'}</button>}
         {!workspaceObjectId && <button type="button" onClick={() => {
           if (!window.confirm(`Reset all saved data in ${TABS.find((tab) => tab.id === tool)?.label}? You can restore it with Undo.`)) return;
           resetResearchSection(tool); setRestoreMessage(`${TABS.find((tab) => tab.id === tool)?.label} reset.`);
@@ -3010,6 +3330,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
       <div className="research-tools-panel__body">
         {guideOpen ? <ResearchGuide tool={tool} /> : <>
           {tool === '2d' && <Graph2D storagePrefix={storagePrefix} />}
+          {tool === 'loglog' && <LogLogGraph storagePrefix={storagePrefix} />}
           {tool === '3d' && <Graph3D storagePrefix={storagePrefix} />}
           {tool === 'geometry' && <GeometryLab storagePrefix={storagePrefix} />}
           {tool === 'geometry3d' && <Geometry3DLab storagePrefix={storagePrefix} />}

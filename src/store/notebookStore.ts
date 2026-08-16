@@ -821,7 +821,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
 
     resetResearchSection(kind) {
       const prefixes = kind === 'all'
-        ? ['2d:', '3d:', 'geometry:', 'geometry3d:', 'scientific:', 'tool']
+        ? ['2d:', 'loglog:', '3d:', 'geometry:', 'geometry3d:', 'scientific:', 'tool']
         : [`${kind}:`];
       commit(kind === 'all' ? 'Reset all research' : `Reset ${kind} research`, (notebook) => resetResearchValues(notebook, prefixes));
     },
@@ -829,7 +829,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     copyResearchToPage(kind, pageId, previewDataUrl) {
       const state = get();
       if (!state.notebook) return null;
-      const title = kind === '2d' ? '2D Graph' : kind === '3d' ? '3D Surface' : kind === 'geometry' ? '2D Geometry' : '3D Geometry';
+      const title = kind === '2d' ? '2D Graph' : kind === 'loglog' ? 'Log-Log Graph' : kind === '3d' ? '3D Surface' : kind === 'geometry' ? '2D Geometry' : '3D Geometry';
       const values = Object.fromEntries(Object.entries(state.notebook.research.values)
         .filter(([key]) => key.startsWith(`${kind}:`)));
       const destination = state.notebook.pages.find((page) => page.id === pageId);
