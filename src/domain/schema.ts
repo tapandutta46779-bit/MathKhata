@@ -60,6 +60,13 @@ export const textObjectSchema = z
     ...baseObjectShape,
     type: z.literal('text'),
     text: z.string().max(100_000),
+    style: z.object({
+      fontFamily: z.enum(['handwriting', 'standard', 'roman', 'sans', 'monospace']),
+      fontSize: z.number().finite().min(10).max(72),
+      bold: z.boolean(),
+      italic: z.boolean(),
+      color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    }).strict().optional(),
   })
   .strict();
 

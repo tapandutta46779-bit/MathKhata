@@ -280,7 +280,6 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
             </button>
             <button type="button" role="menuitem" onClick={exportNotebook}>Export structured JSON</button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); fileInput.current?.click(); }}>Import JSON…</button>
-            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); window.print(); }}>Print / Save PDF…</button>
             <button
               type="button"
               role="menuitem"

@@ -254,7 +254,9 @@ test('integrals calculate from structured lines and notebook operations remain a
   await page.goto('/');
   const field = await writeMathLine(page, String.raw`\int_0^2 x\,dx`);
   await field.click();
-  await expect(page.getByText(/2(?:\.0+)?/, { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Solve integral' }).click();
+  await expect(page.getByLabel('Integral value')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByLabel('Integral value')).toContainText('2');
 
   await page.getByRole('button', { name: '+ Add page' }).click();
   await expect(page.getByText('Page 2 of 2')).toBeVisible();
@@ -449,4 +451,69 @@ test('page remains viewport-safe at laptop and narrow widths', async ({ page }) 
   await page.setViewportSize({ width: 760, height: 700 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(760);
   await expect(page.getByRole('button', { name: 'Draw on page' })).toBeVisible();
+});
+
+test('text typography persists and print layout maps one selected page to one A4 sheet', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Notebook menu' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Print / Save PDF…' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Open writing and math controls' }).click();
+  await page.getByLabel('Text font style').selectOption('roman');
+  await page.getByLabel('Text size').selectOption('20');
+  await page.getByLabel('Bold text').click();
+  await page.getByLabel('Italic text').click();
+  await page.getByLabel('Text color', { exact: true }).fill('#1d4f91');
+  const writer = page.getByLabel('Write on this ruled line');
+  await writer.fill('Styled Roman note');
+  await writer.press('Enter');
+  const note = page.locator('textarea[aria-label="Text note"]').last();
+  await expect(note).toBeVisible();
+  await expect(note).toHaveCSS('font-family', /Georgia/);
+  await expect(note).toHaveCSS('font-weight', '700');
+  await expect(note).toHaveCSS('font-style', 'italic');
+  await expect(note).toHaveCSS('color', 'rgb(29, 79, 145)');
+  await expect(page.getByRole('button', { name: /Saved locally/ })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('textarea[aria-label="Text note"]').last()).toHaveCSS('font-style', 'italic');
+
+  await page.getByRole('button', { name: '+ Add page' }).click();
+  await page.getByRole('button', { name: '+ Add page' }).click();
+  await page.getByRole('button', { name: '+ Add page' }).click();
+  await page.getByRole('button', { name: 'Select pages' }).click();
+  await page.getByRole('button', { name: 'Select all' }).click();
+  await page.evaluate(() => { window.print = () => undefined; });
+  await page.getByRole('button', { name: 'Print', exact: true }).click();
+  await expect(page.locator('.printable-page')).toHaveCount(4);
+  await page.emulateMedia({ media: 'print' });
+  const boxes = await page.locator('.printable-page').evaluateAll((elements) => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, breakAfter: getComputedStyle(element).breakAfter };
+  }));
+  expect(boxes).toHaveLength(4);
+  boxes.forEach((box) => {
+    expect(box.height / box.width).toBeCloseTo(297 / 210, 2);
+    expect(box.breakAfter).toMatch(/page|auto/);
+  });
+});
+
+test('3D Geometry object gallery creates and edits actual solids', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open graph and research workspace' }).click();
+  const research = page.getByTestId('research-tools-panel');
+  await research.getByRole('button', { name: '3D Geometry', exact: true }).click();
+  const canvas = research.getByLabel('Interactive 3D geometry canvas');
+  const blank = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
+  await research.getByRole('button', { name: 'Cube', exact: true }).click();
+  await expect(research.getByLabel('3D geometry objects')).toContainText('cube');
+  await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(blank);
+  await expect(research.getByText(/volume 8\.0000/)).toBeVisible();
+  await research.getByRole('button', { name: 'Ellipsoid', exact: true }).click();
+  await expect(research.getByLabel('3D geometry objects')).toContainText('ellipsoid');
+  await expect(research.getByLabel('X size')).toBeVisible();
+  await research.getByLabel('X size').fill('3');
+  await expect(research.getByText(/semi-axes 3\.00/)).toBeVisible();
+  await research.getByRole('button', { name: 'Guide', exact: true }).click();
+  await expect(research.getByLabel('3D Geometry guide complete supported features')).toContainText('paraboloid');
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MathfieldElement } from 'mathlive';
-import type { Page } from '../domain/model';
+import type { Page, TextStyle } from '../domain/model';
+import { TEXT_FONT_STACKS } from '../domain/textStyle';
 import { interpretTypedLine, type LineIntentMode } from '../domain/lineIntent';
 import { WRITING_LEFT, WRITING_LINE_HEIGHT } from '../domain/writingFlow';
 import { registerMathfield, setActiveMathfield } from '../editor/mathfieldRegistry';
@@ -11,9 +12,10 @@ export type WritingMode = LineIntentMode;
 interface ContinuousLineComposerProps {
   page: Page;
   mode: WritingMode;
+  textStyle: TextStyle;
 }
 
-export function ContinuousLineComposer({ page, mode }: ContinuousLineComposerProps) {
+export function ContinuousLineComposer({ page, mode, textStyle }: ContinuousLineComposerProps) {
   const [value, setValue] = useState('');
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const mathRef = useRef<MathfieldElement | null>(null);
@@ -121,6 +123,13 @@ export function ContinuousLineComposer({ page, mode }: ContinuousLineComposerPro
           value={value}
           placeholder={lineIsOccupied ? 'Click the writing on this line to edit it' : 'Write here…'}
           disabled={lineIsOccupied}
+          style={{
+            color: textStyle.color,
+            fontFamily: TEXT_FONT_STACKS[textStyle.fontFamily],
+            fontSize: textStyle.fontSize,
+            fontWeight: textStyle.bold ? 700 : 400,
+            fontStyle: textStyle.italic ? 'italic' : 'normal',
+          }}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {

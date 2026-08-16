@@ -52,6 +52,17 @@ export interface MathObject extends PageObjectBase {
 export interface TextObject extends PageObjectBase {
   type: 'text';
   text: string;
+  style?: TextStyle;
+}
+
+export type TextFontFamily = 'handwriting' | 'standard' | 'roman' | 'sans' | 'monospace';
+
+export interface TextStyle {
+  fontFamily: TextFontFamily;
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+  color: string;
 }
 
 export type ResearchToolKind = '2d' | '3d' | 'geometry' | 'geometry3d' | 'scientific';

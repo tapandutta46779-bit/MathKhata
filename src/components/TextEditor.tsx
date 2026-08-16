@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { TextObject } from '../domain/model';
 import { useNotebookStore } from '../store/notebookStore';
+import { effectiveTextStyle, TEXT_FONT_STACKS } from '../domain/textStyle';
 
 interface TextEditorProps {
   object: TextObject;
@@ -12,6 +13,7 @@ export function TextEditor({ object }: TextEditorProps) {
   const setSelectedObject = useNotebookStore((state) => state.setSelectedObject);
   const setEditingObject = useNotebookStore((state) => state.setEditingObject);
   const editingObjectId = useNotebookStore((state) => state.editingObjectId);
+  const style = effectiveTextStyle(object.style);
 
   function fitContent(element: HTMLTextAreaElement) {
     element.style.height = 'auto';
@@ -38,6 +40,13 @@ export function TextEditor({ object }: TextEditorProps) {
       value={object.text}
       rows={1}
       placeholder="Write a thought…"
+      style={{
+        color: style.color,
+        fontFamily: TEXT_FONT_STACKS[style.fontFamily],
+        fontSize: style.fontSize,
+        fontWeight: style.bold ? 700 : 400,
+        fontStyle: style.italic ? 'italic' : 'normal',
+      }}
       onChange={(event) => {
         fitContent(event.currentTarget);
         updateText(object.id, event.target.value);

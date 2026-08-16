@@ -38,6 +38,7 @@ export default function App() {
   const hydrated = useNotebookStore((state) => state.hydrated);
   const currentPageId = useNotebookStore((state) => state.currentPageId);
   const tool = useNotebookStore((state) => state.tool);
+  const textStyle = useNotebookStore((state) => state.textStyle);
   const errorMessage = useNotebookStore((state) => state.errorMessage);
   const initialize = useNotebookStore((state) => state.initialize);
   const saveNow = useNotebookStore((state) => state.saveNow);
@@ -216,7 +217,7 @@ export default function App() {
         <PageNavigator notebook={notebook} />
         <main className="canvas-scroll" aria-label="Notebook workspace">
           <div className="page-frame">
-            <NotebookPage page={currentPage} writingMode={writingMode} />
+            <NotebookPage page={currentPage} writingMode={writingMode} textStyle={textStyle} />
             <span className="page-foot">{pageNumber}</span>
           </div>
         </main>

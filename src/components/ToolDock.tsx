@@ -5,6 +5,7 @@ import {
   showActiveMathfieldMenu,
 } from '../editor/mathfieldRegistry';
 import { useNotebookStore } from '../store/notebookStore';
+import { effectiveTextStyle, TEXT_COLOR_PRESETS, TEXT_FONT_OPTIONS } from '../domain/textStyle';
 import type { WritingMode } from './ContinuousLineComposer';
 
 interface ToolDockProps {
@@ -21,6 +22,14 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
   const setTool = useNotebookStore((state) => state.setTool);
   const paletteOpen = useNotebookStore((state) => state.paletteOpen);
   const setPaletteOpen = useNotebookStore((state) => state.setPaletteOpen);
+  const notebook = useNotebookStore((state) => state.notebook);
+  const currentPageId = useNotebookStore((state) => state.currentPageId);
+  const selectedObjectId = useNotebookStore((state) => state.selectedObjectId);
+  const preferredTextStyle = useNotebookStore((state) => state.textStyle);
+  const setTextStyle = useNotebookStore((state) => state.setTextStyle);
+  const selectedText = notebook?.pages.find((page) => page.id === currentPageId)?.objects
+    .find((object) => object.id === selectedObjectId && object.type === 'text');
+  const textStyle = effectiveTextStyle(selectedText?.type === 'text' ? selectedText.style : preferredTextStyle);
 
   useEffect(() => {
     if (activeTool === 'draw' || activeTool === 'voice') {
@@ -94,6 +103,33 @@ export function ToolDock({ writingMode, onWritingModeChange, onOpenResearch, onT
               </button>
             ))}
           </div>
+          <section className="text-formatting-tools" aria-label="Text formatting">
+            <label>
+              Text style
+              <select
+                aria-label="Text font style"
+                value={textStyle.fontFamily}
+                onChange={(event) => setTextStyle({ ...textStyle, fontFamily: event.target.value as typeof textStyle.fontFamily })}
+              >
+                {TEXT_FONT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label>
+              Size
+              <select aria-label="Text size" value={textStyle.fontSize} onChange={(event) => setTextStyle({ ...textStyle, fontSize: Number(event.target.value) })}>
+                {[12, 14, 16, 18, 20, 24, 30, 36].map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+            <button type="button" className={textStyle.bold ? 'is-active' : ''} aria-pressed={textStyle.bold} aria-label="Bold text" onClick={() => setTextStyle({ ...textStyle, bold: !textStyle.bold })}><strong>B</strong></button>
+            <button type="button" className={textStyle.italic ? 'is-active' : ''} aria-pressed={textStyle.italic} aria-label="Italic text" onClick={() => setTextStyle({ ...textStyle, italic: !textStyle.italic })}><em>I</em></button>
+            <label className="text-color-picker">
+              Color
+              <input type="color" aria-label="Text color" value={textStyle.color} onChange={(event) => setTextStyle({ ...textStyle, color: event.target.value })} />
+            </label>
+            <div className="text-color-presets" aria-label="Text color presets">
+              {TEXT_COLOR_PRESETS.map((color) => <button key={color} type="button" aria-label={`Use text color ${color}`} className={textStyle.color.toLowerCase() === color ? 'is-active' : ''} style={{ backgroundColor: color }} onClick={() => setTextStyle({ ...textStyle, color })} />)}
+            </div>
+          </section>
           <div className="writing-math-actions">
             <button type="button" onClick={() => targetMathComposer('keyboard')}>
               {keyboardVisible ? '⌄ Close keyboard' : '⌨ Math keyboard'}

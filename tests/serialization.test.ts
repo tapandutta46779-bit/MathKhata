@@ -7,10 +7,18 @@ describe('structured notebook serialization', () => {
     let notebook = createNotebook('Exact work');
     const pageId = notebook.pages[0].id;
     notebook = addObject(notebook, pageId, createMathObject({ x: 101, y: 207 }, '\\int_0^2 x^2\\,dx'));
-    notebook = addObject(notebook, pageId, createTextObject({ x: 445, y: 318 }, '<b>plain text only</b>'));
+    notebook = addObject(notebook, pageId, createTextObject(
+      { x: 445, y: 318 },
+      '<b>plain text only</b>',
+      {},
+      { fontFamily: 'roman', fontSize: 20, bold: true, italic: true, color: '#1d4f91' },
+    ));
     const json = serializeNotebook(notebook);
     const restored = deserializeNotebook(json);
     expect(restored).toEqual(notebook);
+    expect(restored.pages[0].objects.find((object) => object.type === 'text')).toMatchObject({
+      style: { fontFamily: 'roman', fontSize: 20, bold: true, italic: true, color: '#1d4f91' },
+    });
     expect(JSON.parse(json)).toMatchObject({
       format: 'mathkhata-notebook',
       schemaVersion: 3,

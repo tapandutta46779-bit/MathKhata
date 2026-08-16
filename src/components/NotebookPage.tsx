@@ -1,4 +1,4 @@
-import type { Page, Point } from '../domain/model';
+import type { Page, Point, TextStyle } from '../domain/model';
 import type { CSSProperties } from 'react';
 import { snapToWritingLine } from '../domain/writingFlow';
 import { blurActiveMathfield } from '../editor/mathfieldRegistry';
@@ -11,9 +11,10 @@ import { PageDrawingLayer } from './PageDrawingLayer';
 interface NotebookPageProps {
   page: Page;
   writingMode: WritingMode;
+  textStyle: TextStyle;
 }
 
-export function NotebookPage({ page, writingMode }: NotebookPageProps) {
+export function NotebookPage({ page, writingMode, textStyle }: NotebookPageProps) {
   const tool = useNotebookStore((state) => state.tool);
   const insertionPoint = useNotebookStore((state) => state.insertionPoint);
   const setInsertionPoint = useNotebookStore((state) => state.setInsertionPoint);
@@ -55,7 +56,7 @@ export function NotebookPage({ page, writingMode }: NotebookPageProps) {
       {page.objects.map((object) => (
         <PageObjectView key={object.id} object={object} />
       ))}
-      <ContinuousLineComposer page={page} mode={writingMode} />
+      <ContinuousLineComposer page={page} mode={writingMode} textStyle={textStyle} />
       <CalculationRail page={page} />
       <PageDrawingLayer page={page} />
     </article>

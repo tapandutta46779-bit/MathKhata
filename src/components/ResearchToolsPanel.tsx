@@ -35,6 +35,11 @@ import {
   separateGraphRestrictions,
   simpsonIntegral,
 } from '../research/expressionEvaluator';
+import {
+  createGeometry3DWireframe,
+  geometry3DPrimitiveMeasurement,
+  type Geometry3DPrimitive,
+} from '../research/geometry3dPrimitives';
 
 export type ResearchTool = ResearchToolKind;
 
@@ -74,7 +79,7 @@ const RESEARCH_GUIDES: Record<ResearchTool, { title: string; sections: Array<{ h
   geometry3d: {
     title: '3D Geometry guide',
     sections: [
-      { heading: 'Construct', items: ['Commands: point(x,y,z), segment(A,B), vector(A,B), triangle(A,B,C), sphere(A,r), and midpoint(A,B).', 'Create points first; their labels are then available to segments, vectors, triangles, spheres, and transforms.', 'Select an object to change visibility, label, color, or delete it.'] },
+      { heading: 'Construct', items: ['Use the object gallery for cube, cuboid, tetrahedron, octahedron, sphere, ellipsoid, cylinder, cone, and paraboloid.', 'Commands: point(x,y,z), segment(A,B), vector(A,B), triangle(A,B,C), midpoint(A,B), cube(A,s), cuboid(A,w,d,h), sphere(A,r), ellipsoid(A,rx,ry,rz), cylinder(A,r,h), cone(A,r,h), and paraboloid(A,r,h).', 'Create points first when using named-center commands. Quick object buttons create a movable center automatically.'] },
       { heading: 'Measure and transform', items: ['Distance, vector magnitude, triangle angles, and triangle area are shown for supported selections.', 'Translate, rotate, reflect, and dilate-copy use explicit numeric parameters.', 'Move a selected point on screen or constrain dragging to the x, y, or z axis.'] },
       { heading: 'Navigate', items: ['Drag blank space to orbit; Shift-drag pans; wheel or +/− zooms.', 'Perspective, Top, Front, and Side camera presets are available.', 'Reset view preserves constructions; Reset data clears this section with Restore/Undo.'] },
     ],
@@ -2453,7 +2458,20 @@ interface Geometry3DPoint { id: number; label: string; x: number; y: number; z: 
 type Geometry3DObject =
   | { id: number; type: 'segment' | 'vector'; points: [number, number]; color: string; visible: boolean; label: string }
   | { id: number; type: 'triangle'; points: [number, number, number]; color: string; visible: boolean; label: string }
-  | { id: number; type: 'sphere'; center: number; radius: number; color: string; visible: boolean; label: string };
+  | { id: number; type: 'sphere'; center: number; radius: number; color: string; visible: boolean; label: string }
+  | { id: number; type: 'solid'; primitive: Geometry3DPrimitive; center: number; dimensions: [number, number, number]; color: string; visible: boolean; label: string };
+
+const GEOMETRY_3D_OBJECTS: ReadonlyArray<{ primitive: Geometry3DPrimitive; label: string; dimensions: [number, number, number] }> = [
+  { primitive: 'cube', label: 'Cube', dimensions: [2, 2, 2] },
+  { primitive: 'cuboid', label: 'Cuboid', dimensions: [3, 2, 2] },
+  { primitive: 'tetrahedron', label: 'Tetrahedron', dimensions: [2.5, 2.5, 2.5] },
+  { primitive: 'octahedron', label: 'Octahedron', dimensions: [3, 3, 3] },
+  { primitive: 'sphere', label: 'Sphere', dimensions: [1.5, 1.5, 1.5] },
+  { primitive: 'ellipsoid', label: 'Ellipsoid', dimensions: [2, 1.35, 1] },
+  { primitive: 'cylinder', label: 'Cylinder', dimensions: [1.25, 1.25, 3] },
+  { primitive: 'cone', label: 'Cone', dimensions: [1.5, 1.5, 3] },
+  { primitive: 'paraboloid', label: 'Paraboloid', dimensions: [1.6, 1.6, 3] },
+];
 
 function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
   const [points, setPoints] = usePersistentResearchState<Geometry3DPoint[]>(`${storagePrefix}:geometry3d:points`, []);
@@ -2497,13 +2515,40 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
     for (const [axis, color] of [[{ x: 6, y: 0, z: 0 }, '#b84d42'], [{ x: 0, y: 6, z: 0 }, '#4e8b55'], [{ x: 0, y: 0, z: 6 }, '#4779ad']] as const) {
       line(project(0, 0, 0), project(axis.x, axis.y, axis.z), color, 2);
     }
-    const visibleObjects = objects.filter((object) => object.visible).map((object) => ({ object, depth: object.type === 'sphere' ? pointById(object.center)?.z ?? 0 : object.points.map((id) => pointById(id)?.z ?? 0).reduce((a, b) => a + b, 0) })).sort((a, b) => a.depth - b.depth);
+    const visibleObjects = objects.filter((object) => object.visible).map((object) => ({ object, depth: object.type === 'sphere' || object.type === 'solid' ? pointById(object.center)?.z ?? 0 : object.points.map((id) => pointById(id)?.z ?? 0).reduce((a, b) => a + b, 0) })).sort((a, b) => a.depth - b.depth);
     for (const { object } of visibleObjects) {
       context.strokeStyle = object.color; context.fillStyle = `${object.color}28`; context.lineWidth = selectedObject === object.id ? 4 : 2;
       if (object.type === 'sphere') {
         const center = pointById(object.center); if (!center) continue;
-        const projected = project(center.x, center.y, center.z);
-        context.beginPath(); context.arc(projected.x, projected.y, object.radius * scale * projected.perspective, 0, Math.PI * 2); context.fill(); context.stroke();
+        const wireframe = createGeometry3DWireframe('sphere', [object.radius, object.radius, object.radius]);
+        wireframe.paths.forEach((path) => {
+          const projected = path.map((value) => project(center.x + value.x, center.y + value.y, center.z + value.z));
+          context.beginPath(); context.moveTo(projected[0].x, projected[0].y);
+          projected.slice(1).forEach((value) => context.lineTo(value.x, value.y));
+          context.strokeStyle = object.color; context.lineWidth = selectedObject === object.id ? 3 : 1.7; context.stroke();
+        });
+        continue;
+      }
+      if (object.type === 'solid') {
+        const center = pointById(object.center); if (!center) continue;
+        const wireframe = createGeometry3DWireframe(object.primitive, object.dimensions);
+        const offset = (value: { x: number; y: number; z: number }) => project(center.x + value.x, center.y + value.y, center.z + value.z);
+        if (wireframe.faces.length) {
+          wireframe.faces
+            .map((face) => ({ points: face.map(offset), depth: face.map((value) => value.z + center.z).reduce((sum, value) => sum + value, 0) / face.length }))
+            .sort((a, b) => a.depth - b.depth)
+            .forEach((face) => {
+              context.beginPath(); context.moveTo(face.points[0].x, face.points[0].y);
+              face.points.slice(1).forEach((value) => context.lineTo(value.x, value.y));
+              context.closePath(); context.fillStyle = `${object.color}18`; context.fill();
+            });
+        }
+        wireframe.paths.forEach((path) => {
+          const projected = path.map(offset); if (projected.length < 2) return;
+          context.beginPath(); context.moveTo(projected[0].x, projected[0].y);
+          projected.slice(1).forEach((value) => context.lineTo(value.x, value.y));
+          context.strokeStyle = object.color; context.lineWidth = selectedObject === object.id ? 3 : 1.7; context.stroke();
+        });
         continue;
       }
       const vertices = object.points.map(pointById).filter((point): point is Geometry3DPoint => Boolean(point)).map((point) => project(point.x, point.y, point.z));
@@ -2526,10 +2571,42 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
     });
   }, [camera, canvasSize.height, canvasSize.width, objects, points, selectedObject, selectedPoint]);
 
+  function addPrimitive(
+    primitive: Geometry3DPrimitive,
+    dimensions: [number, number, number],
+    existingCenter?: Geometry3DPoint,
+  ) {
+    const centerId = existingCenter?.id ?? nextPointId();
+    const center = existingCenter ?? {
+      id: centerId,
+      label: geometryPointLabel(points.length),
+      x: ((objects.length % 3) - 1) * 2.5,
+      y: Math.floor(objects.length / 3) % 2 ? 1.5 : 0,
+      z: 0,
+      color: GRAPH_COLORS[points.length % GRAPH_COLORS.length],
+      visible: true,
+    };
+    if (!existingCenter) setPoints((current) => [...current, center]);
+    const id = nextObjectId();
+    const color = GRAPH_COLORS[objects.length % GRAPH_COLORS.length];
+    setObjects((current) => [...current, {
+      id,
+      type: 'solid',
+      primitive,
+      center: centerId,
+      dimensions,
+      color,
+      visible: true,
+      label: `${primitive}(${center.label})`,
+    }]);
+    setSelectedObject(id); setSelectedPoint(null); setCommand('');
+    setMessage(`${primitive[0].toUpperCase()}${primitive.slice(1)} created. Drag its center point to move it.`);
+  }
+
   function runCommand() {
     const source = command.replace(/\\left|\\right/g, '').replace(/\\(?:operatorname|mathrm)\{([^{}]+)\}/g, '$1').replace(/[{}]/g, (c) => c === '{' ? '(' : ')').replace(/\\([a-z]+)/gi, '$1').replace(/\s+/g, '');
     const match = source.match(/^([a-z]+)\((.*)\)$/i);
-    if (!match) { setMessage('Use point(x,y,z), segment(A,B), vector(A,B), triangle(A,B,C), sphere(A,r), or midpoint(A,B).'); return; }
+    if (!match) { setMessage('Use point, segment, vector, triangle, midpoint, or a 3D object command such as cube(A,2) or ellipsoid(A,2,1,1).'); return; }
     const operation = match[1].toLowerCase(); const args = match[2].split(',');
     const byLabel = (label: string) => points.find((point) => point.label.toLowerCase() === label.toLowerCase());
     if (operation === 'point' && args.length === 3 && args.every((value) => Number.isFinite(Number(value)))) {
@@ -2540,9 +2617,21 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
       const a = byLabel(args[0]); const b = byLabel(args[1]); if (!a || !b) { setMessage('Create both named points first.'); return; }
       const id = nextPointId(); setPoints((current) => [...current, { id, label: geometryPointLabel(current.length), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2, color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true }]); setSelectedPoint(id); setCommand(''); setMessage('Midpoint created.'); return;
     }
-    if (operation === 'sphere' && args.length === 2) {
-      const center = byLabel(args[0]); const radius = Number(args[1]); if (!center || !(radius > 0)) { setMessage('Sphere needs an existing center and positive radius.'); return; }
-      const id = nextObjectId(); setObjects((current) => [...current, { id, type: 'sphere', center: center.id, radius, color: GRAPH_COLORS[current.length % GRAPH_COLORS.length], visible: true, label: `sphere(${center.label},${radius})` }]); setSelectedObject(id); setCommand(''); setMessage('Sphere created.'); return;
+    const solidOperation = operation as Geometry3DPrimitive;
+    if (['cube', 'tetrahedron', 'octahedron', 'sphere'].includes(solidOperation) && args.length === 2) {
+      const center = byLabel(args[0]); const size = Number(args[1]);
+      if (!center || !(size > 0)) { setMessage(`${operation} needs an existing center point and a positive size.`); return; }
+      addPrimitive(solidOperation, [size, size, size], center); return;
+    }
+    if (['cylinder', 'cone', 'paraboloid'].includes(solidOperation) && args.length === 3) {
+      const center = byLabel(args[0]); const radius = Number(args[1]); const height = Number(args[2]);
+      if (!center || !(radius > 0) || !(height > 0)) { setMessage(`${operation} needs an existing center, positive radius, and positive height.`); return; }
+      addPrimitive(solidOperation, [radius, radius, height], center); return;
+    }
+    if (['cuboid', 'ellipsoid'].includes(solidOperation) && args.length === 4) {
+      const center = byLabel(args[0]); const dimensions = args.slice(1).map(Number) as [number, number, number];
+      if (!center || dimensions.some((value) => !(value > 0))) { setMessage(`${operation} needs an existing center and three positive dimensions.`); return; }
+      addPrimitive(solidOperation, dimensions, center); return;
     }
     const required = operation === 'triangle' ? 3 : 2; const resolved = args.map(byLabel);
     if (!['segment', 'vector', 'triangle'].includes(operation) || args.length !== required || resolved.some((point) => !point)) { setMessage('Check the construction name, point labels, and number of arguments.'); return; }
@@ -2553,6 +2642,7 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
   const selected = objects.find((object) => object.id === selectedObject);
   const measurement = selected ? (() => {
     if (selected.type === 'sphere') return `radius ${selected.radius.toPrecision(4)} · volume ${(4 / 3 * Math.PI * selected.radius ** 3).toPrecision(5)}`;
+    if (selected.type === 'solid') return geometry3DPrimitiveMeasurement(selected.primitive, selected.dimensions);
     const vertices = selected.points.map(pointById).filter((point): point is Geometry3DPoint => Boolean(point));
     const distance = (a: Geometry3DPoint, b: Geometry3DPoint) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
     if (vertices.length === 2) return `${selected.type === 'vector' ? 'magnitude' : 'length'} ${distance(vertices[0], vertices[1]).toPrecision(5)}`;
@@ -2569,7 +2659,7 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
 
   function copyTransform(kind: 'translate' | 'rotate' | 'reflect' | 'dilate') {
     if (!selected) return;
-    const sourceIds = selected.type === 'sphere' ? [selected.center] : [...selected.points]; const idMap = new Map<number, number>();
+    const sourceIds = selected.type === 'sphere' || selected.type === 'solid' ? [selected.center] : [...selected.points]; const idMap = new Map<number, number>();
     const additions: Geometry3DPoint[] = sourceIds.map((id, index) => {
       const source = pointById(id)!; const newId = nextPointId() + index; idMap.set(id, newId);
       let { x, y, z } = source;
@@ -2579,7 +2669,12 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
       if (kind === 'rotate') { const angle = transform.angle * Math.PI / 180; const nx = x * Math.cos(angle) - y * Math.sin(angle); y = x * Math.sin(angle) + y * Math.cos(angle); x = nx; }
       return { ...source, id: newId, label: `${source.label}′`, x, y, z };
     });
-    const objectId = nextObjectId(); const copy = selected.type === 'sphere' ? { ...selected, id: objectId, center: idMap.get(selected.center)!, label: `${selected.label}′` } : { ...selected, id: objectId, points: selected.points.map((id) => idMap.get(id)!) as never, label: `${selected.label}′` };
+    const objectId = nextObjectId();
+    const copy = selected.type === 'sphere'
+      ? { ...selected, id: objectId, center: idMap.get(selected.center)!, radius: kind === 'dilate' ? selected.radius * Math.abs(transform.scale) : selected.radius, label: `${selected.label}′` }
+      : selected.type === 'solid'
+        ? { ...selected, id: objectId, center: idMap.get(selected.center)!, dimensions: kind === 'dilate' ? selected.dimensions.map((value) => value * Math.abs(transform.scale)) as [number, number, number] : selected.dimensions, label: `${selected.label}′` }
+        : { ...selected, id: objectId, points: selected.points.map((id) => idMap.get(id)!) as never, label: `${selected.label}′` };
     setPoints((current) => [...current, ...additions]); setObjects((current) => [...current, copy]); setSelectedObject(objectId);
   }
 
@@ -2589,11 +2684,29 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
       <label>New construction<ResearchMathField id="research-geometry3d-command" label="3D geometry construction expression" placeholder="point(1,2,3)" value={command} onChange={setCommand} onEnter={runCommand} /></label>
       <button type="button" className="research-primary" onClick={runCommand}>Construct</button>
       {message && <p className="geometry-expression-help">{message}</p>}
+      <section className="geometry3d-object-gallery" aria-label="3D object gallery">
+        <strong>3D objects</strong>
+        <div>{GEOMETRY_3D_OBJECTS.map((item) => <button key={item.primitive} type="button" onClick={() => addPrimitive(item.primitive, item.dimensions)}>{item.label}</button>)}</div>
+      </section>
       <div className="geometry3d-list" aria-label="3D geometry objects">
         {objects.map((object) => <button key={object.id} type="button" className={selectedObject === object.id ? 'is-active' : ''} onClick={() => { setSelectedObject(object.id); setSelectedPoint(null); }}><span style={{ '--graph-color': object.color } as React.CSSProperties} />{object.label}<small>{object.type}</small></button>)}
       </div>
       {measurement && <output className="geometry3d-measurement">{measurement}</output>}
-      {selected && <section className="geometry3d-style"><strong>Selected object</strong><label>Label<input value={selected.label} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, label: event.target.value } : object))} /></label><label>Color<input type="color" value={selected.color} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, color: event.target.value } : object))} /></label><label><input type="checkbox" checked={selected.visible} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, visible: event.target.checked } : object))} /> Visible</label>{selected.type === 'sphere' && <label>Radius {selected.radius.toFixed(2)}<input type="range" min=".1" max="10" step=".1" value={selected.radius} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id && object.type === 'sphere' ? { ...object, radius: Number(event.target.value) } : object))} /></label>}<button className="is-danger" onClick={() => { setObjects((items) => items.filter((object) => object.id !== selected.id)); setSelectedObject(null); }}>Delete selected object</button></section>}
+      {selected && <section className="geometry3d-style"><strong>Selected object</strong><label>Label<input value={selected.label} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, label: event.target.value } : object))} /></label><label>Color<input type="color" value={selected.color} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, color: event.target.value } : object))} /></label><label><input type="checkbox" checked={selected.visible} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id ? { ...object, visible: event.target.checked } : object))} /> Visible</label>{selected.type === 'sphere' && <label>Radius {selected.radius.toFixed(2)}<input type="range" min=".1" max="10" step=".1" value={selected.radius} onChange={(event) => setObjects((items) => items.map((object) => object.id === selected.id && object.type === 'sphere' ? { ...object, radius: Number(event.target.value) } : object))} /></label>}{selected.type === 'solid' && <div className="geometry3d-dimensions">{(['x', 'y', 'z'] as const).map((axis, index) => {
+        const oneSize = ['cube', 'sphere', 'tetrahedron', 'octahedron'].includes(selected.primitive);
+        const radial = ['cylinder', 'cone', 'paraboloid'].includes(selected.primitive);
+        if ((oneSize && index > 0) || (radial && index === 1)) return null;
+        const label = oneSize ? (selected.primitive === 'sphere' ? 'Radius' : 'Size') : radial ? (index === 0 ? 'Radius' : 'Height') : `${axis.toUpperCase()} size`;
+        return <label key={axis}>{label}<input type="number" min=".1" max="30" step=".1" value={selected.dimensions[index]} onChange={(event) => {
+          const value = Math.max(.1, Number(event.target.value) || .1);
+          setObjects((items) => items.map((object) => {
+            if (object.id !== selected.id || object.type !== 'solid') return object;
+            const dimensions = [...object.dimensions] as [number, number, number];
+            if (oneSize) dimensions.fill(value); else if (radial && index === 0) { dimensions[0] = value; dimensions[1] = value; } else dimensions[index] = value;
+            return { ...object, dimensions };
+          }));
+        }} /></label>;
+      })}</div>}<button className="is-danger" onClick={() => { setObjects((items) => items.filter((object) => object.id !== selected.id)); setSelectedObject(null); }}>Delete selected object</button></section>}
       <section className="geometry3d-transform"><strong>Transform a copy</strong><div><label>dx<input type="number" value={transform.dx} onChange={(event) => setTransform((value) => ({ ...value, dx: Number(event.target.value) }))} /></label><label>dy<input type="number" value={transform.dy} onChange={(event) => setTransform((value) => ({ ...value, dy: Number(event.target.value) }))} /></label><label>dz<input type="number" value={transform.dz} onChange={(event) => setTransform((value) => ({ ...value, dz: Number(event.target.value) }))} /></label></div><button disabled={!selected} onClick={() => copyTransform('translate')}>Translate copy</button><label>Angle °<input type="number" value={transform.angle} onChange={(event) => setTransform((value) => ({ ...value, angle: Number(event.target.value) }))} /></label><button disabled={!selected} onClick={() => copyTransform('rotate')}>Rotate about z</button><label>Scale<input type="number" value={transform.scale} onChange={(event) => setTransform((value) => ({ ...value, scale: Number(event.target.value) }))} /></label><button disabled={!selected} onClick={() => copyTransform('dilate')}>Dilate copy</button><label>Reflect axis<select value={transform.axis} onChange={(event) => setTransform((value) => ({ ...value, axis: event.target.value as 'x' | 'y' | 'z' }))}><option>x</option><option>y</option><option>z</option></select></label><button disabled={!selected} onClick={() => copyTransform('reflect')}>Reflect copy</button></section>
     </aside>
     <div className="geometry3d-stage">
@@ -2783,7 +2896,7 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
     : tool === 'geometry'
       ? 'Local dynamic geometry: constructions, expressions, multi-select styling, transformations, dragging, measurements, and line/circle intersections.'
       : tool === 'geometry3d'
-        ? 'Local 3D geometry: points, segments, vectors, triangles, spheres, measurements, transforms, and an orbitable camera.'
+        ? 'Local 3D geometry: points, constructions, nine solid and curved primitives, measurements, transforms, and an orbitable camera.'
       : 'All calculations run locally. Verify research-critical results with the checked solver or AION.';
   const canCopy = tool !== 'scientific';
   const performCopy = () => {

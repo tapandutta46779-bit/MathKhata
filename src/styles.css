@@ -588,6 +588,16 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .writing-tools > header span { color: var(--muted); font-size: 8px; }
 .drawing-toolbar > header button { width: 24px; height: 24px; border-radius: 6px; color: var(--muted); background: transparent; font-size: 17px; }
 .writing-mode-buttons, .writing-math-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.text-formatting-tools { display: grid; grid-template-columns: minmax(110px, 1.25fr) 70px 34px 34px auto; align-items: end; gap: 5px; margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border); }
+.text-formatting-tools > label { display: grid; gap: 3px; color: var(--muted); font-size: 7px; font-weight: 700; }
+.text-formatting-tools select { min-width: 0; height: 30px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; color: #4e4941; background: #fffefa; font-size: 9px; }
+.text-formatting-tools > button { display: grid; place-items: center; height: 30px; border-radius: 6px; color: #5f594f; background: #eeebe3; font-size: 11px; }
+.text-formatting-tools > button.is-active { color: #743a27; background: var(--accent-soft); }
+.text-color-picker { grid-template-columns: auto 29px !important; align-items: center; }
+.text-color-picker input { width: 29px; height: 30px; padding: 1px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.text-color-presets { grid-column: 1 / -1; display: flex; gap: 6px; }
+.text-color-presets button { width: 21px; height: 21px; padding: 0; border: 2px solid #fffefa; border-radius: 50%; box-shadow: 0 0 0 1px rgba(55,51,42,.18); }
+.text-color-presets button.is-active { box-shadow: 0 0 0 2px var(--accent); }
 .writing-math-actions { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border); }
 .writing-mode-buttons button, .writing-math-actions button, .drawing-undo {
   min-height: 31px;
@@ -886,6 +896,13 @@ math-field.page-assistant-math { display: block; width: 100%; min-height: 21px; 
 .geometry3d-style input:not([type="checkbox"]):not([type="color"]) { min-width: 0; width: 100%; padding: 4px; border: 1px solid var(--border); border-radius: 5px; }
 .geometry3d-style input[type="color"] { width: 28px; height: 24px; padding: 1px; }
 .geometry3d-style label:has(input[type="range"]), .geometry3d-style .is-danger { grid-column: 1 / -1; }
+.geometry3d-object-gallery { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #fffefa; }
+.geometry3d-object-gallery > strong { font-size: 9px; }
+.geometry3d-object-gallery > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.geometry3d-object-gallery button { min-width: 0; padding: 6px 3px; border-radius: 6px; color: #613d31; background: #eee9df; font-size: 7.5px; font-weight: 700; }
+.geometry3d-object-gallery button:hover { background: var(--accent-soft); }
+.geometry3d-dimensions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.geometry3d-dimensions label { display: grid; gap: 3px; }
 .geometry3d-style .is-danger { padding: 5px; border-radius: 5px; color: #91352f; background: #f7e6e2; font-size: 8px; }
 .geometry3d-transform { display: grid; gap: 5px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: #fffefa; }
 .geometry3d-transform > div { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; }
@@ -1220,7 +1237,7 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 }
 
 @media print {
-  html, body, #root { min-width: 0; height: auto; overflow: visible; background: white; }
+  html, body, #root { width: 210mm; min-width: 0; height: auto; margin: 0; overflow: visible; background: white; }
   .app-shell { display: block; height: auto; background: white; }
   .top-bar, .page-nav, .tool-dock, .writing-tools, .drawing-toolbar, .math-palette, .voice-panel, .page-assistant, .page-assistant-launcher, .research-tools-panel, .floating-calculator, .continuous-line-composer, .error-toast, .object-controls, .insertion-marker { display: none !important; }
   .workspace, .canvas-scroll { display: block; overflow: visible; padding: 0; background: white; }
@@ -1229,16 +1246,16 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
   .page-object.is-selected { border-color: transparent; box-shadow: none; }
   .page-foot { display: none; }
   .app-shell:has(.printable-notebook .printable-page) > .workspace { display: none; }
-  .printable-notebook:has(.printable-page) { display: block; }
-  .printable-page { position: relative; width: 100%; overflow: hidden; page-break-after: always; background: repeating-linear-gradient(to bottom, #fffefa 0, #fffefa 38px, #dce9ec 39px, #fffefa 40px); }
-  .printable-page:last-child { page-break-after: auto; }
+  .printable-notebook:has(.printable-page) { display: block; width: 210mm; margin: 0; padding: 0; }
+  .printable-page { position: relative; box-sizing: border-box; width: 210mm; height: 297mm; margin: 0; overflow: hidden; break-after: page; break-inside: avoid; page-break-after: always; page-break-inside: avoid; background: repeating-linear-gradient(to bottom, #fffefa 0, #fffefa 38px, #dce9ec 39px, #fffefa 40px); }
+  .printable-page:last-child { break-after: auto; page-break-after: auto; }
   .printable-object { position: absolute; z-index: 2; color: #26231f; white-space: pre-wrap; }
   .printable-object math-field { width: 100%; border: 0; background: transparent; font-size: 20px; pointer-events: none; }
-  .printable-object--text { font-family: var(--hand-font); font-size: 16px; line-height: 1.45; }
+  .printable-object--text { line-height: 1.45; }
   .printable-research { height: 100%; overflow: hidden; border: 1px solid #c9c3b6; border-radius: 8px; background: white; }
   .printable-research strong { display: block; padding: 5px 8px; font-size: 11px; }
   .printable-research img { display: block; width: 100%; height: calc(100% - 24px); object-fit: contain; }
   .printable-drawings { position: absolute; z-index: 4; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .printable-page-number { position: absolute; right: 8mm; bottom: 5mm; color: #777; font-size: 10px; }
-  @page { size: auto; margin: 8mm; }
+  @page { size: A4 portrait; margin: 0; }
 }

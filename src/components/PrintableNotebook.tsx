@@ -1,5 +1,6 @@
 import type { MathfieldElement } from 'mathlive';
 import type { DrawingElement, Page, Point } from '../domain/model';
+import { effectiveTextStyle, TEXT_FONT_STACKS } from '../domain/textStyle';
 
 function pathData(points: Point[], close = false): string {
   if (points.length === 0) return '';
@@ -33,7 +34,7 @@ function drawingPath(drawing: DrawingElement): string {
 }
 
 function PrintablePage({ page, pageNumber }: { page: Page; pageNumber: number }) {
-  return <article className="printable-page" style={{ aspectRatio: `${page.width}/${page.height}` }}>
+  return <article className="printable-page">
     {page.objects.map((object) => <div
       key={object.id}
       className={`printable-object printable-object--${object.type}`}
@@ -42,6 +43,16 @@ function PrintablePage({ page, pageNumber }: { page: Page; pageNumber: number })
         top: `${object.y / page.height * 100}%`,
         width: `${object.width / page.width * 100}%`,
         minHeight: `${object.height / page.height * 100}%`,
+        ...(object.type === 'text' ? (() => {
+          const textStyle = effectiveTextStyle(object.style);
+          return {
+            color: textStyle.color,
+            fontFamily: TEXT_FONT_STACKS[textStyle.fontFamily],
+            fontSize: `${textStyle.fontSize}px`,
+            fontWeight: textStyle.bold ? 700 : 400,
+            fontStyle: textStyle.italic ? 'italic' : 'normal',
+          };
+        })() : {}),
       }}
     >
       {object.type === 'text' && object.text}

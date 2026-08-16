@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { DrawingElement, DrawingErasure, Notebook, PageObject, Point, ResearchToolKind, ResearchValue } from '../domain/model';
+import type { DrawingElement, DrawingErasure, Notebook, PageObject, Point, ResearchToolKind, ResearchValue, TextStyle } from '../domain/model';
 import {
   addDrawing as addDrawingToNotebook,
   addObject as addObjectToNotebook,
@@ -45,6 +45,7 @@ import {
   saveNotebook,
   type NotebookSummary,
 } from '../persistence/database';
+import { DEFAULT_TEXT_STYLE, effectiveTextStyle } from '../domain/textStyle';
 
 export type SaveStatus = 'loading' | 'unsaved' | 'saving' | 'saved' | 'error';
 export type NotebookTool = 'select' | 'math' | 'text' | 'voice' | 'draw';
@@ -61,6 +62,7 @@ interface NotebookState {
   selectedObjectId: string | null;
   editingObjectId: string | null;
   insertionPoint: Point;
+  textStyle: TextStyle;
   tool: NotebookTool;
   navigatorCollapsed: boolean;
   paletteOpen: boolean;
@@ -82,6 +84,7 @@ interface NotebookState {
   setSelectedObject: (objectId: string | null) => void;
   setEditingObject: (objectId: string | null) => void;
   setInsertionPoint: (point: Point) => void;
+  setTextStyle: (style: TextStyle) => void;
   setTool: (tool: NotebookTool) => void;
   setNavigatorCollapsed: (collapsed: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
@@ -148,6 +151,17 @@ function nowForHistory(): number {
   return typeof performance === 'undefined' ? Date.now() : performance.now();
 }
 
+function loadPreferredTextStyle(): TextStyle {
+  if (typeof window === 'undefined') return { ...DEFAULT_TEXT_STYLE };
+  try {
+    const saved = JSON.parse(window.localStorage.getItem('mathnotebook:text-style') ?? 'null') as Partial<TextStyle> | null;
+    if (!saved || typeof saved !== 'object') return { ...DEFAULT_TEXT_STYLE };
+    return effectiveTextStyle(saved as TextStyle);
+  } catch {
+    return { ...DEFAULT_TEXT_STYLE };
+  }
+}
+
 function ingestLegacyResearchState(notebook: Notebook): { notebook: Notebook; keys: string[] } {
   if (typeof window === 'undefined') return { notebook, keys: [] };
   const prefix = `mathkhata:research:${notebook.id}:`;
@@ -206,6 +220,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     selectedObjectId: null,
     editingObjectId: null,
     insertionPoint: { x: 82, y: 20 },
+    textStyle: loadPreferredTextStyle(),
     tool: 'select',
     navigatorCollapsed: false,
     paletteOpen: false,
@@ -385,6 +400,19 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       set({ insertionPoint: point });
     },
 
+    setTextStyle(style) {
+      const nextStyle = effectiveTextStyle(style);
+      try { window.localStorage.setItem('mathnotebook:text-style', JSON.stringify(nextStyle)); } catch { /* preference persistence is best effort */ }
+      const state = get();
+      const selected = state.notebook && state.currentPageId && state.selectedObjectId
+        ? getObject(state.notebook, state.currentPageId, state.selectedObjectId)
+        : null;
+      if (selected?.type === 'text') {
+        commit('Format text', (notebook) => updateObject(notebook, state.currentPageId!, selected.id, { style: nextStyle }));
+      }
+      set({ textStyle: nextStyle });
+    },
+
     setTool(tool) {
       set({ tool, editingObjectId: tool === 'select' ? null : get().editingObjectId });
     },
@@ -417,7 +445,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
       const rawObject =
         type === 'math'
           ? createMathObject(flowPoint, initialContent)
-          : createTextObject(flowPoint, initialContent);
+          : createTextObject(flowPoint, initialContent, {}, state.textStyle);
       rawObject.height = flowObjectHeight(type, initialContent);
       // A click chooses the writing line, not a small floating textbox. Give
       // normal Math/Text writing the remaining ruled-paper width while still
@@ -452,7 +480,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         const point = { x: firstPoint.x, y: nextY };
         const object = item.type === 'math'
           ? createMathObject(point, item.content)
-          : createTextObject(point, item.content);
+          : createTextObject(point, item.content, {}, state.textStyle);
         object.width = WRITING_CONTENT_WIDTH;
         object.height = flowObjectHeight(item.type, item.content);
         nextY += Math.max(WRITING_LINE_HEIGHT, object.height);
@@ -523,7 +551,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
         const point = { x, y };
         const object = item.type === 'math'
           ? createMathObject(point, item.content)
-          : createTextObject(point, item.content);
+          : createTextObject(point, item.content, {}, state.textStyle);
         object.width = estimatedWidth;
         object.height = flowObjectHeight(item.type, item.content);
         const safePoint = clampObjectToPage(object, page, object);

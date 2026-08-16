@@ -12,10 +12,12 @@ import {
   type PageObject,
   type Point,
   type TextObject,
+  type TextStyle,
   type ResearchObject,
   type ResearchSnapshot,
   type ResearchValue,
 } from './model';
+import { DEFAULT_TEXT_STYLE } from './textStyle';
 
 type IdFactory = () => string;
 type DateFactory = () => string;
@@ -95,11 +97,13 @@ export function createTextObject(
   point: Point,
   text = '',
   options: FactoryOptions = {},
+  style?: TextStyle,
 ): TextObject {
   return {
     ...baseObject(point, options),
     type: 'text',
     text,
+    ...(style ? { style } : {}),
     width: 280,
     height: 92,
   };
@@ -279,7 +283,7 @@ export function updateObject(
   objectId: string,
   patch: Partial<Pick<PageObject, 'x' | 'y' | 'width' | 'height' | 'zIndex'>> &
     Partial<Pick<MathObject, 'latex'>> &
-    Partial<Pick<TextObject, 'text'>> &
+    Partial<Pick<TextObject, 'text' | 'style'>> &
     Partial<Pick<ResearchObject, 'snapshot'>>,
   now: DateFactory = defaultDate,
 ): Notebook {
@@ -319,6 +323,7 @@ export function convertMathObjectToText(
         createdAt: object.createdAt,
         type: 'text' as const,
         text,
+        style: { ...DEFAULT_TEXT_STYLE },
         updatedAt: now(),
       };
     });
