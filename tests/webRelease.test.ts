@@ -9,6 +9,7 @@ describe('public web replica boundary', () => {
     const sitemap = readFileSync(path.resolve('public/sitemap.xml'), 'utf8');
 
     expect(index).toContain('<link rel="canonical" href="https://mathkhata.pages.dev/"');
+    expect(index).toContain('<meta name="google-site-verification"');
     expect(robots).toContain('Sitemap: https://mathkhata.pages.dev/sitemap.xml');
     expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/</loc>');
     expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/privacy</loc>');
