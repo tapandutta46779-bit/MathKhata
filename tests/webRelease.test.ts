@@ -3,6 +3,18 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('public web replica boundary', () => {
+  it('publishes canonical crawl and sitemap metadata', () => {
+    const index = readFileSync(path.resolve('index.html'), 'utf8');
+    const robots = readFileSync(path.resolve('public/robots.txt'), 'utf8');
+    const sitemap = readFileSync(path.resolve('public/sitemap.xml'), 'utf8');
+
+    expect(index).toContain('<link rel="canonical" href="https://mathkhata.pages.dev/"');
+    expect(robots).toContain('Sitemap: https://mathkhata.pages.dev/sitemap.xml');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/privacy.html</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/feedback.html</loc>');
+  });
+
   it('keeps MathLive layout styles while restricting public network access', () => {
     const headers = readFileSync(path.resolve('public/_headers'), 'utf8');
     const privacy = readFileSync(path.resolve('public/privacy.html'), 'utf8');
