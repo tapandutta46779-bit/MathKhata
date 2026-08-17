@@ -11,8 +11,8 @@ describe('public web replica boundary', () => {
     expect(index).toContain('<link rel="canonical" href="https://mathkhata.pages.dev/"');
     expect(robots).toContain('Sitemap: https://mathkhata.pages.dev/sitemap.xml');
     expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/</loc>');
-    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/privacy.html</loc>');
-    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/feedback.html</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/privacy</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/feedback</loc>');
   });
 
   it('keeps MathLive layout styles while restricting public network access', () => {
