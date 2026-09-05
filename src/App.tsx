@@ -34,6 +34,9 @@ export default function App() {
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [writingMode, setWritingMode] = useState<WritingMode>('auto');
   const [printPageIds, setPrintPageIds] = useState<string[]>([]);
+  const [welcomeOpen, setWelcomeOpen] = useState(() => {
+    try { return window.localStorage.getItem('mathkhata.welcome-dismissed') !== 'true'; } catch { return true; }
+  });
   const notebook = useNotebookStore((state) => state.notebook);
   const hydrated = useNotebookStore((state) => state.hydrated);
   const currentPageId = useNotebookStore((state) => state.currentPageId);
@@ -52,6 +55,10 @@ export default function App() {
   const duplicateSelectedObject = useNotebookStore((state) => state.duplicateSelectedObject);
   const clearError = useNotebookStore((state) => state.clearError);
   const closeResearch = useCallback(() => { setResearchOpen(false); setResearchObjectId(null); }, []);
+  const dismissWelcome = useCallback(() => {
+    setWelcomeOpen(false);
+    try { window.localStorage.setItem('mathkhata.welcome-dismissed', 'true'); } catch { /* session-only fallback */ }
+  }, []);
 
   useEffect(() => {
     void initialize();
@@ -213,6 +220,12 @@ export default function App() {
   return (
     <div className="app-shell">
       <TopBar notebook={notebook} pageNumber={pageNumber} />
+      {welcomeOpen && (
+        <aside className="welcome-banner" aria-label="Getting started">
+          <div><strong>Welcome to Math Notebook</strong><span>Write an equation, open Research to graph it, then copy the result back to your page.</span></div>
+          <div className="welcome-banner__actions"><a href="./start.html" target="_blank" rel="noreferrer">How it works</a><button type="button" onClick={dismissWelcome}>Dismiss</button></div>
+        </aside>
+      )}
       <div className="workspace">
         <PageNavigator notebook={notebook} />
         <main className="canvas-scroll" aria-label="Notebook workspace">

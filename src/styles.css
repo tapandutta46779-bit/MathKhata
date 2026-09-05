@@ -103,6 +103,14 @@ html[data-desktop-platform="darwin"] .top-bar [role="menu"] {
 .page-status { color: var(--muted); font-size: 12px; }
 .top-bar__spacer { flex: 1 1 0; min-width: 0; }
 
+.welcome-banner { position: absolute; z-index: 45; top: 68px; left: 50%; transform: translateX(-50%); width: min(720px, calc(100% - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 16px; border: 1px solid #d9c5b7; border-radius: 12px; background: rgba(255,250,243,.97); box-shadow: 0 12px 28px rgba(47,37,29,.13); }
+.welcome-banner strong, .welcome-banner span { display: block; }
+.welcome-banner strong { color: var(--ink); font-size: 13px; }
+.welcome-banner span { margin-top: 3px; color: var(--muted); font-size: 12px; }
+.welcome-banner__actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.welcome-banner__actions a, .welcome-banner__actions button { border: 1px solid #d7b8a6; border-radius: 7px; padding: 7px 10px; color: #7e3c26; background: #fff; font: inherit; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.welcome-banner__actions button { border-color: transparent; background: transparent; }
+
 .save-status {
   display: flex;
   align-items: center;
@@ -1237,6 +1245,8 @@ math-field.candidate-math { display: block; width: 100%; padding: 1px 0; border:
 }
 
 @media (max-width: 680px) {
+  .welcome-banner { top: 64px; align-items: flex-start; flex-direction: column; gap: 8px; padding: 11px 13px; }
+  .welcome-banner__actions { width: 100%; justify-content: flex-end; }
   .tool-dock button > span:last-child { display: none; }
   .tool-dock button { width: 40px; justify-content: center; padding-inline: 7px; }
   .continuous-line-composer { min-width: 210px; }

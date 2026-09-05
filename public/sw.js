@@ -84,7 +84,10 @@ self.addEventListener('fetch', (event) => {
     if (event.request.mode === 'navigate') {
       try {
         const response = await fetch(event.request);
-        if (response.ok) {
+        // Public information pages must never replace the cached notebook shell.
+        // Only the app entry routes are eligible for the index cache.
+        const path = requestUrl.pathname.replace(/\/+$/, '') || '/';
+        if (response.ok && (path === '/' || path === '/index.html')) {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(new URL('./index.html', self.registration.scope), response.clone());
         }

@@ -10,10 +10,19 @@ describe('public web replica boundary', () => {
 
     expect(index).toContain('<link rel="canonical" href="https://mathkhata.pages.dev/"');
     expect(index).toContain('<meta name="google-site-verification"');
+    expect(index).toContain('og:title');
+    expect(index).toContain('twitter:card');
     expect(robots).toContain('Sitemap: https://mathkhata.pages.dev/sitemap.xml');
     expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/</loc>');
     expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/privacy</loc>');
     expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/feedback</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/start</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/guides/calculus</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/guides/log-log</loc>');
+    expect(sitemap).toContain('<loc>https://mathkhata.pages.dev/guides/3d-geometry</loc>');
+    for (const page of ['start.html', 'guides/calculus.html', 'guides/log-log.html', 'guides/3d-geometry.html']) {
+      expect(existsSync(path.resolve('public', page)), page).toBe(true);
+    }
   });
 
   it('keeps MathLive layout styles while restricting public network access', () => {
@@ -27,9 +36,11 @@ describe('public web replica boundary', () => {
     expect(headers).toContain("connect-src 'self' https://cloudflareinsights.com https://huggingface.co");
     expect(headers).toContain('https://cloudflareinsights.com');
     expect(readFileSync(path.resolve('vite.config.ts'), 'utf8')).toContain(
-      "\"'self' https://cloudflareinsights.com\"",
+      "\"'self' https://cloudflareinsights.com https://huggingface.co",
     );
     expect(headers).toContain('https://raw.githubusercontent.com');
+    expect(readFileSync(path.resolve('vite.config.ts'), 'utf8')).toContain("'wasm-unsafe-eval'");
+    expect(readFileSync(path.resolve('vite.config.ts'), 'utf8')).toContain('https://huggingface.co');
     expect(headers).not.toContain('127.0.0.1');
     expect(headers).not.toContain('localhost');
     expect(readFileSync(path.resolve('vite.config.ts'), 'utf8')).toContain(
@@ -97,6 +108,7 @@ describe('public web replica boundary', () => {
     expect(serviceWorker).toContain('{ ignoreVary: true }');
     expect(serviceWorker).toContain("new URL('./offline-assets.json', indexUrl)");
     expect(serviceWorker).toContain('offline-ready.json');
+    expect(serviceWorker).toContain("path === '/' || path === '/index.html'");
     expect(viteConfig).toContain("fileName: 'offline-assets.json'");
     expect(assistantUI).toContain('page-assistant-math-scroll');
     expect(styles).toContain('overscroll-behavior-inline: contain');

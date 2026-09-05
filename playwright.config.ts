@@ -8,7 +8,9 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:4173',
-    channel: 'chrome',
+    // Use the locally installed Chrome for developer runs, while CI uses the
+    // reproducible Playwright Chromium binary installed by the workflow.
+    ...(process.env.CI ? {} : { channel: 'chrome' }),
     headless: true,
     viewport: { width: 1440, height: 1100 },
     trace: 'retain-on-failure',
@@ -21,4 +23,3 @@ export default defineConfig({
     timeout: 30_000,
   },
 });
-

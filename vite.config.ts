@@ -25,12 +25,12 @@ export default defineConfig(({ command, mode }) => ({
       name: 'mathkhata-csp',
       transformIndexHtml(html) {
         const scriptSources = command !== 'serve' && mode === 'web'
-          ? "'self' https://static.cloudflareinsights.com/beacon.min.js"
+          ? "'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js"
           : "'self'";
         const connectSources = command === 'serve'
           ? "'self' http://127.0.0.1:11434 http://localhost:11434 ws://127.0.0.1:4173"
           : mode === 'web'
-            ? "'self' https://cloudflareinsights.com"
+            ? "'self' https://cloudflareinsights.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co https://raw.githubusercontent.com"
             : "'self'";
         return html
           .replace('__MATHKHATA_SCRIPT_SRC__', scriptSources)
