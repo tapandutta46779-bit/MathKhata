@@ -52,9 +52,13 @@ export function createDocumentContext(
   pageId: string,
   selectedObjectId: string | null,
   recentEditLabels: string[] = [],
+  pendingObjects: PageObject[] = [],
 ): NotebookContext | null {
-  const currentPage = notebook.pages.find((page) => page.id === pageId);
-  if (!currentPage) return null;
+  const savedPage = notebook.pages.find((page) => page.id === pageId);
+  if (!savedPage) return null;
+  const currentPage = pendingObjects.length
+    ? { ...savedPage, objects: [...savedPage.objects, ...pendingObjects] }
+    : savedPage;
   const selectedObject =
     currentPage.objects.find((object) => object.id === selectedObjectId) ?? null;
   const nearbyObjects = selectedObject
@@ -99,4 +103,3 @@ export function createDocumentContext(
     recentEditLabels,
   };
 }
-

@@ -47,6 +47,7 @@ import {
   type NotebookSummary,
 } from '../persistence/database';
 import { DEFAULT_TEXT_STYLE, effectiveTextStyle } from '../domain/textStyle';
+import { flushWritingDraft } from '../editor/writingDraft';
 
 export type SaveStatus = 'loading' | 'unsaved' | 'saving' | 'saved' | 'error';
 export type NotebookTool = 'select' | 'math' | 'text' | 'voice' | 'draw';
@@ -420,6 +421,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     },
 
     setCurrentPage(pageId) {
+      flushWritingDraft();
       const page = get().notebook?.pages.find((candidate) => candidate.id === pageId);
       if (!page) return;
       set({
@@ -440,6 +442,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     },
 
     setInsertionPoint(point) {
+      flushWritingDraft();
       set({ insertionPoint: point });
     },
 
@@ -762,6 +765,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     },
 
     addPage() {
+      flushWritingDraft();
       const notebook = get().notebook;
       if (!notebook) return;
       const next = addPageToNotebook(notebook);
@@ -904,6 +908,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => {
     },
 
     async saveNow() {
+      flushWritingDraft();
       const notebook = get().notebook;
       if (!notebook) return;
       if (saveTimer) clearTimeout(saveTimer);

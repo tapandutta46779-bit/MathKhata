@@ -6,6 +6,8 @@ import { interpretTypedLine, type LineIntentMode } from '../domain/lineIntent';
 import { WRITING_LEFT, WRITING_LINE_HEIGHT } from '../domain/writingFlow';
 import { registerMathfield, setActiveMathfield } from '../editor/mathfieldRegistry';
 import { useNotebookStore } from '../store/notebookStore';
+import { createMathObject, createTextObject } from '../domain/notebook';
+import { useWritingDraft } from '../editor/writingDraft';
 
 export type WritingMode = LineIntentMode;
 
@@ -17,6 +19,8 @@ interface ContinuousLineComposerProps {
 
 export function ContinuousLineComposer({ page, mode, textStyle }: ContinuousLineComposerProps) {
   const [value, setValue] = useState('');
+  const valueRef = useRef('');
+  const skipNextWriterFocus = useRef(false);
   const textRef = useRef<HTMLTextAreaElement | null>(null);
   const mathRef = useRef<MathfieldElement | null>(null);
   const unregisterMathRef = useRef<(() => void) | null>(null);
@@ -29,6 +33,27 @@ export function ContinuousLineComposer({ page, mode, textStyle }: ContinuousLine
   const lineIsOccupied = page.objects.some(
     (object) => Math.abs(object.y - insertionPoint.y) < WRITING_LINE_HEIGHT * 0.45,
   );
+  function changeValue(next: string) {
+    valueRef.current = next;
+    setValue(next);
+  }
+
+  useEffect(() => {
+    const notebookId = useNotebookStore.getState().notebook?.id;
+    if (!notebookId || lineIsOccupied || !interpretation.items.length) {
+      useWritingDraft.setState({ draft: null });
+      return;
+    }
+    const objects = interpretation.items.map((item, index) => {
+      const factory = { id: () => `writing-draft-${page.id}-${index}`, now: () => page.updatedAt };
+      const point = { x: WRITING_LEFT + index, y: insertionPoint.y };
+      return item.type === 'math'
+        ? createMathObject(point, item.content, factory)
+        : createTextObject(point, item.content, factory, textStyle);
+    });
+    useWritingDraft.setState({ draft: { notebookId, pageId: page.id, objects } });
+    return () => { useWritingDraft.setState({ draft: null }); };
+  }, [interpretation, insertionPoint.y, lineIsOccupied, page.id, page.updatedAt, textStyle]);
 
   const attachMathfield = useCallback((element: MathfieldElement | null) => {
     if (element === mathRef.current) return;
@@ -38,7 +63,10 @@ export function ContinuousLineComposer({ page, mode, textStyle }: ContinuousLine
     element.smartFence = true;
     element.mathVirtualKeyboardPolicy = 'manual';
     window.mathVirtualKeyboard.layouts = ['numeric', 'symbols', 'alphabetic', 'greek'];
-    unregisterMathRef.current = registerMathfield('__line-composer__', element, (latex) => setValue(latex));
+    unregisterMathRef.current = registerMathfield('__line-composer__', element, (latex) => {
+      valueRef.current = latex;
+      setValue(latex);
+    });
   }, []);
 
   function focusWriter() {
@@ -77,18 +105,31 @@ export function ContinuousLineComposer({ page, mode, textStyle }: ContinuousLine
   useEffect(() => () => unregisterMathRef.current?.(), []);
 
   useEffect(() => {
+    if (skipNextWriterFocus.current) {
+      skipNextWriterFocus.current = false;
+      return;
+    }
     if (!value) requestAnimationFrame(focusWriter);
   }, [insertionPoint.y, mode, page.id]);
 
-  function commitLine() {
-    if (interpretation.items.length === 0 || lineIsOccupied) return;
-    createMixedLine(interpretation.items);
-    setValue('');
+  function commitLine(refocus = true) {
+    const items = interpretTypedLine(valueRef.current, mode).items;
+    if (items.length === 0 || lineIsOccupied) return;
+    if (!createMixedLine(items).length) return;
+    skipNextWriterFocus.current = !refocus;
+    changeValue('');
+    useWritingDraft.setState({ draft: null });
     if (mathRef.current) mathRef.current.value = '';
     setSelectedObject(null);
     setEditingObject(null);
-    requestAnimationFrame(focusWriter);
+    if (refocus) requestAnimationFrame(focusWriter);
   }
+
+  useEffect(() => {
+    const commit = () => commitLine(false);
+    window.addEventListener('mathnotebook:commit-writing', commit);
+    return () => window.removeEventListener('mathnotebook:commit-writing', commit);
+  });
 
   return (
     <div
@@ -106,7 +147,7 @@ export function ContinuousLineComposer({ page, mode, textStyle }: ContinuousLine
           class="line-math-composer"
           aria-label="Write mathematics on this ruled line"
           ref={attachMathfield}
-          onInput={(event) => setValue((event.currentTarget as MathfieldElement).value)}
+          onInput={(event) => changeValue((event.currentTarget as MathfieldElement).value)}
           onFocus={() => setActiveMathfield('__line-composer__')}
           onKeyDown={(event) => {
             if (event.key !== 'Enter' || event.shiftKey) return;
@@ -130,7 +171,7 @@ export function ContinuousLineComposer({ page, mode, textStyle }: ContinuousLine
             fontWeight: textStyle.bold ? 700 : 400,
             fontStyle: textStyle.italic ? 'italic' : 'normal',
           }}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => changeValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();

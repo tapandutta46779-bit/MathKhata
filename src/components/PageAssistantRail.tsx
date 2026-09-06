@@ -17,6 +17,7 @@ import {
 import { focusMathfield } from '../editor/mathfieldRegistry';
 import { createDocumentContext } from '../extensions/providers';
 import { useNotebookStore } from '../store/notebookStore';
+import { flushWritingDraft, useWritingDraft } from '../editor/writingDraft';
 
 interface SolveState {
   loading: boolean;
@@ -163,19 +164,18 @@ export function PageAssistantRail() {
   const setSelectedObject = useNotebookStore((state) => state.setSelectedObject);
   const createFlowObjects = useNotebookStore((state) => state.createFlowObjects);
   const convertMathObjectToText = useNotebookStore((state) => state.convertMathObjectToText);
+  const draft = useWritingDraft((state) => state.draft);
   const context = useMemo(
     () => notebook && currentPageId
-      ? createDocumentContext(notebook, currentPageId, selectedObjectId)
+      ? createDocumentContext(notebook, currentPageId, selectedObjectId, [],
+        draft?.notebookId === notebook.id && draft.pageId === currentPageId ? draft.objects : [])
       : null,
-    [currentPageId, notebook, selectedObjectId],
+    [currentPageId, notebook, selectedObjectId, draft],
   );
   const analysis = useMemo(
     () => context ? analyzeNotebookPage(context) : null,
     [context],
   );
-  const analysisKey = analysis
-    ? `${context?.currentPage.updatedAt}:${analysis.orderedObjectIds.join(',')}`
-    : 'none';
   const [open, setOpen] = useState(storedOpenPreference);
   const [groups, setGroups] = useState<PageProblemGroup[]>([]);
   const [solveStates, setSolveStates] = useState<Record<string, SolveState>>({});
@@ -189,7 +189,7 @@ export function PageAssistantRail() {
   useEffect(() => {
     setGroups(analysis?.groups ?? []);
     setSolveStates({});
-  }, [analysisKey]);
+  }, [context?.currentPage]);
 
   useEffect(() => {
     const closeForOtherOverlay = (event: Event) => {
@@ -259,6 +259,14 @@ export function PageAssistantRail() {
 
   function submitAION(question?: string) {
     if (!context || aion.status !== 'ready') return;
+    flushWritingDraft();
+    // The click can save the active line synchronously before React rerenders.
+    // Read the store now so this request includes exactly what is on the page.
+    const state = useNotebookStore.getState();
+    const currentContext = state.notebook && state.currentPageId
+      ? createDocumentContext(state.notebook, state.currentPageId, state.selectedObjectId)
+      : null;
+    if (!currentContext) return;
     const request = question?.trim() || 'Analyze this page. Separate its problems, explain the important mathematics, and show checkable steps.';
     const turnId = `${Date.now()}-${conversation.length}`;
     const priorConversation = conversation.slice(-3).filter((turn) => turn.answer).map((turn) => (
@@ -268,7 +276,7 @@ export function PageAssistantRail() {
     setActiveTurnId(turnId);
     setAionQuestion('');
     setAssistantView('chat');
-    aion.analyze(context, priorConversation
+    aion.analyze(currentContext, priorConversation
       ? `Continue the page-aware conversation below. Resolve references to earlier questions, but recalculate rather than trusting an earlier answer blindly.\n\n${priorConversation}\n\nNew user question:\n${request}`
       : request);
   }
@@ -306,6 +314,7 @@ export function PageAssistantRail() {
   }
 
   function openAssistant() {
+    flushWritingDraft();
     window.dispatchEvent(new CustomEvent('mathkhata:overlay-open', { detail: 'page-assistant' }));
     setOpen(true);
     storeOpenPreference(true);
@@ -556,7 +565,7 @@ export function PageAssistantRail() {
                     {solveState?.loading ? 'Solving locally…' : 'Solve this problem'}
                   </button>
                 )}
-                {mathCount > 0 && aion.status === 'ready' && (
+                {(mathCount > 0 || group.kind === 'question') && aion.status === 'ready' && (
                   <button type="button" onClick={() => explainGroupWithAION(group, groupIndex)}>
                     Explain with AION
                   </button>

@@ -56,7 +56,7 @@ export function NotebookPage({ page, writingMode, textStyle }: NotebookPageProps
       {page.objects.map((object) => (
         <PageObjectView key={object.id} object={object} />
       ))}
-      <ContinuousLineComposer page={page} mode={writingMode} textStyle={textStyle} />
+      <ContinuousLineComposer key={page.id} page={page} mode={writingMode} textStyle={textStyle} />
       <CalculationRail page={page} />
       <PageDrawingLayer page={page} />
     </article>

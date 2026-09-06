@@ -15,6 +15,7 @@ import {
 } from '../src/domain/notebook';
 import { createDocumentContext } from '../src/extensions/providers';
 import type { Notebook } from '../src/domain/model';
+import { createAIONPagePrompt } from '../src/aion/runtime';
 
 function pageWith(
   entries: Array<{ type: 'math' | 'text'; content: string; x?: number; y: number }>,
@@ -44,6 +45,28 @@ function analyze(entries: Parameters<typeof pageWith>[0]) {
 }
 
 describe('whole-page structured analysis', () => {
+  it('includes unfinished writing in both the outline and AION without changing the saved page', () => {
+    const notebook = createNotebook();
+    const pageId = notebook.pages[0].id;
+    const pending = createMathObject({ x: 82, y: 20 }, 'x^2+3x=4');
+    const context = createDocumentContext(notebook, pageId, null, [], [pending])!;
+    expect(analyzeNotebookPage(context).groups[0]).toMatchObject({ kind: 'question' });
+    expect(createAIONPagePrompt(context)).toContain('x^2+3x=4');
+    expect(context.previousEquations).toContain(pending);
+    expect(notebook.pages[0].objects).toHaveLength(0);
+  });
+
+  it('recognizes problems written in Text mode and ignores empty fields', () => {
+    const result = analyze([
+      { type: 'math', content: '', y: 20 },
+      { type: 'text', content: 'Solve x^2+3x=4', y: 64 },
+    ]);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].kind).toBe('question');
+    expect(result.groups[0].items[0].object.type).toBe('text');
+    expect(analyze([{ type: 'text', content: 'Remember the boundary conditions.', y: 20 }]).groups[0].kind).toBe('notes');
+  });
+
   it('keeps explicitly numbered questions separate in ruled-line order', () => {
     const result = analyze([
       { type: 'text', content: 'Problem 1', y: 20 },

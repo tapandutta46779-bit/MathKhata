@@ -30,6 +30,7 @@ const PROBLEM_HEADING = /^\s*(?:(?:q(?:uestion)?|problem|exercise)\s*\d+|\d+[.)]
 const EXPLICIT_SEPARATOR = /^\s*(?:[-—=_]{3,}|(?:next|new)\s+(?:question|problem))\s*$/i;
 const SYSTEM_CUE = /\b(?:system|simultaneous|together|same problem|solve (?:these|the) equations)\b/i;
 const VOICE_PROSE = /(^|[^a-z])(?:why|then|what|where|because|remember|please)(?=$|[^a-z])/i;
+const TEXT_PROBLEM = /\b(?:solve|evaluate|calculate|differentiate|integrate|simplify|prove|find|determine)\b|[=≤≥≠]|[a-z\d]\s*[+*/^]\s*[a-z\d]|\\(?:frac|sqrt|int|sum|lim)\b/i;
 
 function ordered(objects: PageObject[]): PageObject[] {
   return [...objects].sort(
@@ -175,13 +176,16 @@ function analyzeSection(section: PageAnalysisItem[]): PageProblemGroup[] {
   }
 
   if (candidates.length === 0 && textItems.length > 0) {
+    const writtenProblem = TEXT_PROBLEM.test(sectionText);
     return [{
       id: groupId(textItems),
-      kind: 'notes',
+      kind: writtenProblem ? 'question' : 'notes',
       items: textItems,
       confidence: 0.92,
       needsReview: false,
-      rationale: 'This section currently contains explanatory text only.',
+      rationale: writtenProblem
+        ? 'A problem written as text was found. AION can read the original wording.'
+        : 'This section currently contains explanatory text only.',
       heading,
     }];
   }
@@ -211,7 +215,9 @@ function analyzeSection(section: PageAnalysisItem[]): PageProblemGroup[] {
 }
 
 export function analyzeNotebookPage(context: NotebookContext): PageAnalysis {
-  const objects = ordered(context.currentPage.objects);
+  const objects = ordered(context.currentPage.objects.filter((object) =>
+    object.type === 'math' ? object.latex.trim() : object.type === 'text' ? object.text.trim() : true,
+  ));
   const sections: PageAnalysisItem[][] = [];
   let current: PageAnalysisItem[] = [];
   let previous: PageObject | null = null;
