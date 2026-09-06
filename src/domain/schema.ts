@@ -210,6 +210,7 @@ export function migrateNotebook(value: unknown): unknown {
 }
 
 export function validateNotebook(value: unknown): Notebook {
+  assertSafeTree(value);
   const migrated = migrateNotebook(value);
   const result = notebookSchema.safeParse(migrated);
   if (!result.success) {
@@ -261,6 +262,7 @@ export function serializeNotebook(notebook: Notebook): string {
 }
 
 export function deserializeNotebook(json: string): Notebook {
+  if (json.length > MAX_IMPORT_BYTES) throw new NotebookValidationError('Import exceeds the 64 MB safety limit.');
   let parsed: unknown;
   try {
     parsed = JSON.parse(json) as unknown;
@@ -280,4 +282,25 @@ export function deserializeNotebook(json: string): Notebook {
     throw new NotebookValidationError('The notebook export has conflicting schema versions.');
   }
   return validateNotebook(envelope.data.notebook);
+}
+
+export const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
+
+function assertSafeTree(value: unknown): void {
+  const stack = [{ value, depth: 0 }];
+  let nodes = 0;
+  while (stack.length) {
+    const item = stack.pop()!;
+    if (++nodes > 500_000 || item.depth > 64) {
+      throw new NotebookValidationError('Notebook data exceeds safe structural limits.');
+    }
+    if (item.value && typeof item.value === 'object') {
+      for (const [key, child] of Object.entries(item.value)) {
+        if (['__proto__', 'constructor', 'prototype'].includes(key)) {
+          throw new NotebookValidationError('Notebook contains an unsafe property name.');
+        }
+        stack.push({ value: child, depth: item.depth + 1 });
+      }
+    }
+  }
 }

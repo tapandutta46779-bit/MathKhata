@@ -6,7 +6,7 @@ Security fixes target the latest MathKhata release. Public binaries should alway
 
 ## Reporting a vulnerability
 
-Do not include notebook content, model prompts, credentials, signing secrets, or other personal data in a public report. The publisher must add a monitored private security-reporting address before publishing the app.
+Report vulnerabilities privately through [GitHub private vulnerability reporting](https://github.com/tapandutta46779-bit/MathKhata/security/advisories/new), enabled for this repository. Do not include notebook content, model prompts, credentials, signing secrets, or other personal data in a public issue. No response-time guarantee is offered.
 
 ## Technical boundary
 

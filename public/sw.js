@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'mathkhata-public-beta-';
-const CACHE_NAME = `${CACHE_PREFIX}v6`;
+const CACHE_NAME = `${CACHE_PREFIX}v7`;
 const OFFLINE_READY_PATH = './offline-ready.json';
 const CORE_ASSETS = [
   './offline-assets.json',
@@ -80,6 +80,8 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
   if (event.request.method !== 'GET' || requestUrl.origin !== self.location.origin) return;
+  // API responses must remain network-only, including readiness and errors.
+  if (requestUrl.pathname.startsWith('/api/')) return;
   event.respondWith((async () => {
     if (event.request.mode === 'navigate') {
       try {
@@ -87,7 +89,7 @@ self.addEventListener('fetch', (event) => {
         // Public information pages must never replace the cached notebook shell.
         // Only the app entry routes are eligible for the index cache.
         const path = requestUrl.pathname.replace(/\/+$/, '') || '/';
-        if (response.ok && (path === '/' || path === '/index.html')) {
+        if (response.ok && !/no-store|private/i.test(response.headers.get('cache-control') || '') && (path === '/' || path === '/index.html')) {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(new URL('./index.html', self.registration.scope), response.clone());
         }
@@ -101,7 +103,7 @@ self.addEventListener('fetch', (event) => {
     const cached = await caches.match(event.request, { ignoreVary: true });
     if (cached) return cached;
     const response = await fetch(event.request);
-    if (response.ok) {
+    if (response.ok && !/no-store|private/i.test(response.headers.get('cache-control') || '')) {
       const cache = await caches.open(CACHE_NAME);
       await cache.put(event.request, response.clone());
     }

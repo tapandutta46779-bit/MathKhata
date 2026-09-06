@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Notebook } from '../domain/model';
-import { deserializeNotebook, serializeNotebook } from '../domain/schema';
+import { deserializeNotebook, serializeNotebook, MAX_IMPORT_BYTES } from '../domain/schema';
 import { checkOfflineAppReady } from '../offline';
 import { useNotebookStore } from '../store/notebookStore';
 import packageMetadata from '../../package.json';
@@ -330,6 +330,7 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
           event.target.value = '';
           if (!file) return;
           try {
+            if (file.size > MAX_IMPORT_BYTES) throw new Error('Import exceeds the 64 MB safety limit.');
             const imported = deserializeNotebook(await file.text());
             await importNotebook(imported);
             setMenuMessage(`Imported “${imported.title}” as a validated local notebook.`);
@@ -366,6 +367,8 @@ export function TopBar({ notebook, pageNumber }: TopBarProps) {
           </dl>
           <div className="about-dialog__links">
             <a href="./privacy.html" target="_blank" rel="noreferrer">Privacy</a>
+            <a href="./LICENSE.txt" target="_blank" rel="noreferrer">MIT License</a>
+            <a href="./THIRD-PARTY-NOTICES.txt" target="_blank" rel="noreferrer">Third-party licenses</a>
             <a href={import.meta.env.VITE_FEEDBACK_URL || 'https://github.com/tapandutta46779-bit/MathKhata-Feedback/issues/new'} target="_blank" rel="noreferrer">Report an issue</a>
           </div>
           <p className="about-dialog__note">Browser speech availability depends on the browser. AION is optional, and notebook editing never depends on it.</p>

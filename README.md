@@ -77,3 +77,6 @@ Chrome Web Speech support is used in Chrome when genuinely available. Electron d
 ## Product scope
 
 The app includes an always-available ruled-line composer with Auto/Math/Text intent, structured multiline MathLive editing, full on-demand keyboard/symbol controls, mixed voice dictation, mouse/trackpad page drawing, geometric drawing tools, quick arithmetic, advanced local CAS actions, whole-page deterministic analysis, and optional AION assistance. A separate research workspace provides local interactive 2D graphs, 3D surfaces, dynamic geometry, and scientific calculation, while a floating calculator stays available over every section. Math Notebook follows the familiar expression-list and direct-manipulation workflow, but it does not claim proprietary Desmos code or complete one-for-one Desmos feature parity; the verified remaining gaps are recorded in [docs/audits/desmos-workspace-2026-08-09/README.md](docs/audits/desmos-workspace-2026-08-09/README.md).
+# License
+
+Original Math Notebook source is licensed under the [MIT License](LICENSE), copyright 2026 Mohit Dutta. Dependencies, bundled fonts, and downloaded AI models retain their respective licenses; the MIT grant does not relicense third-party material.
