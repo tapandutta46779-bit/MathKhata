@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'mathkhata-public-beta-';
-const CACHE_NAME = `${CACHE_PREFIX}v8`;
+const CACHE_NAME = `${CACHE_PREFIX}v9`;
 const OFFLINE_READY_PATH = './offline-ready.json';
 const CORE_ASSETS = [
   './offline-assets.json',

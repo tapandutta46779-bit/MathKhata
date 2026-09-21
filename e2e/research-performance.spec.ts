@@ -80,4 +80,10 @@ test('background scientific calculation preserves answers and angle mode', async
   });
   await research.getByRole('button', { name: 'Enter ↵', exact: true }).click();
   await expect(research.locator('.scientific-history-row')).toContainText('0.5');
+  await research.getByLabel('Scientific expression', { exact: true }).evaluate((element: any) => {
+    element.value = '\\int_0^1 x\\,dx'; element.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  });
+  await research.getByRole('button', { name: 'Enter ↵', exact: true }).click();
+  await expect(research.locator('.scientific-history-row')).toHaveCount(2);
+  await expect(research.locator('.scientific-history-row').last()).toContainText('0.5');
 });

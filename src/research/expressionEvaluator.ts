@@ -110,7 +110,9 @@ function compactLatex(latex: string): string {
 
 async function evaluateBoundedIntegral(latex: string): Promise<CheckedResearchResult | null> {
   const compact = compactLatex(latex);
-  const command = /\\(iiint|iint|int)(?:_\{([^{}]+)\}|_([^\\^_]+))?(?:\^\{([^{}]+)\}|\^([^\\^_]+))?/y;
+  // Unbraced TeX scripts contain exactly one token. Consuming the rest of
+  // the line here swallowed the integrand in MathLive's compact \int_0^1x dx.
+  const command = /\\(iiint|iint|int)(?:_\{([^{}]+)\}|_([^\\^_{}]))?(?:\^\{([^{}]+)\}|\^([^\\^_{}]))?/y;
   const integrals: Array<{ kind: string; lower: string; upper: string }> = [];
   let cursor = 0;
   while (cursor < compact.length) {

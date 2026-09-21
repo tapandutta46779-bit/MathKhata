@@ -26,6 +26,8 @@ describe('research expression normalization and calculation', () => {
   });
 
   it('calculates exact definite and iterated triple integrals', async () => {
+    const compact = await evaluateResearchLatex(String.raw`\int_0^1x\,dx`);
+    expect(compact.exact).toBe('1/2');
     const definite = await evaluateResearchLatex(String.raw`\int_{0}^{1}x\,dx`);
     expect(definite.exact).toBe('1/2');
     expect(Number(definite.decimal)).toBeCloseTo(0.5, 12);

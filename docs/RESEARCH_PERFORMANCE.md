@@ -10,6 +10,7 @@ The numerical plotting loop called Nerdamer's symbolic substitution and decimal 
 - Coalesce canvas updates into animation frames and yield during longer sampling operations. Cancel obsolete asynchronous draws when the view changes. Closed research views unmount their renderers.
 - Bound grid work, scale 3D grid spacing with the domain, and constrain imported mesh resolutions to the supported range. Coincident curves no longer cause repeated bisection searches at every sample.
 - Skip unchanged research-state writes. Retain saved equations, notebook history, snapshots, and mathematical results.
+- Live verification also found and corrected compact MathLive integral bounds consuming the integrand (for example, \int_0^1 x dx). Both braced and compact bounds now evaluate correctly.
 
 ## Measurements and checks
 
