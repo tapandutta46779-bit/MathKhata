@@ -1,3 +1,8 @@
+import { boundedCache, compileNumericProgram } from './numericProgram';
+import { hasResearchWorker, runResearchTask } from './calculationClient';
+
+const numericPrograms = boundedCache<string, Promise<(scope: Record<string, number>) => number>>(128);
+
 const KNOWN_IDENTIFIERS = new Set([
   'abs', 'acos', 'acosh', 'acot', 'acsc', 'asec', 'asin', 'asinh', 'atan', 'atanh',
   'ceil', 'cos', 'cosh', 'cot', 'coth', 'csc', 'csch', 'determinant', 'diff', 'e',
@@ -44,6 +49,14 @@ export async function normalizeResearchExpression(
   expression: string,
   allowedSymbols: readonly string[] = [],
 ): Promise<string> {
+  if (hasResearchWorker()) return runResearchTask({ kind: 'normalize', expression, allowedSymbols });
+  return normalizeResearchExpressionLocal(expression, allowedSymbols);
+}
+
+export async function normalizeResearchExpressionLocal(
+  expression: string,
+  allowedSymbols: readonly string[] = [],
+): Promise<string> {
   const { default: nerdamer } = await import('nerdamer-prime');
   nerdamer.set('SILENCE_WARNINGS', true);
   const clean = expression
@@ -64,12 +77,26 @@ export async function createNumericEvaluator(
   expression: string,
   allowedSymbols: readonly string[] = [],
 ) {
-  const { default: nerdamer } = await import('nerdamer-prime');
+  const key = JSON.stringify([expression, allowedSymbols]);
+  const cached = numericPrograms.get(key);
+  if (cached) return cached;
+  const pending = compileEvaluator(expression, allowedSymbols);
+  numericPrograms.set(key, pending);
+  try { return await pending; } catch (error) { numericPrograms.delete(key); throw error; }
+}
+
+async function compileEvaluator(expression: string, allowedSymbols: readonly string[]) {
   const source = await normalizeResearchExpression(expression, allowedSymbols);
+  try { return compileNumericProgram(source); } catch { /* Preserve less common CAS functions. */ }
+  const { default: nerdamer } = await import('nerdamer-prime');
   const parsed = nerdamer(source);
+  const samples = boundedCache<string, number>(2048);
   return (substitutions: Record<string, number>) => {
+    const key = JSON.stringify(substitutions);
+    const cached = samples.get(key);
+    if (cached !== undefined) return cached;
     const value = Number(parsed.evaluate(substitutions).text('decimals'));
-    return Number.isFinite(value) ? value : Number.NaN;
+    return samples.set(key, Number.isFinite(value) ? value : Number.NaN);
   };
 }
 
@@ -184,6 +211,11 @@ async function evaluateMatrix(latex: string): Promise<CheckedResearchResult | nu
 }
 
 export async function evaluateResearchLatex(latex: string): Promise<CheckedResearchResult> {
+  if (hasResearchWorker()) return runResearchTask({ kind: 'evaluate', expression: latex });
+  return evaluateResearchLatexLocal(latex);
+}
+
+export async function evaluateResearchLatexLocal(latex: string): Promise<CheckedResearchResult> {
   const specialized = await evaluateBoundedIntegral(latex)
     ?? await evaluateDerivative(latex)
     ?? await evaluateFiniteSequence(latex)
@@ -199,6 +231,23 @@ export async function evaluateResearchLatex(latex: string): Promise<CheckedResea
     verified: true,
     method: 'Exact local CAS evaluation',
   };
+}
+
+export async function evaluateScientificExpression(expression: string, previousAnswer: string, angleUnit: 'radians' | 'degrees'): Promise<CheckedResearchResult> {
+  if (hasResearchWorker()) return runResearchTask({ kind: 'scientific', expression, previousAnswer, angleUnit });
+  return evaluateScientificExpressionLocal(expression, previousAnswer, angleUnit);
+}
+
+export async function evaluateScientificExpressionLocal(expression: string, previousAnswer: string, angleUnit: 'radians' | 'degrees'): Promise<CheckedResearchResult> {
+  const { default: nerdamer } = await import('nerdamer-prime');
+  nerdamer.set('SILENCE_WARNINGS', true);
+  const answer = nerdamer(previousAnswer).toTeX();
+  const latex = expression.replace(/\\(?:operatorname|mathrm)\{ans\}|\bans\b/gi, `\\left(${answer}\\right)`);
+  if (/\\(?:int|iint|iiint|sum|prod|lim|det|frac\s*\{(?:d|\\partial))|\\begin\{(?:matrix|bmatrix|pmatrix|vmatrix|Vmatrix)\}/.test(latex)) return evaluateResearchLatexLocal(latex);
+  let source = String(nerdamer.convertFromLaTeX(latex)).replace(/\bans\b/gi, `(${previousAnswer})`);
+  if (angleUnit === 'degrees') source = source.replace(/\b(sin|cos|tan)\(([^()]*)\)/g, '$1(($2)*pi/180)');
+  const result = nerdamer(source).evaluate();
+  return { exact: result.toString(), latex: nerdamer(result.toString()).toTeX(), decimal: result.text('decimals'), verified: true, method: 'Local calculation' };
 }
 
 export function simpsonIntegral(

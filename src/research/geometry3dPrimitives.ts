@@ -1,3 +1,5 @@
+import { boundedCache } from './numericProgram';
+
 export type Geometry3DPrimitive =
   | 'cube'
   | 'cuboid'
@@ -57,6 +59,18 @@ function boxWireframe(x: number, y: number, z: number): Geometry3DWireframe {
 }
 
 export function createGeometry3DWireframe(
+  primitive: Geometry3DPrimitive,
+  dimensions: [number, number, number],
+): Geometry3DWireframe {
+  const key = JSON.stringify([primitive, dimensions]);
+  const cached = wireframes.get(key);
+  if (cached) return cached;
+  return wireframes.set(key, buildGeometry3DWireframe(primitive, dimensions));
+}
+
+const wireframes = boundedCache<string, Geometry3DWireframe>(48);
+
+function buildGeometry3DWireframe(
   primitive: Geometry3DPrimitive,
   dimensions: [number, number, number],
 ): Geometry3DWireframe {

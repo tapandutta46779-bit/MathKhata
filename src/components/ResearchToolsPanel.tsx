@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
+import { boundedCache, gridValues } from '../research/numericProgram';
+import { createRenderBudget, useCanvasDrawEffect } from '../research/renderScheduling';
 import type { MathfieldElement } from 'mathlive';
 import type { ResearchToolKind, ResearchValue } from '../domain/model';
 import { useNotebookStore } from '../store/notebookStore';
@@ -33,6 +35,7 @@ import {
 import {
   createNumericEvaluator,
   evaluateResearchLatex,
+  evaluateScientificExpression,
   separateGraphRestrictions,
   simpsonIntegral,
 } from '../research/expressionEvaluator';
@@ -119,7 +122,16 @@ async function numericEvaluator(expression: string, allowedSymbols: readonly str
   return createNumericEvaluator(expression, allowedSymbols);
 }
 
+const restrictedPrograms = boundedCache<string, Promise<(scope: Record<string, number>) => number>>(128);
 async function numericEvaluatorWithRestrictions(expression: string, allowedSymbols: readonly string[] = []) {
+  const key = JSON.stringify([expression, allowedSymbols]);
+  const existing = restrictedPrograms.get(key);
+  if (existing) return existing;
+  const pending = compileRestrictedEvaluator(expression, allowedSymbols);
+  restrictedPrograms.set(key, pending);
+  try { return await pending; } catch (error) { restrictedPrograms.delete(key); throw error; }
+}
+async function compileRestrictedEvaluator(expression: string, allowedSymbols: readonly string[] = []) {
   const { base: baseExpression, restrictions } = separateGraphRestrictions(expression);
   const evaluate = await numericEvaluator(baseExpression, allowedSymbols);
   const compileComparison = async (source: string) => {
@@ -266,6 +278,7 @@ function usePersistentResearchState<T>(key: string, initialValue: T): [T, Dispat
   }, [documentKey, documentValue, key, objectId, state, updateResearchObjectValue, updateResearchValue]);
   const update: Dispatch<SetStateAction<T>> = useCallback((next) => {
     const resolved = typeof next === 'function' ? (next as (value: T) => T)(stateRef.current) : next;
+    if (Object.is(resolved, stateRef.current)) return;
     stateRef.current = resolved;
     setState(resolved);
     if (objectId) updateResearchObjectValue(objectId, documentKey, resolved as ResearchValue);
@@ -346,12 +359,13 @@ function ResearchExpressionResult({ latex }: { latex: string }) {
   useEffect(() => {
     let active = true;
     if (!isCalculation || !latex.trim()) { setResult(null); return () => { active = false; }; }
-    void evaluateResearchLatex(latex).then((answer) => {
+    setResult(null);
+    const timer = setTimeout(() => { void evaluateResearchLatex(latex).then((answer) => {
       if (active) setResult({ latex: answer.latex, verified: answer.verified, method: answer.method, decimal: answer.decimal });
     }).catch((error: unknown) => {
       if (active) setResult({ latex: '', verified: false, message: error instanceof Error ? error.message : 'Incomplete or unsupported expression. Nothing was calculated silently.' });
-    });
-    return () => { active = false; };
+    }); }, 220);
+    return () => { active = false; clearTimeout(timer); };
   }, [isCalculation, latex]);
   if (!isCalculation || !result) return null;
   return <div className="research-expression-result">
@@ -551,9 +565,10 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
     };
   }, [settingsOpen]);
 
-  useEffect(() => {
+  useCanvasDrawEffect(() => {
     let cancelled = false;
     const draw = async () => {
+      const budget = createRenderBudget();
       const canvas = canvasRef.current;
       if (!canvas) return;
       const context = canvas.getContext('2d');
@@ -564,8 +579,9 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
       context.fillRect(0, 0, width, height);
       try {
         const step = gridStep(viewport.scale);
-        const xStep = settings.xStep > 0 ? settings.xStep : step;
-        const yStep = settings.yStep > 0 ? settings.yStep : step;
+        // A tiny custom spacing at a broad zoom must not draw millions of lines.
+        const xStep = Math.max(settings.xStep > 0 ? settings.xStep : step, width / viewport.scale / 250);
+        const yStep = Math.max(settings.yStep > 0 ? settings.yStep : step, height / viewport.scale / 250);
         const worldLeft = viewport.centerX - width / (2 * viewport.scale);
         const worldRight = viewport.centerX + width / (2 * viewport.scale);
         const worldBottom = viewport.centerY - height / (2 * viewport.scale);
@@ -578,14 +594,14 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
           const minorY = yStep / 5;
           if (minorX * viewport.scale >= 7) {
             context.strokeStyle = '#e9edef'; context.lineWidth = .7;
-            for (let x = Math.ceil(worldLeft / minorX) * minorX; x <= worldRight; x += minorX) {
+            for (const x of gridValues(worldLeft, worldRight, minorX)) {
               if (Math.abs(x / xStep - Math.round(x / xStep)) < 1e-7) continue;
               const px = screenX(x); context.beginPath(); context.moveTo(px, 0); context.lineTo(px, height); context.stroke();
             }
           }
           if (minorY * viewport.scale >= 7) {
             context.strokeStyle = '#e9edef'; context.lineWidth = .7;
-            for (let y = Math.ceil(worldBottom / minorY) * minorY; y <= worldTop; y += minorY) {
+            for (const y of gridValues(worldBottom, worldTop, minorY)) {
               if (Math.abs(y / yStep - Math.round(y / yStep)) < 1e-7) continue;
               const py = screenY(y); context.beginPath(); context.moveTo(0, py); context.lineTo(width, py); context.stroke();
             }
@@ -604,7 +620,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         context.font = '10px ui-monospace, monospace';
         context.textAlign = 'center';
         context.textBaseline = 'top';
-        for (let x = Math.ceil(worldLeft / xStep) * xStep; x <= worldRight; x += xStep) {
+        for (const x of gridValues(worldLeft, worldRight, xStep)) {
           const px = screenX(x); const axis = Math.abs(x) < xStep / 100;
           if (!settings.showGrid && !(settings.showAxes && axis)) continue;
           context.strokeStyle = axis ? '#5d6266' : '#cbd2d6';
@@ -617,7 +633,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         }
         context.textAlign = 'left';
         context.textBaseline = 'middle';
-        for (let y = Math.ceil(worldBottom / yStep) * yStep; y <= worldTop; y += yStep) {
+        for (const y of gridValues(worldBottom, worldTop, yStep)) {
           const py = screenY(y); const axis = Math.abs(y) < yStep / 100;
           if (!settings.showGrid && !(settings.showAxes && axis)) continue;
           context.strokeStyle = axis ? '#5d6266' : '#cbd2d6';
@@ -683,6 +699,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         compiledCacheRef.current = { key: cacheKey, expressions: compiled, issues: [...issues] };
         evaluatorsRef.current = compiled.filter((entry): entry is Extract<Compiled2DGraphExpression, { kind: 'y' }> => entry.kind === 'y').map((entry) => ({ id: entry.id, color: entry.color, evaluate: (values) => entry.evaluate({ ...parameterValues, ...values }) }));
         for (const entry of compiled) {
+          if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
           context.strokeStyle = entry.color;
           context.lineWidth = 2.65;
           context.lineJoin = 'round';
@@ -711,6 +728,7 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
             const rows = Math.max(60, Math.min(150, Math.round(height / 5)));
             const values: number[][] = [];
             for (let row = 0; row <= rows; row += 1) {
+              if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
               const y = worldTop - row * (worldTop - worldBottom) / rows;
               const rowValues = [];
               for (let column = 0; column <= columns; column += 1) {
@@ -771,13 +789,14 @@ function Graph2D({ storagePrefix }: { storagePrefix: string }) {
         const yFunctions = evaluatorsRef.current;
         for (let firstIndex = 0; firstIndex < yFunctions.length; firstIndex += 1) {
           for (let secondIndex = firstIndex + 1; secondIndex < yFunctions.length; secondIndex += 1) {
+            if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
             const first = yFunctions[firstIndex]; const second = yFunctions[secondIndex];
             let previousX = worldLeft;
             let previousDelta = first.evaluate({ x: previousX }) - second.evaluate({ x: previousX });
             for (let sample = 1; sample <= Math.max(160, Math.round(width / 3)); sample += 1) {
               const x = worldLeft + (worldRight - worldLeft) * sample / Math.max(160, Math.round(width / 3));
               const delta = first.evaluate({ x }) - second.evaluate({ x });
-              if (Number.isFinite(previousDelta) && Number.isFinite(delta) && (previousDelta === 0 || delta === 0 || previousDelta * delta < 0)) {
+              if (Number.isFinite(previousDelta) && Number.isFinite(delta) && !(previousDelta === 0 && delta === 0) && (previousDelta === 0 || delta === 0 || previousDelta * delta < 0)) {
                 let left = previousX; let right = x;
                 for (let iteration = 0; iteration < 18; iteration += 1) {
                   const middle = (left + right) / 2;
@@ -1067,9 +1086,10 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
   const crossingsRef = useRef<Array<GraphIntersectionMarker & { screenX: number; screenY: number }>>([]);
   const { animateScale, cancelAnimation } = useSmoothViewportZoom(viewport, setViewport, 2, SCIENTIFIC_VIEW_MAX_SCALE);
 
-  useEffect(() => {
+  useCanvasDrawEffect(() => {
     let cancelled = false;
     void (async () => {
+      const budget = createRenderBudget();
       const canvas = canvasRef.current; const context = canvas?.getContext('2d');
       if (!canvas || !context) return;
       const width = canvas.width; const height = canvas.height;
@@ -1108,6 +1128,7 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
       if (cancelled) return;
       evaluatorsRef.current = compiled.map((entry) => ({ ...entry, evaluate: (values) => entry.evaluate({ ...parameters, ...values }) }));
       for (const entry of evaluatorsRef.current) {
+        if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
         context.strokeStyle = LOG_LOG_STROKE_COLORS[entry.color.toLowerCase()] ?? entry.color; context.lineWidth = 3.25; context.lineCap = 'round'; context.lineJoin = 'round'; context.beginPath(); let drawing = false;
         for (let pixel = 0; pixel <= width; pixel += 2) {
           const x = 10 ** (logLeft + pixel / viewport.scale); const y = entry.evaluate({ x }); const py = y > 0 ? screenY(y) : Number.NaN;
@@ -1118,12 +1139,13 @@ function LogLogGraph({ storagePrefix }: { storagePrefix: string }) {
       }
       const crossings: Array<GraphIntersectionMarker & { screenX: number; screenY: number }> = [];
       for (let a = 0; a < evaluatorsRef.current.length; a += 1) for (let b = a + 1; b < evaluatorsRef.current.length; b += 1) {
+        if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
         const first = evaluatorsRef.current[a]; const second = evaluatorsRef.current[b]; let previousLogX = logLeft;
         let previous = first.evaluate({ x: 10 ** previousLogX }) - second.evaluate({ x: 10 ** previousLogX });
         for (let sample = 1; sample <= Math.max(180, Math.round(width / 3)); sample += 1) {
           const logX = logLeft + (logRight - logLeft) * sample / Math.max(180, Math.round(width / 3)); const x = 10 ** logX;
           const delta = first.evaluate({ x }) - second.evaluate({ x });
-          if (Number.isFinite(previous) && Number.isFinite(delta) && previous * delta <= 0) {
+          if (Number.isFinite(previous) && Number.isFinite(delta) && !(previous === 0 && delta === 0) && previous * delta <= 0) {
             let left = previousLogX; let right = logX;
             for (let i = 0; i < 18; i += 1) { const middle = (left + right) / 2; const leftDelta = first.evaluate({ x: 10 ** left }) - second.evaluate({ x: 10 ** left }); const middleDelta = first.evaluate({ x: 10 ** middle }) - second.evaluate({ x: 10 ** middle }); if (leftDelta * middleDelta <= 0) right = middle; else left = middle; }
             const crossingX = 10 ** ((left + right) / 2); const crossingY = (first.evaluate({ x: crossingX }) + second.evaluate({ x: crossingX })) / 2;
@@ -1218,7 +1240,8 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   const [parametricSurfaces, setParametricSurfaces] = usePersistentResearchState<Graph3DParametricSurface[]>(`${storagePrefix}:3d:parametric-surfaces`, []);
   const [implicitSurfaces, setImplicitSurfaces] = usePersistentResearchState<SurfaceExpression[]>(`${storagePrefix}:3d:implicit-surfaces`, []);
   const [bounds, setBounds] = usePersistentResearchState<Graph3DBounds>(`${storagePrefix}:3d:bounds`, { xMin: -5, xMax: 5, yMin: -5, yMax: 5, zMin: -5, zMax: 5 });
-  const [resolution, setResolution] = usePersistentResearchState(`${storagePrefix}:3d:resolution`, 29);
+  const [requestedResolution, setResolution] = usePersistentResearchState(`${storagePrefix}:3d:resolution`, 29);
+  const resolution = Math.max(17, Math.min(45, Math.round(requestedResolution)));
   const [camera, setCamera] = usePersistentResearchState(`${storagePrefix}:3d:camera`, { yaw: -.72, pitch: -.58, zoom: 1 });
   const [renderMode, setRenderMode] = usePersistentResearchState<SurfaceRenderMode>(`${storagePrefix}:3d:render`, 'solid');
   const [projection, setProjection] = usePersistentResearchState<SurfaceProjection>(`${storagePrefix}:3d:projection`, 'perspective');
@@ -1242,6 +1265,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
   const settingsPopoverRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
   const tracePointsRef = useRef<Array<{ screenX: number; screenY: number; x: number; y: number; z: number; color: string; expression: string }>>([]);
+  const surfaceHeights = useRef(boundedCache<string, number[]>(24));
   const orderedBounds = (minimum: number, maximum: number): [number, number] => minimum === maximum
     ? [minimum - 1, maximum + 1]
     : [Math.min(minimum, maximum), Math.max(minimum, maximum)];
@@ -1274,9 +1298,10 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
     };
   }, [settingsOpen]);
 
-  useEffect(() => {
+  useCanvasDrawEffect(() => {
     let cancelled = false;
     const draw = async () => {
+      const budget = createRenderBudget();
       const canvas = canvasRef.current;
       const context = canvas?.getContext('2d');
       if (!canvas || !context) return;
@@ -1315,17 +1340,17 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
           context.lineTo(to.x, to.y);
           context.stroke();
         };
-        const gridEvery = domain <= 4 ? .5 : domain <= 8 ? 1 : 2;
+        const gridEvery = domain <= 4 ? .5 : domain <= 8 ? 1 : Math.max(2, 10 ** Math.floor(Math.log10(domain / 5)));
         if (showGrid) {
           context.save();
           context.setLineDash([]);
           const gridPlaneZ = Math.max(zMin, Math.min(zMax, 0));
-          for (let value = Math.ceil(yMin / gridEvery) * gridEvery; value <= yMax + .001; value += gridEvery) {
+          for (const value of gridValues(yMin, yMax + .001, gridEvery)) {
             const major = Math.abs(value / (gridEvery * 2) - Math.round(value / (gridEvery * 2))) < 1e-7;
             const color = major ? 'rgba(95,91,82,.22)' : 'rgba(95,91,82,.11)';
             drawSpatialLine([xMin, value, gridPlaneZ], [xMax, value, gridPlaneZ], color, major ? 1 : .65);
           }
-          for (let value = Math.ceil(xMin / gridEvery) * gridEvery; value <= xMax + .001; value += gridEvery) {
+          for (const value of gridValues(xMin, xMax + .001, gridEvery)) {
             const major = Math.abs(value / (gridEvery * 2) - Math.round(value / (gridEvery * 2))) < 1e-7;
             const color = major ? 'rgba(95,91,82,.22)' : 'rgba(95,91,82,.11)';
             drawSpatialLine([value, yMin, gridPlaneZ], [value, yMax, gridPlaneZ], color, major ? 1 : .65);
@@ -1367,13 +1392,19 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         for (const [surfaceIndex, surface] of active.entries()) {
           try {
             const evaluate = await numericEvaluatorWithRestrictions(surface.expression, allowedSymbols);
+            if (cancelled) return;
+            const sampleKey = JSON.stringify([surface.expression, parameterValues, resolution, xMin, xMax, yMin, yMax]);
+            const cachedHeights = surfaceHeights.current.get(sampleKey);
+            const heights: number[] = cachedHeights ?? [];
             const surfaceGrid: Array<Array<{ x: number; y: number; z: number; depth: number; worldX: number; worldY: number; rawZ: number }>> = [];
             for (let row = 0; row < resolution; row += 1) {
+              if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
               const points = [];
               const y = yMin + row * yRange / (resolution - 1);
               for (let column = 0; column < resolution; column += 1) {
                 const x = xMin + column * xRange / (resolution - 1);
-                const rawZ = evaluate({ x, y, ...parameterValues });
+                const rawZ = cachedHeights ? cachedHeights[row * resolution + column] : evaluate({ x, y, ...parameterValues });
+                if (!cachedHeights) heights.push(rawZ);
                 const z = Math.max(zMin, Math.min(zMax, rawZ));
                 const projected = project(x, y, z);
                 if (cancelled) return;
@@ -1384,6 +1415,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
               }
               surfaceGrid.push(points);
             }
+            if (!cachedHeights) surfaceHeights.current.set(sampleKey, heights);
             surfaceSamples.push({ surface, grid: surfaceGrid });
             for (let row = 0; row < resolution - 1; row += 1) {
               for (let column = 0; column < resolution - 1; column += 1) {
@@ -1407,9 +1439,11 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             const evaluateX = await numericEvaluator(surface.x, allowedSymbols);
             const evaluateY = await numericEvaluator(surface.y, allowedSymbols);
             const evaluateZ = await numericEvaluator(surface.z, allowedSymbols);
+            if (cancelled) return;
             const sampleCount = Math.max(13, Math.min(35, resolution));
             const surfaceGrid: Array<Array<{ x: number; y: number; z: number; depth: number }>> = [];
             for (let row = 0; row < sampleCount; row += 1) {
+              if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
               const v = surface.vMin + (surface.vMax - surface.vMin) * row / (sampleCount - 1);
               const rowPoints = [];
               for (let column = 0; column < sampleCount; column += 1) {
@@ -1446,12 +1480,14 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
         for (const [surfaceIndex, surface] of implicitSurfaces.filter((entry) => entry.visible && entry.expression.trim()).entries()) {
           try {
             const evaluate = await numericEvaluatorWithRestrictions(surface.expression, allowedSymbols);
+            if (cancelled) return;
             const sampleCount = Math.max(11, Math.min(17, Math.round(resolution / 2)));
             const stepX = xRange / (sampleCount - 1);
             const stepY = yRange / (sampleCount - 1);
             const stepZ = zRange / (sampleCount - 1);
             const values: number[][][] = [];
             for (let zIndex = 0; zIndex < sampleCount; zIndex += 1) {
+              if (budget.exhausted()) { await budget.yield(); if (cancelled) return; }
               const z = zMin + zIndex * stepZ;
               const plane: number[][] = [];
               for (let yIndex = 0; yIndex < sampleCount; yIndex += 1) {
@@ -1566,6 +1602,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             const evaluateX = await numericEvaluator(curve.x, allowedSymbols);
             const evaluateY = await numericEvaluator(curve.y, allowedSymbols);
             const evaluateZ = await numericEvaluator(curve.z, allowedSymbols);
+            if (cancelled) return;
             context.save(); context.strokeStyle = curve.color; context.lineWidth = 3; context.beginPath();
             let drawing = false;
             for (let sample = 0; sample <= 180; sample += 1) {
@@ -1585,6 +1622,7 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
             const x = (await numericEvaluator(entry.x, allowedSymbols))(parameterValues);
             const y = (await numericEvaluator(entry.y, allowedSymbols))(parameterValues);
             const z = (await numericEvaluator(entry.z, allowedSymbols))(parameterValues);
+            if (cancelled) return;
             const point = project(x, y, z);
             if (![x, y, z, point.x, point.y].every(Number.isFinite)) throw new Error('Non-finite point');
             context.save(); context.fillStyle = entry.color; context.strokeStyle = '#fffefa'; context.lineWidth = 2;
@@ -1619,9 +1657,9 @@ function Graph3D({ storagePrefix }: { storagePrefix: string }) {
               context.beginPath(); context.arc(point.x, point.y, 2, 0, Math.PI * 2); context.fill();
               context.fillText(`${Number(value.toPrecision(4))}`, point.x + 4, point.y - 3);
             };
-            for (let value = Math.ceil(xMin / tickEvery) * tickEvery; value <= xMax + .001; value += tickEvery) drawTick(value, value, axisY, axisZ);
-            for (let value = Math.ceil(yMin / tickEvery) * tickEvery; value <= yMax + .001; value += tickEvery) drawTick(value, axisX, value, axisZ);
-            for (let value = Math.ceil(zMin / tickEvery) * tickEvery; value <= zMax + .001; value += tickEvery) drawTick(value, axisX, axisY, value);
+            for (const value of gridValues(xMin, xMax + .001, tickEvery)) drawTick(value, value, axisY, axisZ);
+            for (const value of gridValues(yMin, yMax + .001, tickEvery)) drawTick(value, axisX, value, axisZ);
+            for (const value of gridValues(zMin, zMax + .001, tickEvery)) drawTick(value, axisX, axisY, value);
           }
         }
         for (const marker of markedIntersections) {
@@ -2054,7 +2092,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     });
   }, [points, setPoints]);
 
-  useEffect(() => {
+  useCanvasDrawEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return;
@@ -2072,11 +2110,11 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
       const minor = step / 5;
       if (minor * viewport.scale >= 7) {
         context.strokeStyle = '#e7ebed'; context.lineWidth = .8;
-        for (let x = Math.ceil(worldLeft / minor) * minor; x <= worldRight; x += minor) {
+        for (const x of gridValues(worldLeft, worldRight, minor)) {
           if (Math.abs(x / step - Math.round(x / step)) < 1e-7) continue;
           const px = screenX(x); context.beginPath(); context.moveTo(px, 0); context.lineTo(px, canvas.height); context.stroke();
         }
-        for (let y = Math.ceil(worldBottom / minor) * minor; y <= worldTop; y += minor) {
+        for (const y of gridValues(worldBottom, worldTop, minor)) {
           if (Math.abs(y / step - Math.round(y / step)) < 1e-7) continue;
           const py = screenY(y); context.beginPath(); context.moveTo(0, py); context.lineTo(canvas.width, py); context.stroke();
         }
@@ -2085,7 +2123,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     context.font = '11px ui-monospace, monospace';
     context.textAlign = 'center';
     context.textBaseline = 'top';
-    for (let x = Math.ceil(worldLeft / step) * step; x <= worldRight; x += step) {
+    for (const x of gridValues(worldLeft, worldRight, step)) {
       const px = screenX(x);
       const axis = Math.abs(x) < step / 100;
       if (!showGrid && !(showAxes && axis)) continue;
@@ -2096,7 +2134,7 @@ function GeometryLab({ storagePrefix }: { storagePrefix: string }) {
     }
     context.textAlign = 'left';
     context.textBaseline = 'middle';
-    for (let y = Math.ceil(worldBottom / step) * step; y <= worldTop; y += step) {
+    for (const y of gridValues(worldBottom, worldTop, step)) {
       const py = screenY(y);
       const axis = Math.abs(y) < step / 100;
       if (!showGrid && !(showAxes && axis)) continue;
@@ -2912,7 +2950,7 @@ function Geometry3DLab({ storagePrefix }: { storagePrefix: string }) {
     requestAnimationFrame(() => insertIntoMathfield('research-geometry3d-command', template));
   }
 
-  useEffect(() => {
+  useCanvasDrawEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return;
@@ -3228,47 +3266,36 @@ function ScientificLab({ storagePrefix }: { storagePrefix: string }) {
   const fieldRef = useRef<MathfieldElement | null>(null);
   const previousAnswer = history.at(-1)?.exact ?? '0';
 
+  const [calculating, setCalculating] = useState(false);
+  const calculationActive = useRef(false);
+  const calculationGeneration = useRef(0);
+  const latestScientific = useRef({ history, expression });
+  latestScientific.current = { history, expression };
+  useEffect(() => () => { calculationGeneration.current++; }, []);
+
   async function calculate() {
-    if (!expression.trim()) return;
+    if (!expression.trim() || calculationActive.current) return;
+    calculationActive.current = true;
+    const generation = calculationGeneration.current;
+    setCalculating(true);
     try {
-      const { default: nerdamer } = await import('nerdamer-prime');
-      nerdamer.set('SILENCE_WARNINGS', true);
-      const previousAnswerLatex = nerdamer(previousAnswer).toTeX();
-      const expressionWithAnswer = expression.replace(/\\(?:operatorname|mathrm)\{ans\}|\bans\b/gi, `\\left(${previousAnswerLatex}\\right)`);
-      if (isResearchCalculationLatex(expressionWithAnswer)) {
-        const checked = await evaluateResearchLatex(expressionWithAnswer);
-        setHistory((current) => [...current.slice(-29), {
-          id: Math.max(0, ...current.map((entry) => entry.id)) + 1,
-          expressionLatex: expression,
-          resultLatex: checked.latex,
-          exact: checked.exact,
-          decimal: checked.decimal,
-        }]);
-        setExpression('');
-        if (fieldRef.current) fieldRef.current.value = '';
-        setError('');
-        return;
-      }
-      let casExpression = String(nerdamer.convertFromLaTeX(expressionWithAnswer)).replace(/\bans\b/gi, `(${previousAnswer})`);
-      if (angleUnit === 'degrees') {
-        casExpression = casExpression.replace(/\b(sin|cos|tan)\(([^()]*)\)/g, '$1(($2)*pi/180)');
-      }
-      const evaluated = nerdamer(casExpression).evaluate();
-      const exact = evaluated.toString();
-      const decimal = evaluated.text('decimals');
-      const resultLatex = nerdamer(exact).toTeX();
+      const checked = await evaluateScientificExpression(expression, previousAnswer, angleUnit);
+      if (generation !== calculationGeneration.current || latestScientific.current.history !== history || !latestScientific.current.expression.trim()) return;
       setHistory((current) => [...current.slice(-29), {
         id: Math.max(0, ...current.map((entry) => entry.id)) + 1,
         expressionLatex: expression,
-        resultLatex,
-        exact,
-        decimal,
+        resultLatex: checked.latex,
+        exact: checked.exact,
+        decimal: checked.decimal,
       }]);
-      setExpression('');
-      if (fieldRef.current) fieldRef.current.value = '';
+      // Preserve any new expression typed while the previous one was running.
+      setExpression((current) => current === expression ? '' : current);
       setError('');
-    } catch {
-      setError('Check the expression, function arguments, and parentheses. The previous calculations are unchanged.');
+    } catch (error) {
+      if (generation === calculationGeneration.current) setError(error instanceof Error ? error.message : 'This calculation could not be completed.');
+    } finally {
+      calculationActive.current = false;
+      if (generation === calculationGeneration.current) setCalculating(false);
     }
   }
 
@@ -3327,7 +3354,7 @@ function ScientificLab({ storagePrefix }: { storagePrefix: string }) {
           <button type="button" aria-label="Scientific cursor left" onClick={() => fieldRef.current?.executeCommand('moveToPreviousChar')}>←</button>
           <button type="button" aria-label="Scientific cursor right" onClick={() => fieldRef.current?.executeCommand('moveToNextChar')}>→</button>
           <button type="button" aria-label="Scientific backspace" onClick={() => { fieldRef.current?.executeCommand('deleteBackward'); if (fieldRef.current) setExpression(fieldRef.current.value); }}>⌫</button>
-          <button type="button" className="scientific-enter" onClick={() => void calculate()}>Enter ↵</button>
+          <button type="button" className="scientific-enter" disabled={calculating} onClick={() => void calculate()}>{calculating ? 'Calculating…' : 'Enter ↵'}</button>
         </div>
         {error && <p className="research-tool-error">{error}</p>}
       </div>
@@ -3448,14 +3475,14 @@ export function ResearchToolsPanel({ initialTool = '2d', onClose, open = true, n
       </div>}
       {restoreMessage && <div className="research-restore" role="status"><span>{restoreMessage}</span><button type="button" onClick={() => { undo(); setRestoreMessage('Research restored.'); }}>Restore</button><button type="button" aria-label="Dismiss restore message" onClick={() => setRestoreMessage('')}>×</button></div>}
       <div className="research-tools-panel__body">
-        {guideOpen ? <ResearchGuide tool={tool} /> : <>
+        {open && (guideOpen ? <ResearchGuide tool={tool} /> : <>
           {tool === '2d' && <Graph2D storagePrefix={storagePrefix} />}
           {tool === 'loglog' && <LogLogGraph storagePrefix={storagePrefix} />}
           {tool === '3d' && <Graph3D storagePrefix={storagePrefix} />}
           {tool === 'geometry' && <GeometryLab storagePrefix={storagePrefix} />}
           {tool === 'geometry3d' && <Geometry3DLab storagePrefix={storagePrefix} />}
           {tool === 'scientific' && <ScientificLab storagePrefix={storagePrefix} />}
-        </>}
+        </>)}
       </div>
       <footer>{footer}</footer>
       {copyOpen && <div className="research-copy-dialog" role="dialog" aria-modal="true" aria-label="Copy research to notebook">
